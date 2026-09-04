@@ -1,0 +1,882 @@
+# 품질 골든셋 — `mem eval --quality` 가 읽는 자
+#
+# 무엇 : 실제 기억 206건을 손으로 읽어 매긴 품질 판정표. 규칙 61개가 이것을 잡는지(재현율),
+#        멀쩡한 것을 안 잡는지(거짓 경보) 를 잰다.
+# 원천 : AIMemoryTool/v0.2/Docs/Research/2026-08-23-조사D-실기억품질표.md (2절 114행 · 4절 대조군 20건)
+#        본문 근거는 같은 폴더의 2026-08-23-조사D-내부자료전수.md
+# 규격 : 2026-08-23-v0.2-품질규칙표.md 4-2 절 (`id` / `defects` / `note`) 에
+#        파도 F 가 `rules` · `expect` 두 칸을 더했다. 이유는 아래 "칸 설명" 에 있다.
+# 대상 저장소 : ./testdata/quality/store/  (판정에 쓴 132건만 복사해 둔 것)
+#
+# ── 건수 ────────────────────────────────────────────────────────────
+#   잡을 것(expect: flag)   112 건   ← 조사 D 2절 114행에서 12ba022f·adad8ce3 이 두 줄씩이라 합쳐 112
+#   대조군(expect: clean)    20 건   ← 조사 D 4절
+#   합계                    132 건   (da73dcbe·676d1c01 은 양쪽에 다 있어 고유 id 는 130)
+#
+# ── 유형별 (겹침 포함, 잡을 것 112건 기준) ──────────────────────────
+#   DUP 36 · STALE 25 · MULTI 25 · SRC 15 · TAG 13 · SCOPE 11 · NOVALUE 10 ·
+#   CONFLICT 10 · FORMAT 9 · THIN 6 · SUMMARY 2 · TYPE 1 · NOTATION 1
+#
+# ── 조사 D 표에서 고친 것 (원본 파일을 열어 확인한 결과) ─────────────
+#   1. 1282336a 의 DUP 를 뺐다. 「툴킷·저장소 분리」 결정 셋(1fae6641·3727333b·ea6ac046)과
+#      같다고 적혀 있으나 원본은 dogfooding("만들면서부터 여기서 쓴다") 결정이다. SRC 만 남긴다.
+#   2. 공수 실적 history 6건(2736a576·d65e1ca2·8d9c0d21·a09313a5·eda97926·96998241)의 DUP 를 뺐다.
+#      여섯이 서로 다른 작업 회차의 실측이라 같은 사실이 아니다. NOVALUE 만 남긴다.
+#   3. 07ce6094·47bf15db 에 SRC 를 더했다. 본문 근거가 "옛 설계 …(git 이력에만 있다)" 뿐인 것을
+#      원본에서 확인했다. 저장소 206건 중 이 꼴은 정확히 15건이고 전부 이 골든셋 안에 있다.
+#   4. 대조군 43a62aa5 에 `allow_rules: [unfixed-marker]` 를 달았다. 본문 끝에 「안 고침」 이 있어
+#      B10 이 반드시 켜진다. 형식·내용은 모범이라 대조군에 남기고 그 규칙만 눈감는다.
+#   그 밖 128건은 표의 판정을 그대로 뒀다 — 아래 "확인한 방법" 참고.
+#
+# ── 칸 설명 ─────────────────────────────────────────────────────────
+#   id          기억 id. 원본은 testdata/quality/store/ 에 있다
+#   defects     기대 유형 코드. 조사 D 1절의 14개 코드를 그대로 쓴다
+#               DUP CONFLICT STALE MULTI THIN SUMMARY TAG SRC SCOPE TYPE NOVALUE FORMAT NOTATION OK
+#   rules       그 유형을 잡아야 할 규칙 이름(품질규칙표 1절 42개). **여럿 중 하나만 켜져도 잡은 것으로 센다**
+#               (`rules_match: any`). 유형 하나가 규칙 여럿에 걸쳐 있어서다
+#               (v0.3 물결2 2D) 새 규칙 셋을 그 유형 줄에 더했다 — STALE 에 `stale-age`·`stale-conflict-pair`,
+#               NOVALUE 에 `no-value`. **사람이 매긴 판정(defects·expect·note)은 한 글자도 안 고쳤다.**
+#   expect      flag = 잡아야 한다 / clean = 잡으면 거짓 경보다
+#   note        한 줄 이유 (조사 D 표 원문. 기억 본문은 여기 안 옮긴다)
+#   correction  파도 F 가 표의 판정을 고친 자리와 그 이유
+#   human_only  코드가 못 가리고 사람이 판정하는 유형 (재현율 셈에서 뺀다)
+#   allow_rules 대조군인데 이 규칙만은 켜져도 거짓 경보로 안 세는 것
+#
+# ── 채점 규칙 (설계서 3-6 절) ───────────────────────────────────────
+#   재현율    expect: flag 112건 중 몇 건을 잡았나. 유형별로 따로 센다
+#   거짓 경보 expect: clean 20건 중 몇 건을 잡았나. **0 이 목표**
+#   ※ 정밀도는 대조군에 대고 잰다. 이 표는 유형별로 전수가 아니므로
+#     flag 쪽에서 표에 없는 규칙이 켜진 것을 오탐으로 세면 안 된다.
+#
+# ── 이전 전 저장소라는 것 (중요) ────────────────────────────────────
+#   여기 132건은 전부 v0.1 규격으로 쓰인 것이라 v0.2 필수 칸이 통째로 없다
+#   (title 0/206 · author 없음 · sources 없음 · 출처 태그 `impl`·`poc`·`fieldtest` 그대로).
+#   그래서 아래 규칙은 132건 전부에 켜진다. **대조군 거짓 경보 셈에서 뺀다** — 이전 전 저장소의
+#   규격 미달은 「멀쩡한 기억을 잘못 잡은 것」 이 아니다. `mem migrate` 가 맡을 자리다.
+#   (잡을 것 쪽은 `rules` 에 적힌 규칙만 세므로 이 잡음에 안 흔들린다)
+meta:
+  version: 1
+  rules_match: any
+  pre_migration: true
+  exclude_rules_on_clean:
+    - required-field      # F02 — title·author·sources 가 없다 (206/206)
+    - title-shape         # F06
+    - title-not-generic   # F07
+    - author-shape        # F19
+    - sources-required    # F16
+    - sources-shape       # F17
+    - tag-not-source      # F10 — 대조군에도 fieldtest·poc·survey 가 붙어 있다
+    - link-missing        # D04 — 실기억 206건에 links 가 2건뿐이라 대조군도 전부 비어 있다
+  store: ./testdata/quality/store
+
+# ── 잡아야 할 것 : 112건 ────────────────────────────────────────────
+flag:
+  - id: 20260822-ae8a60aa
+    defects: [DUP, TYPE, SCOPE]
+    rules: [duplicate-hard, duplicate-soft, same-body, scope-standard]
+    expect: flag
+    note: '`d3f559b1` 과 같은 사실(to_stems 색인용·질의용 분리). 게다가 type=caution 인데 본문이 `## 증상`/`## 해결` (issue 꼴), scope 만 혼자 `mem-search`'
+    human_only: [TYPE]
+
+  - id: 20260822-d3f559b1
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`ae8a60aa` 와 같은 사실. 어느 쪽이 정본인지 표시가 없다'
+
+  - id: 20260822-3cf240b9
+    defects: [DUP, STALE]
+    rules: [duplicate-hard, duplicate-soft, same-body, stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '`807eb1d2` 와 같은 사실(init 이 settings.json 키 순서를 바꿈). 본문이 "같은 내용이 이미 기억으로 들어와 있다" 고 스스로 인정하는데도 남아 있다'
+
+  - id: 20260822-807eb1d2
+    defects: [DUP, SCOPE, THIN]
+    rules: [duplicate-hard, duplicate-soft, same-body, scope-standard, body-thin]
+    expect: flag
+    note: '위와 짝. scope=`claude-code` 인데 내용은 mem init 이야기다. 본문 1줄'
+
+  - id: 20260822-01efa3e3
+    defects: [CONFLICT]
+    rules: [decision-gate, decision-conflict-live]
+    expect: flag
+    note: '"한글은 바이그램(B2)" 결정. `026bde7e`·`cd660827` 의 "trigram 채택" 과 정면으로 어긋나는데 셋 다 살아 있다'
+
+  - id: 20260822-026bde7e
+    defects: [CONFLICT, STALE]
+    rules: [decision-gate, decision-conflict-live, stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '표에 "trigram 1단계 채택" 이 그대로 있고, 결정을 고치지 않는다는 규칙을 깨고 표 칸에 "(뒤에 PoC03 에서 본선으로 올라감)" 을 덧칠했다'
+
+  - id: 20260822-cd660827
+    defects: [CONFLICT, STALE]
+    rules: [decision-gate, decision-conflict-live, stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"SQLite FTS5 trigram 채택 · unicode61 은 영문" — 지금 토크나이저는 `bigram-ko3col+word-en3col` 이다'
+
+  - id: 20260822-b90f8fad
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`01efa3e3`·`aefbcd0e` 와 같은 라우팅 결정을 세 번째로 적었다'
+
+  - id: 20260822-aefbcd0e
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-61226efa
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"FTS 표는 본문 사본을 든 보통 표로 만든다" — v0.1 구현이 contentless 로 뒤집었다. 뒤집은 기록이 없다'
+
+  - id: 20260822-4267a6db
+    defects: [STALE, MULTI]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, multi-table, multi-summary, multi-heading, stale-age, stale-conflict-pair]
+    expect: flag
+    note: 'gc 임계(따뜻함 2,000/30일 · 차가움 5,000/180일 · 삭제 200MB)가 전부 죽은 값이다. `850b524e`·`e9b3898f` 가 덮었는데 `invalid_at` 이 없다'
+
+  - id: 20260822-850b524e
+    defects: [MULTI]
+    rules: [multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: 'gc 확정 3건을 한 기억에. `4267a6db` 를 덮는데 `superseded_by` 를 안 달았다'
+
+  - id: 20260822-3cac9939
+    defects: [STALE, MULTI]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, multi-table, multi-summary, multi-heading, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '린터 규칙 9개를 한 건에 묶었고 "## 이 15개 넘으면" 은 지금 값(8)과 다르다'
+
+  - id: 20260822-b850d0b8
+    defects: [STALE, CONFLICT]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, decision-gate, decision-conflict-live, stale-age, stale-conflict-pair]
+    expect: flag
+    note: 'lint 임계표. "한 달 굴려 보고 다시 잡는다" 인데 `c2ee32c1` 은 같은 값을 "재검토 안 함" 이라 적었다'
+
+  - id: 20260822-c2ee32c1
+    defects: [CONFLICT]
+    rules: [decision-gate, decision-conflict-live]
+    expect: flag
+    note: '위와 짝. 같은 lint 임계를 서로 반대로 말한다'
+
+  - id: 20260822-a557d32c
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '합격선 "평균 토큰 500 이하" — 코드 리뷰 B #24 에서 1000 으로 올렸다'
+
+  - id: 20260822-47bf15db
+    defects: [STALE, SRC]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, sources-required, sources-shape, sources-note-only, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '훅 예산 startup 1,200 — v0.1 기본값은 1000 이다'
+    correction: 'SRC 더함 — 본문 근거가 "옛 설계 …(git 이력에만 있다)" 뿐인 것을 원본에서 확인했다'
+
+  - id: 20260822-93adf512
+    defects: [STALE, CONFLICT]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, decision-gate, decision-conflict-live, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"머리말은 id·tags·updated·summary 4~6줄" — 지금 필수 칸은 7개고 `updated` 칸은 없다. `e34be6a7` 과 어긋난다'
+
+  - id: 20260822-4cdb34c1
+    defects: [CONFLICT, MULTI]
+    rules: [decision-gate, decision-conflict-live, multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '추천 조합에 "스킬 mem"(→`305563e5` 가 안 만들기로 함)과 "PostToolUse/Stop → mem log"(→`07ce6094` 가 안 하기로 함)가 둘 다 살아 있다'
+
+  - id: 20260822-305563e5
+    defects: [CONFLICT]
+    rules: [decision-gate, decision-conflict-live]
+    expect: flag
+    note: '위와 짝 (스킬 안 만든다)'
+
+  - id: 20260822-07ce6094
+    defects: [CONFLICT, SRC]
+    rules: [decision-gate, decision-conflict-live, sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '위와 짝 (자동 히스토리 안 남긴다)'
+    correction: 'SRC 더함 — 본문 근거가 "옛 설계 …(git 이력에만 있다)" 뿐인 것을 원본에서 확인했다'
+
+  - id: 20260822-891e820c
+    defects: [CONFLICT, SRC]
+    rules: [decision-gate, decision-conflict-live, sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '"전역은 읽기 전용으로 연다" — `dacd9423` 가 전역 쓰기 명령을 더했다. 근거는 "옛 설계(git 이력에만)"'
+
+  - id: 20260822-2ea0424e
+    defects: [STALE, MULTI]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, multi-table, multi-summary, multi-heading, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"원본은 Markdown + MEMORY.md 색인 하나" — MEMORY.md 색인은 안 만들었다. 포맷 후보 6개 탈락 이유까지 한 건에'
+
+  - id: 20260822-71e604f3
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`2ea0424e`·`2d11eafc` 와 같은 결정(md 정본 · db 파생물)을 세 번째로'
+
+  - id: 20260822-2d11eafc
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-1fae6641
+    defects: [DUP, SCOPE, TAG]
+    rules: [duplicate-hard, duplicate-soft, same-body, scope-standard, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '`3727333b`·`ea6ac046`·`1282336a` 와 같은 "툴킷·저장소 분리" 결정. 태그가 `decision-table` 하나뿐'
+
+  - id: 20260822-3727333b
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-ea6ac046
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-1282336a
+    defects: [SRC]
+    rules: [sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '위와 같음. 근거가 "옛 설계 16-7 (git 이력에만 있다)"'
+    correction: 'DUP 뺌 — 이것은 dogfooding 결정이라 툴킷·분리 결정 셋과 다른 사실이다. 원본을 열어 확인했다'
+
+  - id: 20260822-88b71533
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`ed9614cf`·`fff4cf0d`·`4cdb34c1` 과 같은 "MCP 안 쓴다" 를 네 번째로'
+
+  - id: 20260822-ed9614cf
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-fff4cf0d
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-b3cb1d6a
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`dd2b68f3` 와 같은 "LLM 0" 결정'
+
+  - id: 20260822-dd2b68f3
+    defects: [DUP, MULTI]
+    rules: [duplicate-hard, duplicate-soft, same-body, multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '위와 짝. 정리 규칙 7개를 한 건에'
+
+  - id: 20260822-397dac7e
+    defects: [DUP, MULTI]
+    rules: [duplicate-hard, duplicate-soft, same-body, multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '`1bdee9f1` 과 겹치는 eval 확정. 서로 무관한 결정 4개를 한 표에'
+
+  - id: 20260822-1bdee9f1
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: 'eval 결정 7개를 한 건에. 태그가 `impl` 하나'
+
+  - id: 20260822-692fd102
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '검색 결정 4개를 한 건에. 태그 `impl` 하나'
+
+  - id: 20260822-638eeab5
+    defects: [MULTI, TAG, DUP]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad, duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '훅 결정 2개 + `38f16960` 과 같은 B7 수치'
+
+  - id: 20260822-98c9aed6
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '설정·비밀정보 결정 3개를 한 건에. 태그 `impl` 하나'
+
+  - id: 20260822-a5a00054
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '서로 무관한 결정 7개를 한 건에. 태그 `impl` 하나'
+
+  - id: 20260822-cbe301b4
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: 'lint 결정 5개를 한 건에. 태그 `impl` 하나'
+
+  - id: 20260822-dacd9423
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '설치 결정 7개를 한 건에. 태그 `impl` 하나'
+
+  - id: 20260822-e576df82
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '코드 구조 결정 4개를 한 건에. 태그 `impl` 하나'
+
+  - id: 20260822-e9b3898f
+    defects: [MULTI, TAG]
+    rules: [multi-table, multi-summary, multi-heading, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: 'gc 결정 7개를 한 건에. 태그 `impl` 하나'
+
+  - id: 20260822-7ba07c2d
+    defects: [MULTI]
+    rules: [multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '서로 무관한 보안·설치 결정 6개를 한 표에'
+
+  - id: 20260822-1b4786ee
+    defects: [MULTI]
+    rules: [multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '서로 다른 위협 7건을 한 기억에'
+
+  - id: 20260822-c0528075
+    defects: [MULTI]
+    rules: [multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '서로 다른 위협 4건을 한 기억에'
+
+  - id: 20260822-484ab02f
+    defects: [MULTI, STALE, NOVALUE]
+    rules: [multi-table, multi-summary, multi-heading, stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, cold, orphan, stale-age, stale-conflict-pair, no-value]
+    expect: flag
+    note: '"잘 돼 있는 곳 10군데" — v0.0/v0.1 코드 기준이라 코드를 새로 쓴 지금 통째로 무효'
+
+  - id: 20260822-05dce59d
+    defects: [MULTI]
+    rules: [multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '논문 11편을 한 기억에. 한 편씩 뽑아 쓸 수 없다'
+
+  - id: 20260822-7a2293fa
+    defects: [MULTI]
+    rules: [multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '오픈소스 11개를 한 기억에'
+
+  - id: 20260822-661b6287
+    defects: [MULTI]
+    rules: [multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '언어 후보 6개를 한 기억에'
+
+  - id: 20260822-cc3c114c
+    defects: [MULTI, STALE]
+    rules: [multi-table, multi-summary, multi-heading, stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '서로 다른 실험 둘을 한 건에. 본인이 "Markdown 절약은 53% 가 아니라 17%" 라고 뒤집는 값을 자기 안에 적었다'
+
+  - id: 20260822-1cbaab45
+    defects: [THIN, SUMMARY]
+    rules: [body-thin, summary-body-match, first-line-conclusion]
+    expect: flag
+    note: '본문 1줄. 결론이 요약에만 있고 본문 첫 줄이 결론이 아니다'
+
+  - id: 20260822-2099fc57
+    defects: [THIN, SUMMARY]
+    rules: [body-thin, summary-body-match, first-line-conclusion]
+    expect: flag
+    note: '본문 1줄. 요약이 말하는 "AND 0건일 때 OR" 가 본문에 없다'
+
+  - id: 20260822-71c701a7
+    defects: [THIN]
+    rules: [body-thin]
+    expect: flag
+    note: '본문 1줄. 요약을 다시 쓴 것에 가깝다'
+
+  - id: 20260822-fc17662e
+    defects: [THIN, SCOPE]
+    rules: [body-thin, scope-standard]
+    expect: flag
+    note: '본문 1줄. scope 가 혼자 `mem`'
+
+  - id: 20260822-f88b27a7
+    defects: [THIN, SCOPE]
+    rules: [body-thin, scope-standard]
+    expect: flag
+    note: 'issue 인데 두 절이 각 1줄. scope 가 혼자 `mem`'
+
+  - id: 20260822-9efd3138
+    defects: [DUP, SCOPE]
+    rules: [duplicate-hard, duplicate-soft, same-body, scope-standard]
+    expect: flag
+    note: '`5aea2a77` 과 같은 버그. scope 가 혼자 `aimemorytool-lint` (넷째 이름 규칙)'
+
+  - id: 20260822-5aea2a77
+    defects: [DUP, STALE]
+    rules: [duplicate-hard, duplicate-soft, same-body, stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '위와 짝. `invalid_at` 은 붙었는데 `superseded_by` 가 없고 `links` 로만 이었다 — 규격 2절이 금지한 방식이다'
+
+  - id: 20260822-47fb8d63
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"B5 오배제율이 언제나 0 · 안 고침" — v0.1 이 고쳤다'
+
+  - id: 20260822-4d43ed27
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"B8 gc 상한 200 · 안 고침" — `850b524e` 가 고쳤다'
+
+  - id: 20260822-b0a8150b
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"B3 lint O(n²) · 안 고침" — `cbe301b4` 가 고쳤다(5k 57.8→6.2초)'
+
+  - id: 20260822-76ee5326
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"B6 절이 두 개만 · 안 고침" — `638eeab5` 가 고쳤다'
+
+  - id: 20260822-da73dcbe
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"B1 long-blob 경로 오탐" — `cbe301b4` 가 규칙을 쪼개 고쳤다'
+
+  - id: 20260822-437951c7
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"D2 따뜻함 단계가 없다 · 안 고침" — `850b524e` 가 임계를 올려 고쳤다'
+
+  - id: 20260822-efb4533b
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"B2 자동 골든셋 recall 0.000 · 안 고침" — v0.1 에서 생성기와 검색을 둘 다 고쳤다'
+
+  - id: 20260822-4b1897a8
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: '"abstain 은 어느 규모에서도 1.000" — v0.1 에서 정의가 바뀌어 외부 말뭉치 0.000 사례가 났다'
+
+  - id: 20260822-23a79947
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: 'todo status=open — 손 골든셋 30건은 v0.1 에서 42건으로 만들어졌다'
+
+  - id: 20260822-f5c7b259
+    defects: [STALE]
+    rules: [stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, stale-age, stale-conflict-pair]
+    expect: flag
+    note: 'todo status=open — 열 자리 재조정 제안 대부분이 이미 반영됐다'
+
+  - id: 20260822-3de47f91
+    defects: [NOVALUE, STALE, SRC]
+    rules: [cold, orphan, stale-source-changed, stale-after-passed, supersede-missing, unfixed-marker, relative-date, sources-required, sources-shape, sources-note-only, stale-age, stale-conflict-pair, no-value]
+    expect: flag
+    note: '"설계 요구사항 대조표" — 가리키는 설계 문서가 지금 것이 아니라 절 번호가 안 맞는다'
+
+  - id: 20260822-8fddf4f4
+    defects: [NOVALUE, SRC]
+    rules: [cold, orphan, sources-required, sources-shape, sources-note-only, no-value]
+    expect: flag
+    note: '"설계 시점에 잡은 예상 공수" — 실제값(`adf20495`)이 이미 있다. 근거는 "옛 설계 12장(git 이력에만)"'
+
+  - id: 20260822-2736a576
+    defects: [NOVALUE]
+    rules: [cold, orphan, no-value]
+    expect: flag
+    note: '공수 표 history 11건 중 하나. `12ba022f`·`adad8ce3` 두 howto 가 이미 눈금으로 요약했다'
+    correction: 'DUP 뺌 — 여섯이 서로 다른 작업 회차의 공수 실적이라 같은 사실이 아니다. NOVALUE(눈금 howto 가 요약했다) 만 남긴다'
+    human_only: [NOVALUE]
+    correction2: 'human_only 더함 (리뷰 C) — 「눈금 howto 가 이미 요약했으니 이 원자료는 남길 값이 없다」는
+      **다른 기억과 견줘 내리는 사람 판정**이다. 본문에 숫자·경로가 다 있어 no-value 가 못 잡고,
+      여섯은 서로 다른 회차라 duplicate 도 (옳게) 안 잡는다. 사람이 매긴 defects·expect·note 는 그대로 뒀다'
+
+  - id: 20260822-d65e1ca2
+    defects: [NOVALUE]
+    rules: [cold, orphan, no-value]
+    expect: flag
+    note: '위와 같음'
+    correction: 'DUP 뺌 — 여섯이 서로 다른 작업 회차의 공수 실적이라 같은 사실이 아니다. NOVALUE(눈금 howto 가 요약했다) 만 남긴다'
+    human_only: [NOVALUE]
+    correction2: 'human_only 더함 (리뷰 C) — 「눈금 howto 가 이미 요약했으니 이 원자료는 남길 값이 없다」는
+      **다른 기억과 견줘 내리는 사람 판정**이다. 본문에 숫자·경로가 다 있어 no-value 가 못 잡고,
+      여섯은 서로 다른 회차라 duplicate 도 (옳게) 안 잡는다. 사람이 매긴 defects·expect·note 는 그대로 뒀다'
+
+  - id: 20260822-8d9c0d21
+    defects: [NOVALUE]
+    rules: [cold, orphan, no-value]
+    expect: flag
+    note: '위와 같음'
+    correction: 'DUP 뺌 — 여섯이 서로 다른 작업 회차의 공수 실적이라 같은 사실이 아니다. NOVALUE(눈금 howto 가 요약했다) 만 남긴다'
+    human_only: [NOVALUE]
+    correction2: 'human_only 더함 (리뷰 C) — 「눈금 howto 가 이미 요약했으니 이 원자료는 남길 값이 없다」는
+      **다른 기억과 견줘 내리는 사람 판정**이다. 본문에 숫자·경로가 다 있어 no-value 가 못 잡고,
+      여섯은 서로 다른 회차라 duplicate 도 (옳게) 안 잡는다. 사람이 매긴 defects·expect·note 는 그대로 뒀다'
+
+  - id: 20260822-a09313a5
+    defects: [NOVALUE]
+    rules: [cold, orphan, no-value]
+    expect: flag
+    note: '위와 같음'
+    correction: 'DUP 뺌 — 여섯이 서로 다른 작업 회차의 공수 실적이라 같은 사실이 아니다. NOVALUE(눈금 howto 가 요약했다) 만 남긴다'
+    human_only: [NOVALUE]
+    correction2: 'human_only 더함 (리뷰 C) — 「눈금 howto 가 이미 요약했으니 이 원자료는 남길 값이 없다」는
+      **다른 기억과 견줘 내리는 사람 판정**이다. 본문에 숫자·경로가 다 있어 no-value 가 못 잡고,
+      여섯은 서로 다른 회차라 duplicate 도 (옳게) 안 잡는다. 사람이 매긴 defects·expect·note 는 그대로 뒀다'
+
+  - id: 20260822-eda97926
+    defects: [NOVALUE]
+    rules: [cold, orphan, no-value]
+    expect: flag
+    note: '위와 같음'
+    correction: 'DUP 뺌 — 여섯이 서로 다른 작업 회차의 공수 실적이라 같은 사실이 아니다. NOVALUE(눈금 howto 가 요약했다) 만 남긴다'
+    human_only: [NOVALUE]
+    correction2: 'human_only 더함 (리뷰 C) — 「눈금 howto 가 이미 요약했으니 이 원자료는 남길 값이 없다」는
+      **다른 기억과 견줘 내리는 사람 판정**이다. 본문에 숫자·경로가 다 있어 no-value 가 못 잡고,
+      여섯은 서로 다른 회차라 duplicate 도 (옳게) 안 잡는다. 사람이 매긴 defects·expect·note 는 그대로 뒀다'
+
+  - id: 20260822-96998241
+    defects: [NOVALUE]
+    rules: [cold, orphan, no-value]
+    expect: flag
+    note: '위와 같음'
+    correction: 'DUP 뺌 — 여섯이 서로 다른 작업 회차의 공수 실적이라 같은 사실이 아니다. NOVALUE(눈금 howto 가 요약했다) 만 남긴다'
+    human_only: [NOVALUE]
+    correction2: 'human_only 더함 (리뷰 C) — 「눈금 howto 가 이미 요약했으니 이 원자료는 남길 값이 없다」는
+      **다른 기억과 견줘 내리는 사람 판정**이다. 본문에 숫자·경로가 다 있어 no-value 가 못 잡고,
+      여섯은 서로 다른 회차라 duplicate 도 (옳게) 안 잡는다. 사람이 매긴 defects·expect·note 는 그대로 뒀다'
+
+  - id: 20260822-75cf356a
+    defects: [NOVALUE, SRC]
+    rules: [cold, orphan, sources-required, sources-shape, sources-note-only, no-value]
+    expect: flag
+    note: '"보안 강화 예상 공수" — 실제값이 `a09313a5` 에 있다. 근거가 "옛 보안강화설계 4장(git 이력에만)"'
+
+  - id: 20260822-12ba022f
+    defects: [DUP, SCOPE, FORMAT]
+    rules: [duplicate-hard, duplicate-soft, same-body, scope-standard, howto-numbered]
+    expect: flag
+    note: '`adad8ce3` 와 거의 같은 공수 눈금 표. scope 만 `officina`/`aimemorytool` 로 갈렸다 / howto 인데 번호 목록이 없다'
+
+  - id: 20260822-adad8ce3
+    defects: [DUP, FORMAT]
+    rules: [duplicate-hard, duplicate-soft, same-body, howto-numbered]
+    expect: flag
+    note: '위와 짝 / howto 인데 번호 목록이 없다'
+
+  - id: 20260822-676d1c01
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '시험 홈 격리 — `dacd9423` 표 안에 같은 사실이 또 있다'
+
+  - id: 20260822-0fde5d9b
+    defects: [SCOPE, TAG]
+    rules: [scope-standard, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: 'scope=`officina` · 태그 `decision-table` 하나. 내용이 그림·소리 툴 결정이라 이 저장소 검색을 흐린다'
+
+  - id: 20260822-62b5077a
+    defects: [SCOPE, TAG]
+    rules: [scope-standard, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-7fca701b
+    defects: [SCOPE, TAG]
+    rules: [scope-standard, tag-count, tag-standard, tag-not-source, tag-too-broad]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-59806c12
+    defects: [SCOPE]
+    rules: [scope-standard]
+    expect: flag
+    note: 'todo 인데 scope=`officina`, 내용은 로컬 LLM 하드웨어 — mem 과 무관하다'
+
+  - id: 20260822-1e4caebf
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '"못 잰 것 목록" 5건(`d8c41825`·`a2b23bcd`·`db2d6076`·`c2ee32c1`) 중 하나. 서로 절반씩 겹친다'
+
+  - id: 20260822-d8c41825
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-a2b23bcd
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-db2d6076
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 같음'
+
+  - id: 20260822-62eef96f
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`25509fe5` 와 같은 경고(PoC03 골든셋 편향)'
+
+  - id: 20260822-25509fe5
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 짝'
+
+  - id: 20260822-e8e15b0d
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`30dc090a` 와 같은 측정(색인 한 줄 38토큰 · 100건 상한)'
+
+  - id: 20260822-30dc090a
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '위와 짝'
+
+  - id: 20260822-86293d34
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`efb4533b` 와 같은 뿌리(안 걸리는 낱말 하나가 질의를 죽인다)'
+
+  - id: 20260822-38f16960
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`638eeab5` 와 같은 B7 수치'
+
+  - id: 20260822-61363a44
+    defects: [DUP]
+    rules: [duplicate-hard, duplicate-soft, same-body]
+    expect: flag
+    note: '`d67f3a3c`·`fd80f0f8` 와 겹치는 훅·PATH 함정'
+
+  - id: 20260822-d67f3a3c
+    defects: [DUP, SRC]
+    rules: [duplicate-hard, duplicate-soft, same-body, sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '위와 같음. 근거가 "옛 설계 14장(git 이력에만)"'
+
+  - id: 20260822-fd80f0f8
+    defects: [DUP, SRC]
+    rules: [duplicate-hard, duplicate-soft, same-body, sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '위와 같음. 근거가 "옛 설계 2절 #10(git 이력에만)"'
+
+  - id: 20260822-a2f10a04
+    defects: [SRC]
+    rules: [sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '근거가 "옛 설계 2절 #9·16-1 (git 이력에만 있다)"'
+
+  - id: 20260822-c53698fe
+    defects: [SRC]
+    rules: [sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '근거가 "옛 설계 2-1 (git 이력에만 있다)"'
+
+  - id: 20260822-ed26c588
+    defects: [SRC]
+    rules: [sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '근거가 "옛 설계 2절 #4·#11 (git 이력에만 있다)"'
+
+  - id: 20260822-294dff3d
+    defects: [SRC]
+    rules: [sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '근거가 "옛 설계 2절 #15 (git 이력에만 있다)"'
+
+  - id: 20260822-0d7030ac
+    defects: [SRC]
+    rules: [sources-required, sources-shape, sources-note-only]
+    expect: flag
+    note: '근거가 "옛 보안강화설계 6장 (git 이력에만 있다)"'
+
+  - id: 20260822-ad22ba06
+    defects: [SRC, MULTI]
+    rules: [sources-required, sources-shape, sources-note-only, multi-table, multi-summary, multi-heading]
+    expect: flag
+    note: '근거 중 하나가 "옛 보안강화설계 6장(git 이력에만)". 서로 무관한 값 4개를 한 건에'
+
+  - id: 20260822-1ab089f9
+    defects: [NOTATION]
+    rules: [notation-drift]
+    expect: flag
+    note: '같은 규모를 `19,880건`·`20,000건`·`2만 건`·`20k` 로 섞어 쓴 25건 중 하나 — 검색어가 안 맞는다'
+
+  - id: 20260822-a7de8bf7
+    defects: [FORMAT]
+    rules: [howto-numbered]
+    expect: flag
+    note: 'howto 인데 번호 목록이 아니라 `①②` 와 표다 (규격 4절 위반)'
+
+  - id: 20260822-96107a9f
+    defects: [FORMAT]
+    rules: [howto-numbered]
+    expect: flag
+    note: 'howto 인데 번호 목록이 없다'
+
+  - id: 20260822-69b38219
+    defects: [FORMAT]
+    rules: [howto-numbered]
+    expect: flag
+    note: 'howto 인데 번호 목록이 없다'
+
+  - id: 20260822-c2d195c8
+    defects: [FORMAT]
+    rules: [howto-numbered]
+    expect: flag
+    note: 'howto 인데 번호 목록이 없다'
+
+  - id: 20260822-e6d6ef0f
+    defects: [FORMAT]
+    rules: [howto-numbered]
+    expect: flag
+    note: 'howto 인데 번호 목록이 없다'
+
+  - id: 20260822-f8dd2873
+    defects: [FORMAT]
+    rules: [howto-numbered]
+    expect: flag
+    note: 'howto 인데 번호 목록이 없다'
+
+  - id: 20260822-fe687117
+    defects: [FORMAT]
+    rules: [howto-numbered]
+    expect: flag
+    note: 'howto 인데 번호 목록이 없다'
+
+# ── 잡지 말아야 할 것 (대조군) : 20건 ─────────────────────────────
+clean:
+  - id: 20260822-9be2bc4d
+    defects: []
+    expect: clean
+    note: '치명 #1 프롬프트 주입. 증상·원인·막는 법이 한 주제 안에서 다 있고 재현 예시가 붙었다'
+
+  - id: 20260822-3d1e0f56
+    defects: []
+    expect: clean
+    note: '치명 #2 경로 탈출. 재현 명령·표·막는 법 두 겹까지 한 주제'
+
+  - id: 20260822-b551df6d
+    defects: []
+    expect: clean
+    note: '높음 #3 색인이 Validate 를 안 부름. 원인·막는 법·"두 겹으로 남긴다" 까지'
+
+  - id: 20260822-2c121929
+    defects: []
+    expect: clean
+    note: '높음 #4 inbox 직접 쓰기. 일반 규칙 한 줄까지 뽑았다'
+
+  - id: 20260822-f67cedb4
+    defects: []
+    expect: clean
+    note: '높음 #5 비밀 패턴 구멍. 더할 패턴이 그대로 쓸 수 있게 적혔다'
+
+  - id: 20260822-dc5f20b1
+    defects: []
+    expect: clean
+    note: '점수 완전 동점. 실측 출력을 그대로 붙였고 결론이 한 줄'
+
+  - id: 20260822-9ed2e22c
+    defects: []
+    expect: clean
+    note: '감쇠가 bm25 를 뒤집음. 실측 두 줄이 논지를 다 증명한다'
+
+  - id: 20260822-43a62aa5
+    defects: []
+    expect: clean
+    note: 'issue 규격(`## 증상`/`## 해결`)을 지키고 원인이 함수까지 짚혔다'
+    allow_rules: [unfixed-marker]   # 본문 끝에 「안 고침」 이 있어 B10 이 켜진다. 형식·내용은 모범이라 대조군에 남기고 이 규칙만 눈감는다
+
+  - id: 20260822-da73dcbe
+    defects: []
+    expect: clean
+    note: '위와 같음 (다만 STALE 이라 2절에도 있다 — 형식은 모범, 내용만 낡음)'
+
+  - id: 20260822-e7c92006
+    defects: []
+    expect: clean
+    note: '"하지 말 것" 목록. 짧고 전부 지금도 유효하다'
+
+  - id: 20260822-174d7824
+    defects: []
+    expect: clean
+    note: '비밀정보가 git 에 남는 위험. 막는 층 넷이 한 주제'
+
+  - id: 20260822-676d1c01
+    defects: []
+    expect: clean
+    note: '시험 홈 격리 함정. 함정·사고·대책 세 줄 (다만 `dacd9423` 와 중복이라 2절에도 있다)'
+
+  - id: 20260822-b541293c
+    defects: []
+    expect: clean
+    note: 'golden 테스트 캐시 함정. 짧고 재현 조건이 분명'
+
+  - id: 20260822-bf98f0f3
+    defects: []
+    expect: clean
+    note: '"이 시험을 지우는 변경은 반려한다" — 다음 세션이 실제로 쓸 규칙'
+
+  - id: 20260822-6af1703c
+    defects: []
+    expect: clean
+    note: '규모 시험을 꼭 하라. 근거(20k 에서만 드러난 버그 셋)가 붙었다'
+
+  - id: 20260822-446d0178
+    defects: []
+    expect: clean
+    note: '서브에이전트를 안 믿는다. 사고 사례 하나로 논지가 선다'
+
+  - id: 20260822-c109a142
+    defects: []
+    expect: clean
+    note: '외부 근거는 메인이 원문을 본다. 사고 사례 하나'
+
+  - id: 20260822-cd7923be
+    defects: []
+    expect: clean
+    note: '분류기가 환경 변경을 막는다. 우회 절차까지'
+
+  - id: 20260822-a08e73d4
+    defects: []
+    expect: clean
+    note: '신뢰도를 표로 갈라 적은 모범 사례. "빠뜨린 위협이 없다 50%" 까지'
+
+  - id: 20260822-1bb8a9ba
+    defects: []
+    expect: clean
+    note: '자기 측정의 편향 넷을 스스로 적었다. 인용할 때 같이 읽을 것까지'
+

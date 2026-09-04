@@ -1,0 +1,234 @@
+# 손으로 쓴 골든셋 42건 — 원래 30건 + 보강 12건 (설계 9-3 유형별 최소 건수).
+# 원래 30건은 v0.0 Memory/golden/goldenset.yaml 을 v0.1 형식으로 옮긴 것이다.
+# hard: true 는 사람이 "이건 지금 못 맞힌다" 고 보고 넣은 질문이다.
+# unreachable: true 는 정답 문서에 질의 낱말이 0회라 낱말 검색으로는 원리상
+# 못 맞히는 질문이다 (조사E 유형 H). 합격선 계산에서 뺀다.
+# v0.1 은 구절이 필터가 아니라 가산이라 따옴표를 안 쓴다 (설계 9-3).
+version: 2
+cases:
+  # ── 하드 15건 ──────────────────────────────────────────────
+  # 정답 문서(38f16960)에는 `훅` 말고 질의 낱말이 하나도 없다 — `왜` 대신
+  # `원인`, `느렸지` 대신 `258ms 까지 갔다` 로 적혀 있다. 낱말 검색으로는
+  # 원리상 못 맞힌다 (설계 9-3 유형 H).
+  - q: 훅 왜 느렸지
+    kind: extract
+    hard: true
+    lang: ko
+    unreachable: true
+    expect: [20260822-38f16960]
+  - q: 훅 왜
+    kind: extract
+    hard: true
+    lang: ko
+    unreachable: true
+    expect: [20260822-38f16960]
+  # 같은 문서에 `잘림` 이 0회다.
+  - q: 훅 잘림
+    kind: extract
+    hard: true
+    lang: ko
+    unreachable: true
+    expect: [20260822-38f16960]
+  - q: 훅 성능
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-5d9ee7df]
+  - q: 기억저장소
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-891e820c]
+  - q: 5000건
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-1ab089f9]
+  - q: 1초
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-5d9ee7df]
+  - q: AND 교집합
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-86293d34]
+  - q: 바이그램검색
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-01efa3e3]
+  - q: 인덱싱
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-1ab089f9]
+  # 정답 문서에 동의어 `고치기` 가 있어 못 닿는 질의가 아니다. 설계 9-3 의
+  # 기준이 "동의어 포함" 이라 v0.1 에서 표시를 뗐다 (실제로 5위로 잡힌다).
+  - q: 기억 수정
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-dacd9423]
+  - q: 메모리 색인
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-1ab089f9]
+  - q: hook 예산
+    kind: extract
+    hard: true
+    lang: en
+    expect: [20260822-47bf15db]
+  - q: gc 임계값을 왜 200건으로 정했나
+    kind: extract
+    hard: true
+    lang: ko
+    expect: [20260822-850b524e]
+  - q: trigram 색인 부피
+    kind: extract
+    hard: true
+    lang: en
+    expect: [20260822-867bdce5]
+
+  # ── 쉬움 9건 (회귀 고정용) ─────────────────────────────────
+  - q: 바이그램
+    kind: extract
+    lang: ko
+    expect: [20260822-01efa3e3]
+  - q: settings.json
+    kind: extract
+    lang: en
+    expect: [20260822-807eb1d2]
+  - q: FTS5
+    kind: extract
+    lang: en
+    expect: [20260822-867bdce5]
+  - q: PATH 잘림
+    kind: extract
+    lang: en
+    expect: [20260822-7c12b466]
+  - q: eval 합격선
+    kind: extract
+    lang: ko
+    expect: [20260822-1bdee9f1]
+  # 두 기억이 같이 있어야 답이 된다 (한글 bigram + 영문 색인).
+  - q: 한글 검색 방식
+    kind: multisession
+    expect_mode: all
+    lang: ko
+    expect: [20260822-01efa3e3, 20260822-867bdce5]
+  # 옛 판단(5aea2a77·9efd3138)은 invalid_at 이 걸려 답이 아니다.
+  - q: lint 결정충돌 규칙
+    kind: update
+    lang: ko
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]
+  - q: lint 가 결정을 오류로 내는 문제
+    kind: update
+    lang: ko
+    expect: [20260822-71c701a7]
+  - q: 지금 살아 있는 lint 결정충돌 판정
+    kind: temporal
+    lang: ko
+    expect: [20260822-71c701a7]
+
+  # ── abstain 6건 : 저장소에 없는 주제. 전부 0건인 것을 확인하고 적었다.
+  - q: 물리엔진 중력
+    kind: abstain
+    lang: ko
+    expect: []
+  - q: 셰이더
+    kind: abstain
+    lang: ko
+    expect: []
+  - q: 결제모듈
+    kind: abstain
+    lang: ko
+    expect: []
+  - q: 블렌더 리깅
+    kind: abstain
+    lang: ko
+    expect: []
+  - q: 음성인식 마이크
+    kind: abstain
+    lang: ko
+    expect: []
+  - q: 광고SDK
+    kind: abstain
+    lang: en
+    expect: []
+  # 설계 9-3 의 abstain 최소 7건을 채운다. 저장소에 `조명`·`베이킹` 이
+  # 한 번도 안 나오는 것을 확인하고 적었다.
+  - q: 조명 베이킹
+    kind: abstain
+    lang: ko
+    expect: []
+
+  # ── 보강분 11건 (2026-08-23) ────────────────────────────────
+  # 실제 기억을 읽고 "사람이 물어볼 법한 말" 로 새로 썼다. 정답 문서의
+  # 낱말을 그대로 베끼지 않았고, hard 는 재 보고 정직하게 붙였다.
+
+  # multisession — 기억 둘 이상을 이어야 답이 된다
+  - q: 한글이 영어보다 토큰을 얼마나 더 먹나
+    kind: multisession
+    expect_mode: all
+    lang: ko
+    expect: [20260822-056dcc60, 20260822-cc3c114c]
+  - q: 규모가 커지면 어디가 느려지나
+    kind: multisession
+    expect_mode: all
+    hard: true
+    lang: ko
+    expect: [20260822-38f16960, 20260822-b0a8150b]
+  - q: 기억을 너무 많이 쌓으면 생기는 일
+    kind: multisession
+    expect_mode: all
+    hard: true
+    lang: ko
+    expect: [20260822-0ffa4f41, 20260822-45f0d73c]
+  - q: 비밀값이 새어 나갈 수 있는 길
+    kind: multisession
+    expect_mode: all
+    hard: true
+    lang: ko
+    expect: [20260822-174d7824, 20260822-2c121929]
+
+  # temporal — 시간 표현이 든 질의. 이 저장소는 전부 같은 날이라
+  # 범위가 답을 자르지 않고 시간 낱말이 질의에서 빠지는지를 잰다.
+  - q: 오늘 정한 주입 예산 근거
+    kind: temporal
+    lang: ko
+    expect: [20260822-47bf15db]
+  - q: 이번주에 못 박은 속도 합격선
+    kind: temporal
+    lang: ko
+    expect: [20260822-5d9ee7df]
+  - q: 2026-08 에 정한 자동 정리 단계
+    kind: temporal
+    lang: ko
+    expect: [20260822-4267a6db]
+  - q: 최근 7일 안에 적은 큐에 직접 쓰는 함정
+    kind: temporal
+    hard: true
+    lang: ko
+    expect: [20260822-2c121929]
+
+  # update — 뒤집힌 판정. 무효가 된 옛 기억이 나오면 안 된다.
+  - q: 한 범위에 결정이 여럿이면 지금은 어떻게 보나
+    kind: update
+    lang: ko
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]
+  - q: 결정끼리 부딪힌다고 볼 기준이 바뀌었나
+    kind: update
+    hard: true
+    lang: ko
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]
+  - q: 같은 범위에 결정 두 개를 두면 오류인가
+    kind: update
+    lang: ko
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]

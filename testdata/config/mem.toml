@@ -1,0 +1,15 @@
+schema    = 2
+name      = "게임A"          # 한글 값도 읽힌다
+tokenizer = "bigram-ko3col+word-en3col+contentless+norm"
+
+[secret]
+patterns = ["sk-[A-Za-z0-9]{20,}", "AKIA[0-9A-Z]{16}", "a,b"]
+
+[gc]
+warm_count = 1500
+warm_days  = 45
+cold_days  = 200
+
+[budget]
+startup = 900
+resume  = 300

@@ -1,0 +1,12 @@
+/bin/
+/release/
+*.exe
+
+# 프로젝트 고유 낱말이 든 어휘 모델은 커밋하지 않는다
+/testdata/model/
+
+Memory/index.db
+Memory/index.db-wal
+Memory/index.db-shm
+Memory/index.lock
+Memory/inbox/

@@ -1,0 +1,633 @@
+# 검색 골든셋 v2 — 80건 (v0.1 42건 + 파도 F 가 새로 쓴 38건)
+#
+# 바탕 : AIMemoryTool/v0.1/testdata/golden/goldenset.yaml (42건 = 손 30 + 보강 12)
+# 규격 : 2026-08-23-v0.2-품질규칙표.md 4-1 절 · 설계서 4-9 절
+# 저장소 : Memory/store/ 의 실제 기억. 새로 쓴 38건은 정답 문서를 먼저 열어 보고 질문을 썼다.
+#
+# ── 건수와 분포 ─────────────────────────────────────────────────────
+#
+#  유형          v0.1   더함   합계   최소(checkShape)
+#  extract        20     12     32     8
+#  multisession    5     11     16     5
+#  temporal        5      7     12     5
+#  update          5      5     10     5
+#  abstain         7      3     10     7
+#  합계           42     38     80
+#
+#  언어         v0.1   더함   합계   최소
+#  ko            36     30     66     —
+#  en             6      8     14     12
+#
+#  변이(variant)          건수
+#  literal                 36    낱말을 문서에서 그대로 가져온 질의 (v0.1 42건은 대부분 여기)
+#  paraphrase              32    사람이 물어볼 법한 말로 바꿔 쓴 것
+#  longform                12    한 문장이 아니라 상황까지 설명하는 긴 질의
+#
+#  hard: true    38건    사람이 "이건 지금 못 맞힌다" 고 보고 붙인 것
+#  unreachable   3건     정답 문서에 질의 낱말이 0회 — 합격선 계산에서 뺀다
+#
+# ── 늘린 규칙 (설계 4-9) ────────────────────────────────────────────
+#  1. 근거 문서를 먼저 고르고 질문을 썼다. 문항부터 쓰면 unreachable 이 생긴다.
+#  2. 새 문서마다 literal · paraphrase · longform 세 변이를 짝으로 넣었다.
+#  3. lang: en 을 6 → 14 로 올렸다 (최소 12).
+#  4. multisession 은 expect 2건 이상 + expect_mode: all — 하나만 맞혀서는 정답이 아니다.
+#  5. 표기 변이를 일부러 넣었다 (기억저장소/기억 저장소 · 5,000/5000 · trigram/색인).
+#
+# ── 칸 ──────────────────────────────────────────────────────────────
+#  q            질의
+#  kind         extract | multisession | temporal | update | abstain
+#  lang         ko | en
+#  variant      literal | paraphrase | longform      ← v0.2 신설
+#  expect       정답 id 목록 (abstain 은 빈 목록)
+#  not_expect   나오면 안 되는 id
+#  expect_mode  any | all   ← v0.2 신설. multisession 은 반드시 all
+#  unreachable  낱말 검색으로 원리상 못 맞히는 질의. 합격선에서 뺀다
+#  hard         지금 못 맞힌다고 보고 넣은 질의
+version: 3
+cases:
+  # ══════════════════════════════════════════════════════════════════
+  # v0.1 에서 그대로 가져온 42건 (variant · expect_mode 를 새로 붙였다)
+  # ══════════════════════════════════════════════════════════════════
+
+  # ── 하드 15건 ──────────────────────────────────────────────
+  # 정답 문서(38f16960)에는 `훅` 말고 질의 낱말이 하나도 없다 — `왜` 대신
+  # `원인`, `느렸지` 대신 `258ms 까지 갔다` 로 적혀 있다.
+  - q: 훅 왜 느렸지
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    hard: true
+    unreachable: true
+    expect: [20260822-38f16960]
+    expect_mode: any
+  - q: 훅 왜
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    hard: true
+    unreachable: true
+    expect: [20260822-38f16960]
+    expect_mode: any
+  # 같은 문서에 `잘림` 이 0회다.
+  - q: 훅 잘림
+    kind: extract
+    lang: ko
+    variant: literal
+    hard: true
+    unreachable: true
+    expect: [20260822-38f16960]
+    expect_mode: any
+  - q: 훅 성능
+    kind: extract
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-5d9ee7df]
+    expect_mode: any
+  # 표기 변이 : 문서는 `기억 저장소`, 질의는 붙여 쓴 `기억저장소`
+  - q: 기억저장소
+    kind: extract
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-891e820c]
+    expect_mode: any
+  # 표기 변이 : 문서는 `5,000건`, 질의는 `5000건`
+  - q: 5000건
+    kind: extract
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-1ab089f9]
+    expect_mode: any
+  - q: 1초
+    kind: extract
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-5d9ee7df]
+    expect_mode: any
+  - q: AND 교집합
+    kind: extract
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-86293d34]
+    expect_mode: any
+  - q: 바이그램검색
+    kind: extract
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-01efa3e3]
+    expect_mode: any
+  - q: 인덱싱
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-1ab089f9]
+    expect_mode: any
+  # 정답 문서에 동의어 `고치기` 가 있어 못 닿는 질의가 아니다.
+  - q: 기억 수정
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-dacd9423]
+    expect_mode: any
+  - q: 메모리 색인
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-1ab089f9]
+    expect_mode: any
+  - q: hook 예산
+    kind: extract
+    lang: en
+    variant: literal
+    hard: true
+    expect: [20260822-47bf15db]
+    expect_mode: any
+  - q: gc 임계값을 왜 200건으로 정했나
+    kind: extract
+    lang: ko
+    variant: longform
+    hard: true
+    expect: [20260822-850b524e]
+    expect_mode: any
+  - q: trigram 색인 부피
+    kind: extract
+    lang: en
+    variant: literal
+    hard: true
+    expect: [20260822-867bdce5]
+    expect_mode: any
+
+  # ── 쉬움 9건 (회귀 고정용) ─────────────────────────────────
+  - q: 바이그램
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260822-01efa3e3]
+    expect_mode: any
+  - q: settings.json
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260822-807eb1d2]
+    expect_mode: any
+  - q: FTS5
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260822-867bdce5]
+    expect_mode: any
+  - q: PATH 잘림
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260822-7c12b466]
+    expect_mode: any
+  - q: eval 합격선
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260822-1bdee9f1]
+    expect_mode: any
+  # 두 기억이 같이 있어야 답이 된다 (한글 bigram + 영문 색인).
+  - q: 한글 검색 방식
+    kind: multisession
+    lang: ko
+    variant: literal
+    expect: [20260822-01efa3e3, 20260822-867bdce5]
+    expect_mode: all
+  # 옛 판단(5aea2a77·9efd3138)은 invalid_at 이 걸려 답이 아니다.
+  - q: lint 결정충돌 규칙
+    kind: update
+    lang: ko
+    variant: literal
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]
+    expect_mode: any
+  - q: lint 가 결정을 오류로 내는 문제
+    kind: update
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-71c701a7]
+    expect_mode: any
+  - q: 지금 살아 있는 lint 결정충돌 판정
+    kind: temporal
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-71c701a7]
+    expect_mode: any
+
+  # ── abstain 7건 : 저장소에 없는 주제. 전부 0건인 것을 확인하고 적었다.
+  - q: 물리엔진 중력
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+    expect_mode: any
+  - q: 셰이더
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+    expect_mode: any
+  - q: 결제모듈
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+    expect_mode: any
+  - q: 블렌더 리깅
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+    expect_mode: any
+  - q: 음성인식 마이크
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+    expect_mode: any
+  - q: 광고SDK
+    kind: abstain
+    lang: en
+    variant: literal
+    expect: []
+    expect_mode: any
+  - q: 조명 베이킹
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+    expect_mode: any
+
+  # ── v0.1 보강분 11건 (2026-08-23) ──────────────────────────
+  - q: 한글이 영어보다 토큰을 얼마나 더 먹나
+    kind: multisession
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-056dcc60, 20260822-cc3c114c]
+    expect_mode: all
+  - q: 규모가 커지면 어디가 느려지나
+    kind: multisession
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-38f16960, 20260822-b0a8150b]
+    expect_mode: all
+  - q: 기억을 너무 많이 쌓으면 생기는 일
+    kind: multisession
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-0ffa4f41, 20260822-45f0d73c]
+    expect_mode: all
+  - q: 비밀값이 새어 나갈 수 있는 길
+    kind: multisession
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-174d7824, 20260822-2c121929]
+    expect_mode: all
+  # temporal — 이 저장소는 전부 같은 날이라 범위가 답을 자르지 않고
+  # 시간 낱말이 질의에서 빠지는지를 잰다.
+  - q: 오늘 정한 주입 예산 근거
+    kind: temporal
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-47bf15db]
+    expect_mode: any
+  - q: 이번주에 못 박은 속도 합격선
+    kind: temporal
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-5d9ee7df]
+    expect_mode: any
+  - q: 2026-08 에 정한 자동 정리 단계
+    kind: temporal
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-4267a6db]
+    expect_mode: any
+  - q: 최근 7일 안에 적은 큐에 직접 쓰는 함정
+    kind: temporal
+    lang: ko
+    variant: longform
+    hard: true
+    expect: [20260822-2c121929]
+    expect_mode: any
+  - q: 한 범위에 결정이 여럿이면 지금은 어떻게 보나
+    kind: update
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]
+    expect_mode: any
+  - q: 결정끼리 부딪힌다고 볼 기준이 바뀌었나
+    kind: update
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]
+    expect_mode: any
+  - q: 같은 범위에 결정 두 개를 두면 오류인가
+    kind: update
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-71c701a7]
+    not_expect: [20260822-5aea2a77, 20260822-9efd3138]
+    expect_mode: any
+
+  # ══════════════════════════════════════════════════════════════════
+  # v0.2 에서 새로 쓴 38건
+  # 정답 문서를 먼저 열어 읽고 질문을 썼다. 문서 하나(또는 짝)마다
+  # literal · paraphrase · longform 세 변이를 넣는 것을 원칙으로 했다.
+  # ══════════════════════════════════════════════════════════════════
+
+  # ── extract 12건 : 문서 4개 × 변이 3 ───────────────────────
+  # 문서 A : 20260822-3d1e0f56 (머리말 id 가 경로가 되어 저장소 밖을 덮어썼다)
+  - q: 머리말 id 파일 경로
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260822-3d1e0f56]
+    expect_mode: any
+  - q: 기억 파일 하나로 저장소 밖 파일이 덮어써질 수 있나
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-3d1e0f56]
+    expect_mode: any
+  - q: memory id path traversal writes outside the store
+    kind: extract
+    lang: en
+    variant: longform
+    hard: true
+    expect: [20260822-3d1e0f56]
+    expect_mode: any
+
+  # 문서 B : 20260822-dc5f20b1 (점수 완전 동점이라 순위가 제비뽑기)
+  - q: 점수 완전 동점
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260822-dc5f20b1]
+    expect_mode: any
+  - q: 검색 차례가 운에 달리는 문제
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-dc5f20b1]
+    expect_mode: any
+  # 표기 변이 : 문서는 `19,880건`, 질의는 `2만 건`
+  - q: 저장소가 2만 건쯤 되면 같은 점수가 여럿 나와서 정답이 아래로 밀린다는 이야기
+    kind: extract
+    lang: ko
+    variant: longform
+    hard: true
+    expect: [20260822-dc5f20b1]
+    expect_mode: any
+
+  # 문서 C : 20260822-f67cedb4 (비밀정보 기본 정규식이 놓친 것들)
+  - q: 비밀정보 정규식
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260822-f67cedb4]
+    expect_mode: any
+  - q: secret pattern missed JWT Slack
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260822-f67cedb4]
+    expect_mode: any
+  - q: 기본 비밀 패턴이 놓치던 것들과 값 길이 조건을 어떻게 고쳤나
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260822-f67cedb4]
+    expect_mode: any
+
+  # 문서 D : 20260822-661b6287 (Go 단일 exe · UPX 안 쓴다)
+  - q: UPX 압축
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260822-661b6287]
+    expect_mode: any
+  - q: single exe startup time language choice
+    kind: extract
+    lang: en
+    variant: paraphrase
+    hard: true
+    expect: [20260822-661b6287]
+    expect_mode: any
+  - q: 언어 후보 여섯을 견줘서 배포 형태를 어떻게 골랐나
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260822-661b6287]
+    expect_mode: any
+
+  # ── multisession 11건 : 짝 4벌. 전부 expect_mode: all ──────
+  # 짝 1 : 주입 위험(9be2bc4d) + 중화가 정상 기억에 미치는 영향(0d7030ac)
+  - q: 주입 블록 검사
+    kind: multisession
+    lang: ko
+    variant: literal
+    expect: [20260822-9be2bc4d, 20260822-0d7030ac]
+    expect_mode: all
+  - q: 훅으로 들어가는 글을 어떻게 안전하게 만드나
+    kind: multisession
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-9be2bc4d, 20260822-0d7030ac]
+    expect_mode: all
+  - q: 기억 요약이 세션 시작 블록으로 갈 때 생기는 위험과 중화 처리가 정상 기억에 미치는 영향
+    kind: multisession
+    lang: ko
+    variant: longform
+    expect: [20260822-9be2bc4d, 20260822-0d7030ac]
+    expect_mode: all
+
+  # 짝 2 : 비밀 패턴 구멍(f67cedb4) + inbox 우회(2c121929)
+  - q: 비밀정보 검사 구멍
+    kind: multisession
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-f67cedb4, 20260822-2c121929]
+    expect_mode: all
+  - q: secret check bypass inbox pattern
+    kind: multisession
+    lang: en
+    variant: paraphrase
+    hard: true
+    expect: [20260822-f67cedb4, 20260822-2c121929]
+    expect_mode: all
+  - q: 비밀값이 걸러지지 않고 저장소까지 들어간 길이 둘 있었다는데 각각 무엇인가
+    kind: multisession
+    lang: ko
+    variant: longform
+    hard: true
+    expect: [20260822-f67cedb4, 20260822-2c121929]
+    expect_mode: all
+
+  # 짝 3 : 규모별 실측표(1ab089f9) + 훅 시간 개선(38f16960)
+  - q: 규모별 훅 시간
+    kind: multisession
+    lang: ko
+    variant: literal
+    expect: [20260822-1ab089f9, 20260822-38f16960]
+    expect_mode: all
+  - q: 저장소가 커지면 세션 시작이 느려지나
+    kind: multisession
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-1ab089f9, 20260822-38f16960]
+    expect_mode: all
+  - q: how does hook latency scale with repository size
+    kind: multisession
+    lang: en
+    variant: longform
+    hard: true
+    expect: [20260822-1ab089f9, 20260822-38f16960]
+    expect_mode: all
+
+  # 짝 4 : 공용 공수 눈금(12ba022f) + 툴 공수 눈금(adad8ce3)
+  - q: 공수 눈금
+    kind: multisession
+    lang: ko
+    variant: literal
+    expect: [20260822-12ba022f, 20260822-adad8ce3]
+    expect_mode: all
+  - q: 일 종류마다 시간을 얼마로 잡나
+    kind: multisession
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-12ba022f, 20260822-adad8ce3]
+    expect_mode: all
+
+  # ── temporal 7건 ───────────────────────────────────────────
+  - q: 2026-08-22 에 확정한 gc 값
+    kind: temporal
+    lang: ko
+    variant: literal
+    expect: [20260822-850b524e]
+    expect_mode: any
+  - q: gc threshold decided on 2026-08-22
+    kind: temporal
+    lang: en
+    variant: paraphrase
+    hard: true
+    expect: [20260822-850b524e]
+    expect_mode: any
+  - q: 오늘 못 박은 배포 형태
+    kind: temporal
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-661b6287]
+    expect_mode: any
+  - q: 이번에 정한 스킬을 만들지 말지
+    kind: temporal
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-305563e5]
+    expect_mode: any
+  - q: 최근에 정한 MCP 방침
+    kind: temporal
+    lang: ko
+    variant: literal
+    expect: [20260822-88b71533]
+    expect_mode: any
+  - q: 2026-08 에 고른 기억 원본 포맷
+    kind: temporal
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-2ea0424e]
+    expect_mode: any
+  # 891e820c 는 "전역은 읽기 전용" 인데 dacd9423 가 전역 쓰기 명령을 더했다.
+  # 둘 다 살아 있어 "지금 유효한 것" 을 못 가른다 — 그래서 hard 다.
+  - q: 지금 유효한 전역 저장소 취급 방식
+    kind: temporal
+    lang: ko
+    variant: longform
+    hard: true
+    expect: [20260822-891e820c]
+    expect_mode: any
+
+  # ── update 5건 : 뒤집힌 판정. 옛것이 나오면 안 된다 ─────────
+  # 026bde7e·cd660827 은 "trigram 채택" 인데 01efa3e3 이 B2(바이그램)로 뒤집었다.
+  # 옛것에 invalid_at 이 없어 검색이 스스로 못 거른다 — 그래서 hard 다.
+  - q: 지금 정한 한글 검색 방식은 trigram 인가 bigram 인가
+    kind: update
+    lang: ko
+    variant: longform
+    hard: true
+    expect: [20260822-01efa3e3]
+    not_expect: [20260822-026bde7e, 20260822-cd660827]
+    expect_mode: any
+  - q: current korean tokenizer decision bigram
+    kind: update
+    lang: en
+    variant: paraphrase
+    hard: true
+    expect: [20260822-01efa3e3]
+    not_expect: [20260822-026bde7e]
+    expect_mode: any
+  - q: gc 차가움 임계는 지금 얼마인가
+    kind: update
+    lang: ko
+    variant: literal
+    hard: true
+    expect: [20260822-850b524e]
+    not_expect: [20260822-4267a6db]
+    expect_mode: any
+  - q: gc 가 한 번에 정리하는 건수 상한이 바뀌었나
+    kind: update
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-850b524e]
+    not_expect: [20260822-4267a6db, 20260822-4d43ed27]
+    expect_mode: any
+  - q: 전역 저장소를 고치는 명령이 생겼나
+    kind: update
+    lang: ko
+    variant: paraphrase
+    hard: true
+    expect: [20260822-dacd9423]
+    not_expect: [20260822-891e820c]
+    expect_mode: any
+
+  # ── abstain 3건 : 저장소 전수 검색으로 0건인 것을 확인했다 ──
+  - q: 파티클 이펙트
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+    expect_mode: any
+  - q: 인앱 결제 영수증 검증
+    kind: abstain
+    lang: ko
+    variant: longform
+    expect: []
+    expect_mode: any
+  - q: leaderboard achievement sync
+    kind: abstain
+    lang: en
+    variant: literal
+    expect: []
+    expect_mode: any

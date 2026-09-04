@@ -1,0 +1,57 @@
+# 품질 골든셋(130건)이 쓰는 낱말 표준이다. 이 자료는 이 도구를 만든 저장소의
+# 기억을 그대로 떠 온 것이라, 그 저장소의 태그·scope 를 여기 같이 둔다.
+#
+# 도구가 깔아 주는 씨앗 목록(config.DefaultVocab)에는 이 낱말을 넣지 않는다 —
+# 새 프로젝트가 첫 mem add 부터 다 거절당하기 때문이다 (외부 말뭉치 시험 C5).
+
+[tag]
+"aimemory" = []
+"bug" = []
+"cli" = ["install", "config"]
+"concurrency" = ["queue"]
+"design" = ["architecture", "plan"]
+"doc" = ["guide"]
+"effort" = []
+"eval" = ["golden", "measure"]
+"gc" = ["archive"]
+"hook" = []
+"index" = ["fts5", "tokenizer", "schema"]
+"korean" = []
+"oss" = ["license", "dependency"]
+"quality" = ["lint", "dedup", "stale"]
+"search" = ["ranking", "routing", "synonym"]
+"security" = ["secret", "injection", "permission"]
+"test" = ["stress", "testdata"]
+
+[tag.alias]
+"bugfix" = "bug"
+"db" = "index"
+"design-review" = "design"
+"docs" = "doc"
+"encoding" = "korean"
+"estimate" = "effort"
+"hangul" = "korean"
+"hooks" = "hook"
+"mem" = "aimemory"
+"parallel" = "concurrency"
+"relax" = "search"
+"scoring" = "ranking"
+"security-design" = "security"
+"sqlite" = "index"
+"stack" = "oss"
+"storage" = "index"
+"trigram" = "tokenizer"
+"verify" = "eval"
+
+[tag.deny]
+words = ["impl", "poc", "fieldtest", "survey", "decision-table", "wip", "misc", "etc", "note"]
+
+[scope]
+"aimemorytool" = []
+"officina" = []
+
+[scope.alias]
+"aimemorytool-lint" = "aimemorytool"
+"claude-code" = "aimemorytool"
+"mem" = "aimemorytool"
+"mem-search" = "aimemorytool"
