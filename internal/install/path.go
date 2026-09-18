@@ -203,11 +203,11 @@ func SkipPathByEnv() bool {
 	return true
 }
 
-// restorePath 는 install 이 남긴 path-backup.txt 로 사용자 PATH 를 되돌린다.
-// 백업이 없으면 아무것도 안 한다 — 우리가 안 고친 PATH 를 우리가 지우면 안 된다.
+// restorePath 는 사용자 PATH 에서 우리 bin 폴더만 뺀다. 백업이 없으면 아무것도
+// 안 한다 — 우리가 안 고친 PATH 를 우리가 지우면 안 된다.
 func restorePath(machine Machine, dryRun bool) (Step, error) {
 	step := Step{What: i18n.T(i18n.InstallStepPath)}
-	saved, found, err := readText(BackupPath(machine.Home))
+	_, found, err := readText(BackupPath(machine.Home))
 	if err != nil {
 		return step, err
 	}
@@ -229,5 +229,19 @@ func restorePath(machine Machine, dryRun bool) (Step, error) {
 	if dryRun {
 		return step, nil
 	}
-	return step, registry.Write(PathValue{Text: strings.TrimRight(saved, "\r\n"), Expand: current.Expand})
+	return step, registry.Write(PathValue{Text: withoutDir(current.Text, machine.BinDir), Expand: current.Expand})
+}
+
+// withoutDir 는 PATH 에서 우리 폴더만 뺀다. 백업 글을 통째로 되쓰면 설치 뒤에
+// 남이 더한 항목이 통째로 사라진다 (리뷰 A5).
+func withoutDir(pathValue, dir string) string {
+	entries := strings.Split(pathValue, ";")
+	kept := make([]string, 0, len(entries))
+	for _, entry := range entries {
+		if samePath(expandRefs(strings.TrimSpace(entry)), dir) {
+			continue
+		}
+		kept = append(kept, entry)
+	}
+	return strings.Join(kept, ";")
 }

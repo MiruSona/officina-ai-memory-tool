@@ -46,7 +46,6 @@ func AppendLog(dir string, at time.Time, kind, line string) error {
 	text := string(old)
 	heading := "## " + at.Format("2006-01-02")
 	out := strings.Builder{}
-	out.WriteString(text)
 	if text != "" && !strings.HasSuffix(text, "\n") {
 		out.WriteString("\n")
 	}
@@ -65,13 +64,24 @@ func oneLine(text string) string {
 	return strings.TrimSpace(strings.NewReplacer("\r", " ", "\n", " ", "\t", " ").Replace(text))
 }
 
-// appendFileRetry 는 통째로 다시 쓴다. log.md 는 한 줄씩 자라는 작은 파일이고,
-// 통째 쓰기가 붙이기보다 반쯤 쓰인 줄을 안 남긴다.
+// appendFileRetry 는 파일 끝에 덧붙이기만 한다. 통째로 다시 쓰면 같은 때 도는
+// 다른 mem 이 그 사이에 적은 줄이 사라지고, 쓰다 죽으면 log.md 가 잘린다
+// (리뷰 A3). O_APPEND 한 번 쓰기는 반쯤 쓰인 줄을 안 남긴다.
 func appendFileRetry(path, text string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
 		return err
 	}
-	return writeFileRetry(path, []byte(text))
+	return withRetry(func() error {
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
+		if err != nil {
+			return err
+		}
+		if _, err := file.WriteString(text); err != nil {
+			file.Close()
+			return err
+		}
+		return file.Close()
+	})
 }
 
 // ReadLog 는 기록 파일을 읽는다. 없으면 빈 글이다.

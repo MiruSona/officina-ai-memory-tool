@@ -445,8 +445,10 @@ func (d *DB) LastIndexAt() (string, error) {
 
 // removeFiles 는 전체 재생성을 앞두고 DB 와 딸린 파일을 지운다.
 func removeFiles(dir string) error {
+	// Windows 는 남이 색인을 읽는 동안 지우기가 잠깐 막힌다. 여기서 물러나면
+	// `--full` 이 통째로 실패한다 (리뷰 A6).
 	for _, suffix := range []string{"", "-wal", "-shm"} {
-		if err := os.Remove(DBPath(dir) + suffix); err != nil && !os.IsNotExist(err) {
+		if err := removeRetry(DBPath(dir) + suffix); err != nil {
 			return err
 		}
 	}

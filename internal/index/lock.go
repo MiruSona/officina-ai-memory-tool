@@ -290,9 +290,6 @@ func abandoned(info lockInfo) bool {
 // abandonedAfter 는 만료를 골라서 보는 판이다. 인수 락은 훨씬 짧게 본다.
 func abandonedAfter(info lockInfo, limit time.Duration) bool {
 	waited := time.Since(time.Unix(info.Taken, 0))
-	if waited >= limit {
-		return true
-	}
 	// 시계가 앞선 기계가 남긴 락은 time.Since 가 음수라 영영 안 늙는다.
 	// 미래에 잡힌 락은 그 자체로 이상한 락이다 (리뷰 A #16).
 	if waited < -limit {
@@ -300,13 +297,19 @@ func abandonedAfter(info lockInfo, limit time.Duration) bool {
 	}
 	host, err := os.Hostname()
 	if err != nil || info.Host != host {
+		// 남의 기계 락은 주인이 사는지 볼 길이 없다. 시간으로만 본다.
+		return waited >= limit
+	}
+	// 주인이 살아 있으면 오래 쥐고 있어도 산 락이다. `mem index --full` 은
+	// 몇 분씩 걸리는데 시간만 보고 뺏으면 승격이 두 번 돈다 (리뷰 A1).
+	started, known := processStart(info.PID)
+	if known {
+		return started != info.Started
+	}
+	if processAlive(info.PID) {
 		return false
 	}
-	started, known := processStart(info.PID)
-	if !known {
-		return !processAlive(info.PID)
-	}
-	return started != info.Started
+	return true
 }
 
 // clearStaleFiles 는 앞선 실행이 남긴 lock.stale.* 를 치운다.

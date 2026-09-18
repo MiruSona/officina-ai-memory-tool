@@ -34,7 +34,9 @@ func (r *runner) promoteInbox() error {
 	for _, name := range names {
 		// 큐가 밀려 있으면 여기서 시간을 다 먹는다. 훅은 마감을 주고 부른다.
 		if r.overBudget() {
-			return nil
+			// 여기서 바로 돌아가면 이미 치운 이름의 inbox_seen 이 30일 동안
+			// 남아 index.db 를 불린다 (리뷰 A7). 아래 지우기까지 하고 끝낸다.
+			break
 		}
 		seen, err := r.db.seenInbox(name)
 		if err != nil {

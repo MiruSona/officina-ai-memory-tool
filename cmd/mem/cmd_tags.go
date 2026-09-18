@@ -205,7 +205,9 @@ func applyRename(repository *config.Repository, opened *store.Store, plans [][3]
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.MigrateLocked))
 		return exitLocked
 	}
-	release()
+	// 락은 vocab.toml 을 다 쓸 때까지 쥔다. 여기서 놓으면 동시에 도는
+	// `mem tags --add` 가 쓴 태그가 통째로 지워진다 (리뷰 A2).
+	defer release()
 	if err := opened.EnsureDirs(); err != nil {
 		return exitFor(err)
 	}

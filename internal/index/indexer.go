@@ -351,7 +351,9 @@ func (r *runner) markUnindexed(file store.FileInfo, reason error) error {
 	if err := r.db.dropMemory(file.Path); err != nil {
 		return err
 	}
-	return r.db.upsertFile(file.Path, fileRow{MTime: file.ModTime.UnixNano(), Size: file.Size})
+	// mtime·size 를 적어 두면 다음 판이 「안 바뀌었다」 며 Skipped 로 넘긴다.
+	// 비밀정보·규격 위반은 고칠 때까지 매번 알려야 한다 (리뷰 A4).
+	return r.db.deleteFileRow(file.Path)
 }
 
 // typesFor 는 넘겨받은 표를 쓰되, 없으면 저장소 vocab.toml 에서 읽는다.
