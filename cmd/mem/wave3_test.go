@@ -10,17 +10,17 @@ import (
 	"testing"
 )
 
-// 16개 명령이 다 붙어 있어야 한다 (설계 6-1).
+// 명령이 다 붙어 있어야 한다 (설계 6-1 · version 은 뒤에 늘린 것이다).
 func TestSixteenCommandsAreRegistered(t *testing.T) {
 	want := []string{"install", "init", "add", "set", "search", "show", "hook", "index",
-		"migrate", "gc", "lint", "review", "tags", "eval", "status"}
+		"migrate", "gc", "lint", "review", "tags", "eval", "status", "version"}
 	for _, name := range want {
 		if _, found := registry[name]; !found {
 			t.Errorf("%s 가 등록이 안 됐다", name)
 		}
 	}
 	if len(registry) != len(want) {
-		t.Errorf("명령 수가 %d 다. help 를 뺀 15개여야 한다", len(registry))
+		t.Errorf("명령 수가 %d 다. help 를 뺀 %d개여야 한다", len(registry), len(want))
 	}
 }
 

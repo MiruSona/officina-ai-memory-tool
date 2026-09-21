@@ -182,7 +182,7 @@ func nearestTag(tag string, standard []string) string {
 		if known == tag || len([]rune(known)) < tagWordMin {
 			continue
 		}
-		if !sharesHead(tag, known) && editDistance(tag, known) > tagEditMax {
+		if !config.SharesHead(tag, known) && config.EditDistance(tag, known) > tagEditMax {
 			continue
 		}
 		if best == "" || len(known) < len(best) {
@@ -190,46 +190,6 @@ func nearestTag(tag string, standard []string) string {
 		}
 	}
 	return best
-}
-
-// sharesHead 는 한쪽이 다른 쪽의 앞머리인지다. `aimemory` 와 `aimemorytool` 은
-// 사람이 같은 것을 가리키며 길이만 다르게 쓴 흔한 꼴이다.
-func sharesHead(left, right string) bool {
-	return strings.HasPrefix(left, right) || strings.HasPrefix(right, left)
-}
-
-// editDistance 는 두 낱말의 글자 차이다 (Levenshtein). 태그는 짧아서 표를
-// 통째로 잡아도 싸다.
-func editDistance(left, right string) int {
-	a, b := []rune(left), []rune(right)
-	row := make([]int, len(b)+1)
-	for at := range row {
-		row[at] = at
-	}
-	for i := 1; i <= len(a); i++ {
-		last := row[0]
-		row[0] = i
-		for j := 1; j <= len(b); j++ {
-			keep := row[j]
-			cost := 1
-			if a[i-1] == b[j-1] {
-				cost = 0
-			}
-			row[j] = min3(row[j]+1, row[j-1]+1, last+cost)
-			last = keep
-		}
-	}
-	return row[len(b)]
-}
-
-func min3(a, b, c int) int {
-	if b < a {
-		a = b
-	}
-	if c < a {
-		a = c
-	}
-	return a
 }
 
 // rowsOf 는 셈한 짝을 후보 줄로 만든다. 하한을 못 넘으면 버린다.

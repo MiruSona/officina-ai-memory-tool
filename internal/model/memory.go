@@ -63,6 +63,19 @@ const (
 
 var Severities = []string{SeverityLow, SeverityMid, SeverityHigh}
 
+// severityAlias 는 사람이 흔히 치는 다른 말이다. `medium` 하나에 거절당하는
+// 왕복이 잦아서 받아 주기로 했다 (사용 피드백 2026-09-20).
+var severityAlias = map[string]string{"medium": SeverityMid, "middle": SeverityMid}
+
+// NormalizeSeverity 는 별칭을 표준 값으로 바꾼다. 두 번째 값은 바꿨는지다.
+func NormalizeSeverity(value string) (string, bool) {
+	fixed, found := severityAlias[strings.ToLower(strings.TrimSpace(value))]
+	if !found {
+		return value, false
+	}
+	return fixed, true
+}
+
 // `sources` 항목이 쓸 수 있는 접두 다섯 (규칙 F17).
 const (
 	SourceFile   = "file:"

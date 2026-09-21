@@ -9,8 +9,10 @@ package main
 //	--rename <옛=새>         기억 파일의 태그를 바꾼다. --dry-run 이 기본이다
 //	--check                  표준 밖·못 쓰는 태그와 scope 를 센다
 //	--suggest                동의어·대표말 후보를 제안한다 (아무것도 안 고친다)
+//	--list                   표준 태그·scope 를 그대로 보여준다
 //
-// 목록 보기는 안 만든다 — `mem search --facet` 이 이미 한다 (설계 6-1).
+// 설계 6-1 은 「목록 보기는 안 만든다 — `mem search --facet` 이 한다」였는데
+// 뒤집었다. facet 은 **쓰인** 태그만 세서 표준에 있지만 아직 안 쓴 태그가 안 보인다.
 
 import (
 	"fmt"
@@ -29,7 +31,7 @@ import (
 // tagsPlanFormat 은 한글이 없는 짜임새용 서식이라 i18n 표에 안 둔다.
 const tagsPlanFormat = "  %s : %s → %s"
 
-var tagsBools = []string{"check", "apply", "dry-run", "json", "suggest"}
+var tagsBools = []string{"check", "apply", "dry-run", "json", "suggest", "list"}
 var tagsValues = []string{"add", "add-scope", "alias", "alias-scope", "rename", "repo"}
 
 func init() {
@@ -50,6 +52,8 @@ func runTags(argv []string) int {
 		return renameTag(repository, opened, parsed)
 	case parsed.has("add") || parsed.has("alias") || parsed.has("add-scope") || parsed.has("alias-scope"):
 		return editVocab(repository, parsed)
+	case parsed.flags["list"]:
+		return listTags(repository, parsed)
 	case parsed.flags["check"]:
 		return checkTags(repository, opened)
 	case parsed.flags["suggest"]:
@@ -242,6 +246,61 @@ func replaceTag(tags []string, from, to string) ([]string, bool) {
 		}
 	}
 	return out, hit
+}
+
+// tagsListFormat 은 「상위 : 하위 · 하위」 줄이다. 한글이 없어 i18n 표에 안 둔다.
+const tagsListFormat = "  %s : %s"
+
+// tagsListJSON 은 `tags --list --json` 한 줄이다. tags 는 「상위 : 하위들」 표다.
+type tagsListJSON struct {
+	Parents int                 `json:"parents"`
+	Total   int                 `json:"total"`
+	Tags    map[string][]string `json:"tags"`
+	Scopes  []string            `json:"scopes"`
+}
+
+// listTags 는 표준 목록을 그대로 보여준다. 기억 파일은 안 읽는다 — 아직 한 번도
+// 안 쓴 표준 태그까지 보여야 이 명령이 뜻이 있다.
+func listTags(repository *config.Repository, parsed *options) int {
+	vocab := vocabOf(repository)
+	if parsed.flags["json"] {
+		return printJSON(tagsListJSON{Parents: len(vocab.Tags), Total: len(vocab.StandardTags()),
+			Tags: sortedTagTable(vocab), Scopes: vocab.StandardScopes()})
+	}
+	fmt.Println(i18n.T(i18n.TagsListHead, len(vocab.Tags), len(vocab.StandardTags())))
+	parents := make([]string, 0, len(vocab.Tags))
+	for parent := range vocab.Tags {
+		parents = append(parents, parent)
+	}
+	sort.Strings(parents)
+	for _, parent := range parents {
+		children := append([]string{}, vocab.Tags[parent]...)
+		sort.Strings(children)
+		if len(children) == 0 {
+			fmt.Println("  " + parent)
+			continue
+		}
+		fmt.Printf(tagsListFormat+"\n", parent, strings.Join(children, " · "))
+	}
+	scopes := vocab.StandardScopes()
+	if len(scopes) == 0 {
+		fmt.Println(i18n.T(i18n.TagsListNoScope))
+		return exitOK
+	}
+	fmt.Println(i18n.T(i18n.TagsListScopes, len(scopes), strings.Join(scopes, " · ")))
+	return exitOK
+}
+
+// sortedTagTable 은 상위마다 하위를 차례로 세운 표다. 하위가 없는 상위도
+// 빈 목록으로 남긴다 — 「없다」와 「비었다」를 기계가 갈라 읽어야 한다.
+func sortedTagTable(vocab config.Vocab) map[string][]string {
+	table := map[string][]string{}
+	for parent, children := range vocab.Tags {
+		sorted := append([]string{}, children...)
+		sort.Strings(sorted)
+		table[parent] = sorted
+	}
+	return table
 }
 
 // checkTags 는 저장소가 실제로 쓰는 태그를 표준 목록과 견준다.

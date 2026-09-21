@@ -13,6 +13,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
+	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
@@ -43,6 +44,16 @@ func runAdd(argv []string) int {
 	if parsed.flags["jsonl"] {
 		return runAddJSONL(parsed)
 	}
+	// 옵션 값이 아닌 낱말은 대개 `--sources a b` 처럼 공백으로 이은 것이다.
+	// 조용히 먹으면 뒤 토막이 통째로 사라진다 (사용 피드백 2026-09-20).
+	if len(parsed.rest) > 0 {
+		return fail(i18n.T(i18n.AddStrayWords, safe.Summary(strings.Join(parsed.rest, " "), strayRoom)))
+	}
+	// `--by` 는 큐에 넣기 **전에** 본다. 넣고 나서 걸리면 「저장됨」과 사용법
+	// 오류가 한 화면에 같이 뜬다 (리뷰 2026-09-21).
+	if old := parsed.text("by"); old != "" && !model.IsID(old) {
+		return fail(i18n.T(i18n.BadID, old))
+	}
 	body, err := bodyOf(parsed)
 	if err != nil {
 		return fail(err.Error())
@@ -51,6 +62,10 @@ func runAdd(argv []string) int {
 	repository, opened, err := openStore(parsed)
 	if err != nil {
 		return exitFor(err)
+	}
+	noteSeverityFix(parsed.text("severity"), request.Severity)
+	if defaultTodoStatus(&request, vocabOf(repository)) {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddStatusDefault, request.Status))
 	}
 	verdict := quality.Gate(memoryOf(request), gateOptions(repository, opened, parsed))
 	if parsed.flags["json"] {
@@ -66,6 +81,8 @@ func runAdd(argv []string) int {
 	}
 	if verdict.Rejected() {
 		printVerdict(verdict)
+		// 화면 끝 한 줄만 봐도 들어갔는지 알아야 한다 (사용 피드백 2026-09-20).
+		fmt.Println(i18n.T(i18n.AddRejectedNote, verdict.RejectCount()))
 		noteReject(opened, verdict)
 		return verdict.ExitCode()
 	}
@@ -131,13 +148,51 @@ func queueAdd(parsed *options, opened *store.Store, request store.AddRequest) in
 	// 합쳐지면 그 기억의 id 가 남는다 (설계 3-1 ⑥).
 	id := model.QueueID(name, request.Body, request.Date)
 	fmt.Println(id)
-	fmt.Fprintln(os.Stderr, i18n.T(i18n.AddQueuedNote))
 	noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s%s", id, request.Title, request.Author,
 		forcedMark(parsed), heldMark(request)))
 	if request.Review {
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddHeldNote, id))
 	}
-	return supersedeOld(parsed, opened, id)
+	code := supersedeOld(parsed, opened, id)
+	// 저장됐다는 말이 늘 **맨 마지막 줄**이라야 화면 끝만 보고도 안다.
+	// 덮기가 실패했으면 「저장됨」만 찍으면 안 된다 — 옛 기억은 그대로다.
+	if code != exitOK {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddQueuedNoBy, id, parsed.text("by")))
+		return code
+	}
+	fmt.Fprintln(os.Stderr, i18n.T(i18n.AddQueuedNote, id))
+	return code
+}
+
+// strayRoom 은 되돌려 찍는 낱말 자리의 룬 수다.
+const strayRoom = 60
+
+// severityOf 는 `--severity medium` 처럼 흔한 다른 말을 표준 값으로 바꾼다.
+// 바꿨다고 알리는 것은 부르는 쪽 몫이다 — 값을 옮기는 함수가 화면까지 만지면
+// JSONL 묶음이 줄마다 같은 말을 찍는다 (리뷰 2026-09-21).
+func severityOf(value string) string {
+	fixed, _ := model.NormalizeSeverity(value)
+	return fixed
+}
+
+// noteSeverityFix 는 한 건짜리 add 에서 바뀐 severity 를 알린다.
+func noteSeverityFix(given, fixed string) {
+	if given == "" || given == fixed {
+		return
+	}
+	fmt.Fprintln(os.Stderr, i18n.T(i18n.GateFixed, "severity", given, fixed))
+}
+
+// defaultTodoStatus 는 todo_status 를 안 주면 open 으로 둔다. 새 할 일은 거의 다
+// 열린 상태라 매번 적는 것이 군더더기였다 (사용 피드백 2026-09-20).
+// 글자 `todo` 를 박지 않고 종류 표의 todo_status 칸을 본다 — 표로 늘린 종류도 같다.
+// 돌려주는 값은 채웠는지다. 알리는 것은 부르는 쪽이 한다.
+func defaultTodoStatus(request *store.AddRequest, vocab config.Vocab) bool {
+	if request.Status != "" || !vocab.TypeTable().Spec(request.Type).TodoStatus {
+		return false
+	}
+	request.Status = model.StatusOpen
+	return true
 }
 
 // forcedMark 는 `--new` 로 중복 관문을 밀고 들어왔다는 표시다. status --quality
@@ -239,7 +294,7 @@ func runAddJSONL(parsed *options) int {
 	if err != nil {
 		return fail(err.Error())
 	}
-	requests, code := decodeJSONL(string(raw), repository, opened, parsed)
+	requests, fixes, code := decodeJSONL(string(raw), repository, opened, parsed)
 	if code != exitOK {
 		return code
 	}
@@ -256,12 +311,29 @@ func runAddJSONL(parsed *options) int {
 		noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s", id, request.Title, request.Author,
 			forcedMark(parsed)))
 	}
+	fixes.note()
 	fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLDone, len(requests)))
 	return exitOK
 }
 
-func decodeJSONL(text string, repository *config.Repository, opened *store.Store, parsed *options) ([]store.AddRequest, int) {
+// addFixes 는 도구가 조용히 바꾸거나 채운 칸을 센다. 줄마다 찍으면 묶음
+// 화면이 알림으로 덮여 정작 결과가 안 보인다 (리뷰 2026-09-21).
+type addFixes struct {
+	Severity int
+	Status   int
+}
+
+// note 는 묶음 한 판을 끝내고 몇 건을 고쳐 넣었는지 한 줄로 알린다.
+func (f addFixes) note() {
+	if f.Severity == 0 && f.Status == 0 {
+		return
+	}
+	fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLFixed, f.Severity, f.Status))
+}
+
+func decodeJSONL(text string, repository *config.Repository, opened *store.Store, parsed *options) ([]store.AddRequest, addFixes, int) {
 	requests := []store.AddRequest{}
+	fixes := addFixes{}
 	shared := gateOptions(repository, opened, parsed)
 	for number, line := range strings.Split(text, "\n") {
 		line = strings.TrimSpace(line)
@@ -270,21 +342,29 @@ func decodeJSONL(text string, repository *config.Repository, opened *store.Store
 		}
 		request := store.AddRequest{}
 		if err := json.Unmarshal([]byte(line), &request); err != nil {
-			return nil, fail(i18n.T(i18n.JSONLBadLine, number+1, err.Error()))
+			return nil, fixes, fail(i18n.T(i18n.JSONLBadLine, number+1, err.Error()))
 		}
+		given := request.Severity
 		fillDefaults(&request)
+		if request.Severity != given {
+			fixes.Severity++
+		}
+		if defaultTodoStatus(&request, shared.Vocab) {
+			fixes.Status++
+		}
 		verdict := quality.Gate(memoryOf(request), shared)
 		if verdict.Rejected() {
 			fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLAt, number+1))
 			printVerdict(verdict)
-			return nil, verdict.ExitCode()
+			fmt.Fprintln(os.Stderr, i18n.T(i18n.AddRejectedNote, verdict.RejectCount()))
+			return nil, fixes, verdict.ExitCode()
 		}
 		requests = append(requests, applyVerdict(request, verdict))
 	}
 	if len(requests) == 0 {
-		return nil, fail(i18n.T(i18n.JSONLEmpty))
+		return nil, fixes, fail(i18n.T(i18n.JSONLEmpty))
 	}
-	return requests, exitOK
+	return requests, fixes, exitOK
 }
 
 // fillDefaults 는 한 줄 JSON 이 안 적은 칸을 명령줄과 같은 기본값으로 채운다.
@@ -296,6 +376,7 @@ func fillDefaults(request *store.AddRequest) {
 	if request.Author == "" {
 		request.Author = defaultAuthor
 	}
+	request.Severity = severityOf(request.Severity)
 	request.Body = trimTail(request.Body)
 }
 
@@ -337,7 +418,7 @@ func requestOf(parsed *options, body string) store.AddRequest {
 		Op: store.OpAdd, Type: parsed.text("type"), Date: date,
 		Summary: parsed.text("summary"), Tags: parsed.list("tags"),
 		Source: parsed.text("source"), Scope: parsed.text("scope"), Title: parsed.text("title"),
-		Status: todoStatusOf(parsed), Severity: parsed.text("severity"),
+		Status: todoStatusOf(parsed), Severity: severityOf(parsed.text("severity")),
 		Pinned: parsed.flags["pin"], Importance: importance,
 		InvalidAt: parsed.text("invalid-at"), Links: linksOf(parsed),
 		Author: author, Sources: parsed.list("sources"), StaleAfter: parsed.text("stale-after"),

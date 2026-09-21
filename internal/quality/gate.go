@@ -76,6 +76,18 @@ func (v Verdict) Rejected() bool {
 // ExitCode 는 add 의 종료 코드다.
 func (v Verdict) ExitCode() int { return v.Kind.ExitCode() }
 
+// RejectCount 는 저장을 막은 findings 수다. 경고까지 세면 「거절됨 (n가지)」가
+// 고쳐야 할 가짓수를 부풀려 말한다 (리뷰 2026-09-21).
+func (v Verdict) RejectCount() int {
+	count := 0
+	for _, one := range v.Findings {
+		if one.Level == GradeReject {
+			count++
+		}
+	}
+	return count
+}
+
 // Rules 는 걸린 규칙 이름이다. 차례는 Catalog 순이다.
 func (v Verdict) Rules() []string {
 	seen := map[string]bool{}

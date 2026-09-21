@@ -90,28 +90,34 @@ const (
 
 // add · set · show 가 쓰는 문장이다.
 const (
-	SecretFix       Key = "secret-fix"
-	AddQueuedNote   Key = "add-queued-note"
-	CheckHeader     Key = "check-header"
-	CheckNone       Key = "check-none"
-	CheckNoIndex    Key = "check-no-index"
-	CheckSameBody   Key = "check-same-body"
-	JSONLBadLine    Key = "jsonl-bad-line"
-	JSONLAt         Key = "jsonl-at"
-	JSONLDone       Key = "jsonl-done"
-	JSONLEmpty      Key = "jsonl-empty"
-	BadHeadValue    Key = "bad-head-value"
-	ArchiveNoMemory Key = "archive-no-memory"
-	IndexClearBad   Key = "index-clear-bad"
-	IndexClearNone  Key = "index-clear-none"
-	IndexBadKept    Key = "index-bad-kept"
-	HookOverBudget  Key = "hook-over-budget"
-	BadBoolValue    Key = "bad-bool-value"
-	NotBoolValue    Key = "not-bool-value"
-	VocabTypeName   Key = "vocab-type-name"
-	VocabTypeKey    Key = "vocab-type-key"
-	VocabTypeValue  Key = "vocab-type-value"
-	VocabScopeName  Key = "vocab-scope-name"
+	SecretFix        Key = "secret-fix"
+	AddQueuedNote    Key = "add-queued-note"
+	AddQueuedNoBy    Key = "add-queued-no-by"
+	AddRejectedNote  Key = "add-rejected-note"
+	AddStatusDefault Key = "add-status-default"
+	AddStrayWords    Key = "add-stray-words"
+	ShowQueued       Key = "show-queued"
+	CheckHeader      Key = "check-header"
+	CheckNone        Key = "check-none"
+	CheckNoIndex     Key = "check-no-index"
+	CheckSameBody    Key = "check-same-body"
+	JSONLBadLine     Key = "jsonl-bad-line"
+	JSONLAt          Key = "jsonl-at"
+	JSONLDone        Key = "jsonl-done"
+	JSONLFixed       Key = "jsonl-fixed"
+	JSONLEmpty       Key = "jsonl-empty"
+	BadHeadValue     Key = "bad-head-value"
+	ArchiveNoMemory  Key = "archive-no-memory"
+	IndexClearBad    Key = "index-clear-bad"
+	IndexClearNone   Key = "index-clear-none"
+	IndexBadKept     Key = "index-bad-kept"
+	HookOverBudget   Key = "hook-over-budget"
+	BadBoolValue     Key = "bad-bool-value"
+	NotBoolValue     Key = "not-bool-value"
+	VocabTypeName    Key = "vocab-type-name"
+	VocabTypeKey     Key = "vocab-type-key"
+	VocabTypeValue   Key = "vocab-type-value"
+	VocabScopeName   Key = "vocab-scope-name"
 )
 
 // messages 는 키 하나에 문장 하나다. 서식은 fmt 그대로 쓴다.
@@ -197,9 +203,10 @@ var messages = map[Key]string{
   gc       오래된 기억을 접고 아카이브로 옮긴다
   lint     기억 문서의 품질을 검사한다
   review   사람이 판정할 것만 모아 보여준다
-  tags     태그 표준 목록을 손본다
+  tags     태그 표준 목록을 보고 손본다 (mem tags --list)
   eval     골든셋으로 검색·문서 품질을 잰다
   status   저장소 자리·건수·품질·환경을 보여준다
+  version  이 실행 파일의 판·빌드한 커밋·시각
   help     이 도움말
 
 한 명령의 자세한 도움말 : mem help <하위명령>  (또는 mem <하위명령> --help)
@@ -209,24 +216,33 @@ var messages = map[Key]string{
 	NeedArgument:   "`%s` 에 값이 필요하다.",
 	MemoryNotFound: "그런 기억이 없다 : %s",
 
-	SecretFix:       "빠져나갈 길 : 이 패턴이 오탐이면 `Memory/mem.toml` 의 `[secret] patterns` 에서 고친다.",
-	AddQueuedNote:   "색인 대기 — 닮은 기억에 합쳐지면 `mem index` 뒤에 다른 id 가 된다.",
-	CheckHeader:     "닮은 기억 %d건 (--check 라서 넣지 않았다) :",
-	CheckNone:       "닮은 기억이 없다. 넣어도 된다. (--check 라서 넣지 않았다)",
-	CheckNoIndex:    "색인이 없어 못 견줬다. `mem index` 를 먼저 돌려라. (--check 라서 넣지 않았다)",
-	CheckSameBody:   "본문이 똑같은 기억이 이미 있다 : %s",
-	JSONLBadLine:    "%d번째 줄 : %s",
-	JSONLAt:         "%d번째 줄에서 걸렸다. 묶음 전체를 취소했다.",
-	JSONLDone:       "%d 건을 큐에 넣었다.",
-	JSONLEmpty:      "표준입력에 읽을 줄이 없다.",
-	BadHeadValue:    "`--head` 는 1 이상의 수여야 한다 : %s",
-	ArchiveNoMemory: "아카이브에도 그 기억이 없다 : %s",
-	IndexClearBad:   "inbox/bad 에서 %d건을 지웠다.",
-	IndexClearNone:  "inbox/bad 가 비어 있다. 지울 것이 없다.",
-	IndexBadKept:    "inbox/bad 로 못 옮겼다. 그 자리에 그대로 뒀다 : %s",
-	HookOverBudget:  "훅 시간 예산을 넘어 색인 따라잡기를 건너뛰었다.",
-	BadBoolValue:    "참·거짓 옵션에 모르는 값을 줬다 : %s (true 나 false 여야 한다)",
-	NotBoolValue:    "`%s` 칸은 참·거짓이어야 한다. 따옴표 친 \"true\" 나 1 은 안 받는다.",
+	SecretFix: "빠져나갈 길 : 이 패턴이 오탐이면 `Memory/mem.toml` 의 `[secret] patterns` 에서 고친다.",
+	AddQueuedNote: "저장됨 : %s — 색인 대기다. mem index 뒤에 검색·show 에 보인다 " +
+		"(닮은 기억에 합쳐지면 id 가 바뀐다).",
+	AddQueuedNoBy: "저장됨 : %s — 다만 --by 덮기는 실패했다. 옛 기억 %s 은 그대로다 " +
+		"(`mem set <옛id> --by <새id>` 로 다시 건다).",
+	AddRejectedNote: "거절됨 — 저장하지 않았다 (%d가지). 고친 뒤 다시 친다. " +
+		"먼저 돌려 보려면 같은 명령 끝에 --check 를 붙인다.",
+	AddStatusDefault: "todo_status 를 안 줘서 `%s` 로 뒀다 (바꾸려면 --todo-status doing|done).",
+	AddStrayWords:    "옵션 값이 아닌 낱말이 있다 : %s — 여러 값은 쉼표로 잇는다 (--sources a,b · --tags a,b)",
+	ShowQueued:       "아직 색인 전이다 : %s — mem index 를 돌린 뒤에 보인다",
+	CheckHeader:      "닮은 기억 %d건 (--check 라서 넣지 않았다) :",
+	CheckNone:        "닮은 기억이 없다. 넣어도 된다. (--check 라서 넣지 않았다)",
+	CheckNoIndex:     "색인이 없어 못 견줬다. `mem index` 를 먼저 돌려라. (--check 라서 넣지 않았다)",
+	CheckSameBody:    "본문이 똑같은 기억이 이미 있다 : %s",
+	JSONLBadLine:     "%d번째 줄 : %s",
+	JSONLAt:          "%d번째 줄에서 걸렸다. 묶음 전체를 취소했다.",
+	JSONLDone:        "%d 건을 큐에 넣었다.",
+	JSONLFixed:       "고쳐 넣은 칸 : severity 별칭 %d건 · todo_status 기본값 %d건.",
+	JSONLEmpty:       "표준입력에 읽을 줄이 없다.",
+	BadHeadValue:     "`--head` 는 1 이상의 수여야 한다 : %s",
+	ArchiveNoMemory:  "아카이브에도 그 기억이 없다 : %s",
+	IndexClearBad:    "inbox/bad 에서 %d건을 지웠다.",
+	IndexClearNone:   "inbox/bad 가 비어 있다. 지울 것이 없다.",
+	IndexBadKept:     "inbox/bad 로 못 옮겼다. 그 자리에 그대로 뒀다 : %s",
+	HookOverBudget:   "훅 시간 예산을 넘어 색인 따라잡기를 건너뛰었다.",
+	BadBoolValue:     "참·거짓 옵션에 모르는 값을 줬다 : %s (true 나 false 여야 한다)",
+	NotBoolValue:     "`%s` 칸은 참·거짓이어야 한다. 따옴표 친 \"true\" 나 1 은 안 받는다.",
 }
 
 // T 는 키로 문장을 찾아 인자를 끼운다. 없는 키는 키 이름을 그대로 돌려준다.

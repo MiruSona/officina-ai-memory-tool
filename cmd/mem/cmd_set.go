@@ -201,6 +201,9 @@ func changesOf(parsed *options, id string) (map[string]any, error) {
 			continue
 		}
 		value := parsed.text(option)
+		if option == "severity" {
+			value = severityOf(value)
+		}
 		if err := checkSetValue(option, value); err != nil {
 			return nil, err
 		}

@@ -5,6 +5,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 )
 
@@ -167,11 +168,27 @@ func checkTags(m *model.Memory, opt Options) []Finding {
 		if _, standard, _ := opt.Vocab.NormalizeTag(tag); !standard {
 			found = append(found, opt.finding(RuleTagStandard, m,
 				fmt.Sprintf("`%s` 는 표준 태그 목록 밖이다%s", tag, learningNote(opt.Vocab.TagLearning())),
-				fmt.Sprintf("mem tags --add %s — 이 태그를 표준으로 삼는다", tag),
-				"mem tags --check — 표준 밖 태그를 다 센다"))
+				standardTagSteps(opt.Vocab, tag)...))
 		}
 	}
 	return found
+}
+
+// nearTagLimit 은 가까운 후보를 몇 개까지 찍을지다. 넷을 넘으면 고르는 일이
+// 다시 사람 몫으로 돌아간다.
+const nearTagLimit = 3
+
+// standardTagSteps 는 표준 밖 태그에 붙는 「다음에 할 것」이다. 가까운 후보를
+// 먼저 보여줘야 낱말 표 파일을 직접 열 일이 없다 (사용 피드백 2026-09-20).
+func standardTagSteps(vocab config.Vocab, tag string) []string {
+	steps := []string{}
+	if near := vocab.NearTags(tag, nearTagLimit); len(near) > 0 {
+		steps = append(steps,
+			fmt.Sprintf("가까운 표준 태그 : %s — 뜻이 같으면 이것을 쓴다", strings.Join(near, " · ")))
+	}
+	return append(steps,
+		fmt.Sprintf("mem tags --add %s — 이 태그를 표준으로 삼는다", tag),
+		"mem tags --list — 표준 태그·scope 를 다 본다")
 }
 
 // learningNote 는 「아직 표준을 안 정해서 경고만 한다」 는 꼬리말이다.
@@ -217,9 +234,19 @@ func checkPerType(m *model.Memory, opt Options) []Finding {
 	case m.Severity != "" && !issueLike:
 		add(RuleSeverity, fmt.Sprintf("severity 는 issue·caution 에만 붙는다 (지금 종류는 %s)", m.Type))
 	case m.Severity != "" && !hasString(model.Severities, m.Severity):
-		add(RuleSeverity, fmt.Sprintf("severity `%s` 는 high·mid·low 밖이다", m.Severity))
+		add(RuleSeverity, fmt.Sprintf("severity `%s` 는 high·mid·low 밖이다%s", m.Severity, severityHint(m.Severity)))
 	}
 	return found
+}
+
+// severityHint 는 `medium` 처럼 흔히 쓰는 다른 말에 표준 이름을 권한다.
+// add 는 관문 앞에서 바꿔 주지만 파일에 손으로 적은 값은 여기로 온다.
+func severityHint(value string) string {
+	fixed, changed := model.NormalizeSeverity(value)
+	if !changed {
+		return ""
+	}
+	return fmt.Sprintf(" (`%s` 로 적는다)", fixed)
 }
 
 func checkSources(m *model.Memory, opt Options) []Finding {
@@ -252,12 +279,38 @@ func checkSources(m *model.Memory, opt Options) []Finding {
 			found = append(found, opt.finding(RuleSourcesShape, m,
 				fmt.Sprintf("근거 `%s` 가 file:·commit:·url:·mem:·note: 다섯 접두 밖이다", source)))
 		}
+		if spacedSources(source) {
+			found = append(found, opt.finding(RuleSourcesShape, m,
+				"근거 여럿을 공백으로 이은 것 같다. 쉼표로 나눈다"))
+		}
 	}
 	if model.SourcesNoteOnly(m.Sources) {
 		found = append(found, opt.finding(RuleSourcesNoteOnly, m,
 			"근거가 note: 뿐이다. 파일·커밋·주소 중 하나를 대면 낡았는지 기계가 볼 수 있다"))
 	}
 	return found
+}
+
+// spacedSources 는 `file:a note:b` 처럼 한 값에 근거 여럿을 공백으로 이은 꼴이다.
+// 쉼표로 안 나누면 앞 하나만 먹고 뒤가 통째로 사라진다 (사용 피드백 2026-09-20).
+// `note:` 는 사람이 쓰는 글이라 안 본다 — 그 안의 `file:내용` 은 다음 근거가
+// 아니라 글의 일부다 (리뷰 2026-09-21).
+func spacedSources(source string) bool {
+	if strings.HasPrefix(source, model.SourceNote) {
+		return false
+	}
+	fields := strings.Fields(source)
+	if len(fields) < 2 {
+		return false
+	}
+	for _, field := range fields[1:] {
+		for _, prefix := range model.SourcePrefixes {
+			if strings.HasPrefix(field, prefix) {
+				return true
+			}
+		}
+	}
+	return false
 }
 
 func checkDates(m *model.Memory, opt Options) []Finding {

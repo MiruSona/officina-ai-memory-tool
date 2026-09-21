@@ -2,7 +2,9 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"strconv"
 	"strings"
 
@@ -78,9 +80,37 @@ func loadMemory(parsed *options, opened *store.Store, id string) (*model.Memory,
 	}
 	file, err := opened.ReadMemory(path)
 	if err != nil {
+		// 큐를 보는 것은 **자리에 파일이 없을 때**뿐이다. 깨진 파일까지
+		// 「아직 색인 전」으로 뭉개면 고칠 자리를 못 찾는다 (리뷰 2026-09-21).
+		if !errors.Is(err, fs.ErrNotExist) {
+			return nil, nil, err
+		}
+		if queued := queuedNote(opened, id); queued != "" {
+			return nil, nil, fmt.Errorf("%s", queued)
+		}
 		return nil, nil, fmt.Errorf("%s", i18n.T(i18n.MemoryNotFound, id))
 	}
 	return file.Memory, usedBy, nil
+}
+
+// queuedNote 는 그 id 가 아직 색인 대기 큐에 있는지 본다. 방금 add 로 받은 id 를
+// 「없다」고 하면 사람은 저장이 실패한 줄 안다 (사용 피드백 2026-09-20).
+// 큐 파일이 깨졌으면 그냥 건너뛴다 — 그것은 mem index 가 따로 알린다.
+func queuedNote(opened *store.Store, id string) string {
+	names, err := opened.ListInbox()
+	if err != nil {
+		return ""
+	}
+	for _, name := range names {
+		item, err := opened.ReadInbox(name)
+		if err != nil || item.Add == nil {
+			continue
+		}
+		if model.QueueID(item.Name, item.Add.Body, item.Add.Date) == id {
+			return i18n.T(i18n.ShowQueued, id)
+		}
+	}
+	return ""
 }
 
 // showJSON 은 화면에 낼 것만 담는다. model.Memory 를 그대로 품어 칸 이름이

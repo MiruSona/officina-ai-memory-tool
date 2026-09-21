@@ -211,6 +211,11 @@ func numberedSteps(body string) bool {
 // summaryBodyGap 은 요약의 낱말 중 본문에 한 번도 안 나온 것이 절반을 넘는지다
 // (규칙 B08). 요약이 본문과 다른 이야기를 하면 검색은 맞히고 사람은 헛읽는다.
 func summaryBodyGap(m *model.Memory) string {
+	// 본문이 아예 없으면 낱말을 세는 것이 뜻이 없다. 「15개 중 15개가 본문에
+	// 없다」는 읽는 쪽을 헷갈리게 한다 — 그때는 body-thin 하나만 말한다.
+	if strings.TrimSpace(m.Body) == "" {
+		return ""
+	}
 	words := nounWords(m.Summary)
 	if len(words) < summaryWordFloor {
 		return ""

@@ -7,7 +7,7 @@ package i18n
 func HelpTopics() []string {
 	return []string{
 		"install", "init", "add", "set", "search", "show", "hook",
-		"index", "migrate", "gc", "lint", "review", "tags", "eval", "status", "help",
+		"index", "migrate", "gc", "lint", "review", "tags", "eval", "status", "version", "help",
 	}
 }
 
@@ -58,13 +58,15 @@ var commandHelp = map[string]string{
                      목록을 늘리려면 mem tags --add-scope <이름>
   --sources a,b      근거. file: commit: url: mem: note: 로 시작한다
                      (decision·issue·caution·fact 는 하나 이상 필수)
+                     **여러 개는 쉼표로 잇는다.** 공백으로 이으면 뒤가 사라진다
   --author <누가>    human:<아이디> · <도구>/<버전> · hook:<이름> (기본 mem/판)
   --body <본문>      본문. 안 주면 표준입력을 읽는다
+                     **실질 3줄 이상**이라야 한다. howto 는 1. 2. 번호 차례로 쓴다
   --stdin            본문을 표준입력에서 읽는다 (--body 를 안 줄 때와 같다)
   --date <날짜>      기억의 날짜 (기본 오늘)
   --invalid-at <날짜> 이 날부터 이 기억은 무효다
-  --todo-status <값> todo 일 때 필수 : open doing done
-  --severity <세기>  issue·caution 일 때 필수 : low mid high
+  --todo-status <값> open doing done. 안 주면 open 이다
+  --severity <세기>  issue·caution 일 때 필수 : low mid high (medium 도 받아 mid 로 바꾼다)
   --by <옛id>        그 결정을 이 기억이 덮는다 (옛 기억에 덮임 표시를 단다)
   --new              닮은 기억이 있어도 정말 다른 주제다
   --hold             보류로 넣는다. 검색·훅에 안 뜨고 사람이 mem review --promote 로 연다
@@ -78,6 +80,8 @@ var commandHelp = map[string]string{
   --jsonl            여러 건을 표준입력에서 한 줄에 하나씩 받는다 (한 줄이라도 걸리면 전부 취소)
   --repo <폴더>      저장소를 직접 가리킨다
 별칭 : --links(=--link) · --source(=--sources) · --status(=--todo-status)
+끝줄이 늘 결과다 — 「저장됨 : <id>」 면 들어갔고 「거절됨」 이면 아무것도 안 들어갔다
+(--json·--jsonl 은 빼고. 그 둘은 기계가 읽는 꼴이라 끝줄이 결과 줄이 아니다).
 경고는 저장을 막지 않는다 — 경고가 뜨고 id 가 찍혔으면 들어간 것이다.
 표준 scope 를 하나도 안 정한 저장소에서는 목록 밖 태그·scope 를 경고로만 알린다
 (mem tags --add-scope 로 첫 이름을 정하면 그때부터 거절이다).
@@ -213,9 +217,10 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
   --repo <폴더>   저장소를 직접 가리킨다
 종료 코드 : 0 정상 · 1 사용법 잘못 · 3 저장소 없음`,
 
-	"tags": `mem tags — 태그·scope 표준 목록을 손본다 (목록 보기는 mem search --facet)
+	"tags": `mem tags — 태그·scope 표준 목록을 보고 손본다
 
 쓰는 법 : mem tags [옵션]
+  --list                    표준 태그·scope 를 그대로 본다 (안 쓴 태그까지 다 나온다. --json 도 된다)
   --add <태그[=상위]>       표준 태그 목록에 넣는다
   --add-scope <이름>        표준 scope 목록에 넣는다
   --alias <별칭=표준>       태그 별칭을 넣는다. add·lint 가 조용히 바꿔 준다
@@ -256,6 +261,15 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
   --json      한 줄 JSON
   --repo <폴더>   저장소를 직접 가리킨다
 종료 코드 : 0 정상 · 2 검사 실패(--doctor·--embed 가 모자란 것을 찾음) · 3 저장소 없음`,
+
+	"version": `mem version — 이 실행 파일의 판·빌드한 커밋·빌드 시각을 찍는다
+
+쓰는 법 : mem version
+  bin\ 은 git 에 안 올라간다. 소스를 새로 받은 뒤에는 .\build.ps1 로 다시 빌드한다 —
+  안 그러면 옛 exe 가 그대로 남아 「고쳤는데 그대로다」가 된다.
+  커밋·시각이 dev 면 build.ps1 없이 go build 로 만든 것이다.
+  커밋 뒤에 -dirty 가 붙으면 그 커밋에 없는 변경(cmd·internal·go.mod)까지 넣고 빌드한 판이다.
+종료 코드 : 0 정상`,
 
 	"help": `mem help — 한글 도움말을 보여준다
 

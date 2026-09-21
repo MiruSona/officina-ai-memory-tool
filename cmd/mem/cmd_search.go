@@ -231,7 +231,7 @@ func missPath(repos *opened) string {
 func filterOf(parsed *options) (index.Filter, error) {
 	narrow := index.Filter{
 		Types: parsed.list("type"), Scope: parsed.text("scope"), Tags: parsed.list("tag"),
-		Status: parsed.text("status"), Severity: parsed.text("severity"),
+		Status: parsed.text("status"), Severity: severityOf(parsed.text("severity")),
 		All: parsed.flags["all"], Pinned: parsed.flags["pinned"],
 		// 보류(`review: true`)는 기본으로 안 뜬다. `--all` 은 무효·덮인 것을
 		// 여는 옵션이라 뜻이 다르다 — 따로 켠다 (결정 6).

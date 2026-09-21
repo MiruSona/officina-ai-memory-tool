@@ -39,6 +39,12 @@ bin\mem.exe install --apply        # 실제로 적용한다 (PATH 는 새 터미
 
 `build.ps1 -Install` 로 2·3 을 한 번에 해도 된다. 인터넷이 없으면 `build.ps1 -Install -Bundle <꾸러미폴더>`.
 
+**소스를 받은 뒤(서브모듈 갱신 포함)에는 `.\build.ps1` 로 다시 빌드한다** — `bin\` 은 git 에 안 올라가
+옛 판이 그대로 남는다. 「고쳤는데 그대로다」의 태반이 이것이다.
+지금 exe 가 어느 소스로 만들어졌는지는 `mem version` 이 판·커밋·빌드 시각으로 찍어 준다
+(`dev` 로 나오면 `build.ps1` 없이 `go build` 로 만든 것이고, 커밋 뒤 `-dirty` 는 아직 커밋 안 한 소스까지 넣고 빌드한 판이라는 뜻이다).
+전역 설치본까지 바꾸려면 `build.ps1 -Install`.
+
 ### 설치가 받는 것
 
 | 무엇 | 어디에 | 크기 |

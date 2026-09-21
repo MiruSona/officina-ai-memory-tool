@@ -17,6 +17,15 @@ param(
 $ErrorActionPreference = 'Stop'
 $root = Split-Path -Parent $MyInvocation.MyCommand.Path
 
+# gitLine 은 git 한 번을 돌리고 결과를 한 줄로 준다. 실패하면 빈 글이다.
+# .git 이 없는 폴더에서도 빌드는 끝까지 가야 한다 — 실패를 여기서 다 먹는다.
+function gitLine([string[]]$gitArgs) {
+    try { $out = (& git -C $root @gitArgs) } catch { $out = '' }
+    if ($LASTEXITCODE -ne 0) { $out = '' }
+    $global:LASTEXITCODE = 0
+    return ($out | Out-String).Trim()
+}
+
 # go build 는 **지금 폴더**의 모듈을 본다. 다른 Go 모듈 안에서 이 스크립트를
 # 부르면 `outside main module` 로 죽는다 — 그래서 제 폴더로 옮겨 간다
 # (실데이터 시험 D10 / T20).
@@ -34,8 +43,24 @@ try {
     # 2. 빌드
     $exe = Join-Path $root 'bin\mem.exe'
     $env:CGO_ENABLED = '0'
+    $stamp = (Get-Date).ToString('yyyy-MM-ddTHH:mm:ssK')
+
+    # 어느 소스로 빌드했는지 박는다. `mem version` 이 이것을 찍어, 실행 파일이
+    # 낡았는지 사람이 눈으로 본다. git 이 없거나 실패하면 빈 값이다.
+    # 아직 커밋 안 한 소스로 빌드했으면 `-dirty` 를 붙인다. 해시만 보면 그
+    # 커밋 그대로인 줄 아는데 사실은 손댄 판인 일이 잦다.
+    $commit = ''
+    if (Get-Command git -ErrorAction SilentlyContinue) {
+        $commit = gitLine @('log', '-1', '--format=%h', '--', 'cmd', 'internal', 'go.mod')
+        if ($commit -and (gitLine @('status', '--porcelain', '--', 'cmd', 'internal', 'go.mod'))) {
+            $commit += '-dirty'
+        }
+    }
+
+    $ldflags = "-s -w -X main.buildTime=$stamp -X main.buildCommit=$commit"
     Write-Host "빌드 : $exe"
-    & go build -trimpath -ldflags="-s -w" -o $exe (Join-Path $root 'cmd\mem')
+    # -ldflags 와 값을 한 토큰으로 붙이면 PowerShell 5.1 이 변수를 안 푼다. 따로 넘긴다.
+    & go build -trimpath '-ldflags' $ldflags -o $exe (Join-Path $root 'cmd\mem')
     if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
     $size = [math]::Round((Get-Item $exe).Length / 1MB, 1)

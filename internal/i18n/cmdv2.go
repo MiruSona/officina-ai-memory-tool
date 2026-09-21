@@ -37,27 +37,30 @@ const (
 
 // tags.
 const (
-	TagsNothing    Key = "tags-nothing"
-	TagsAdded      Key = "tags-added"
-	TagsAliased    Key = "tags-aliased"
-	TagsBadPair    Key = "tags-bad-pair"
-	TagsBadTag     Key = "tags-bad-tag"
-	TagsCheckHead  Key = "tags-check-head"
-	TagsCheckClean Key = "tags-check-clean"
-	TagsOffList    Key = "tags-off-list"
-	TagsDenied     Key = "tags-denied"
-	TagsAliasUsed  Key = "tags-alias-used"
-	TagsRenameDone Key = "tags-rename-done"
-	TagsRenameNone Key = "tags-rename-none"
-	TagsDryRun     Key = "tags-dry-run"
-	TagsSaved      Key = "tags-saved"
-	TagsScopeAdded Key = "tags-scope-added"
-	TagsScopeAlias Key = "tags-scope-alias"
-	TagsBadScope   Key = "tags-bad-scope"
-	TagsScopeOff   Key = "tags-scope-off"
-	TagsTypeOff    Key = "tags-type-off"
-	TagsLearning   Key = "tags-learning"
-	TagsConfirmed  Key = "tags-confirmed"
+	TagsNothing     Key = "tags-nothing"
+	TagsAdded       Key = "tags-added"
+	TagsAliased     Key = "tags-aliased"
+	TagsBadPair     Key = "tags-bad-pair"
+	TagsBadTag      Key = "tags-bad-tag"
+	TagsCheckHead   Key = "tags-check-head"
+	TagsCheckClean  Key = "tags-check-clean"
+	TagsOffList     Key = "tags-off-list"
+	TagsDenied      Key = "tags-denied"
+	TagsAliasUsed   Key = "tags-alias-used"
+	TagsRenameDone  Key = "tags-rename-done"
+	TagsRenameNone  Key = "tags-rename-none"
+	TagsDryRun      Key = "tags-dry-run"
+	TagsSaved       Key = "tags-saved"
+	TagsScopeAdded  Key = "tags-scope-added"
+	TagsScopeAlias  Key = "tags-scope-alias"
+	TagsBadScope    Key = "tags-bad-scope"
+	TagsScopeOff    Key = "tags-scope-off"
+	TagsTypeOff     Key = "tags-type-off"
+	TagsLearning    Key = "tags-learning"
+	TagsConfirmed   Key = "tags-confirmed"
+	TagsListHead    Key = "tags-list-head"
+	TagsListScopes  Key = "tags-list-scopes"
+	TagsListNoScope Key = "tags-list-no-scope"
 	// 태그 표준은 scope 와 따로 선다 (리뷰 D7).
 	TagsTagLearning  Key = "tags-tag-learning"
 	TagsTagConfirmed Key = "tags-tag-confirmed"
@@ -121,25 +124,28 @@ var commandV2Messages = map[Key]string{
 	ShowUsedByLink:   "링크",
 	ShowUsedByDead:   "(이미 무효)",
 
-	TagsNothing:    "할 일을 안 줬다. --add · --add-scope · --alias · --alias-scope · --rename · --check 중 하나를 준다.",
-	TagsAdded:      "표준 태그에 넣었다 : %s",
-	TagsAliased:    "별칭을 넣었다 : %s → %s",
-	TagsBadPair:    "`%s` 는 `왼쪽=오른쪽` 꼴이어야 한다.",
-	TagsBadTag:     "태그는 영어 소문자·숫자·하이픈이어야 한다 : %s",
-	TagsCheckHead:  "태그 검사 — 기억 %d건, 표준 밖 %d가지",
-	TagsCheckClean: "표준 밖 태그가 없다.",
-	TagsOffList:    "  표준 밖 : %s (%d건)",
-	TagsDenied:     "  못 쓰는 태그 : %s (%d건) — 주제가 아니라 출처다",
-	TagsAliasUsed:  "  별칭 : %s → %s (%d건)",
-	TagsRenameDone: "%d건의 태그 바꾸기를 큐에 넣었다 (`mem index` 가 반영한다).",
-	TagsRenameNone: "그 태그를 쓰는 기억이 없다 : %s",
-	TagsDryRun:     "위는 미리보기다. 아직 아무것도 안 고쳤다 — 기억을 고치는 일이라 미리보기가 기본이다.\n  진짜로 바꾸려면 같은 명령에 --apply 를 붙인다.",
-	TagsSaved:      "vocab.toml 을 고쳤다 : %s",
-	TagsScopeAdded: "표준 scope 에 넣었다 : %s",
-	TagsScopeAlias: "scope 별칭을 넣었다 : %s → %s",
-	TagsBadScope:   "scope 는 영어 소문자·숫자·하이픈이어야 한다 : %s",
-	TagsScopeOff:   "  표준 밖 scope : %s (%d건)",
-	TagsTypeOff:    "  표 밖 종류 : %s (%d건) — vocab.toml 의 [type.%s] 로 늘린다",
+	TagsNothing:     "할 일을 안 줬다. --list · --add · --add-scope · --alias · --alias-scope · --rename · --check 중 하나를 준다.",
+	TagsListHead:    "표준 태그 — 상위 %d가지, 통틀어 %d가지",
+	TagsListScopes:  "표준 scope %d개 : %s",
+	TagsListNoScope: "표준 scope 가 아직 없다. mem tags --add-scope <이름> 으로 첫 이름을 정한다.",
+	TagsAdded:       "표준 태그에 넣었다 : %s",
+	TagsAliased:     "별칭을 넣었다 : %s → %s",
+	TagsBadPair:     "`%s` 는 `왼쪽=오른쪽` 꼴이어야 한다.",
+	TagsBadTag:      "태그는 영어 소문자·숫자·하이픈이어야 한다 : %s",
+	TagsCheckHead:   "태그 검사 — 기억 %d건, 표준 밖 %d가지",
+	TagsCheckClean:  "표준 밖 태그가 없다.",
+	TagsOffList:     "  표준 밖 : %s (%d건)",
+	TagsDenied:      "  못 쓰는 태그 : %s (%d건) — 주제가 아니라 출처다",
+	TagsAliasUsed:   "  별칭 : %s → %s (%d건)",
+	TagsRenameDone:  "%d건의 태그 바꾸기를 큐에 넣었다 (`mem index` 가 반영한다).",
+	TagsRenameNone:  "그 태그를 쓰는 기억이 없다 : %s",
+	TagsDryRun:      "위는 미리보기다. 아직 아무것도 안 고쳤다 — 기억을 고치는 일이라 미리보기가 기본이다.\n  진짜로 바꾸려면 같은 명령에 --apply 를 붙인다.",
+	TagsSaved:       "vocab.toml 을 고쳤다 : %s",
+	TagsScopeAdded:  "표준 scope 에 넣었다 : %s",
+	TagsScopeAlias:  "scope 별칭을 넣었다 : %s → %s",
+	TagsBadScope:    "scope 는 영어 소문자·숫자·하이픈이어야 한다 : %s",
+	TagsScopeOff:    "  표준 밖 scope : %s (%d건)",
+	TagsTypeOff:     "  표 밖 종류 : %s (%d건) — vocab.toml 의 [type.%s] 로 늘린다",
 	TagsLearning: "표준 scope 가 하나도 없다. 지금은 목록 밖 scope 를 경고로만 알린다.\n" +
 		"  이 저장소 이름을 정하면 그때부터 거절한다 : mem tags --add-scope <이름>",
 	TagsConfirmed: "표준 scope %d가지가 정해져 있다. 목록 밖 scope 는 거절이다.",
