@@ -124,6 +124,16 @@ type options struct {
 // 훑기만 하는 자리에서 쓴다.
 var anyValue = []string{"*"}
 
+// unknownOptionError 는 「모르는 옵션」이다. 명령마다 헷갈리는 까닭이 달라
+// (예: set 에 add 옵션을 준다) 부르는 쪽이 이것만 골라 한 줄을 덧붙인다.
+// Name 은 `--` 를 뗀 옵션 이름이다.
+type unknownOptionError struct {
+	text string
+	Name string
+}
+
+func (e unknownOptionError) Error() string { return e.text }
+
 // parseOptions 는 명령이 알려준 것만 옵션으로 본다. 모르는 `--이름` 은 다음
 // 인자를 값으로 삼키지 않고 바로 실패한다 — 조용히 먹으면 사람이 진짜 원인을
 // 못 찾고 오래 헤맨다 (실데이터 시험 7절 #8).
@@ -147,7 +157,7 @@ func parseOptions(argv []string, bools []string, values []string) (*options, err
 				continue
 			}
 			if !takesValue(values, key) {
-				return nil, errors.New(i18n.T(i18n.UnknownOption, "--"+key))
+				return nil, unknownOptionError{text: i18n.T(i18n.UnknownOption, "--"+key), Name: key}
 			}
 			parsed.values[key] = value
 			continue
@@ -157,7 +167,7 @@ func parseOptions(argv []string, bools []string, values []string) (*options, err
 			continue
 		}
 		if !takesValue(values, name) {
-			return nil, errors.New(i18n.T(i18n.UnknownOption, word))
+			return nil, unknownOptionError{text: i18n.T(i18n.UnknownOption, word), Name: name}
 		}
 		if at+1 >= len(argv) {
 			return nil, errors.New(i18n.T(i18n.NeedArgument, word))

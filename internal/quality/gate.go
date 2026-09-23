@@ -9,6 +9,7 @@ import (
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
+	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 )
 
@@ -481,9 +482,9 @@ func DuplicateFindings(doc *Doc, table Finder, m *model.Memory, opt Options) []F
 
 const dupListMax = 3
 
-// nextForDuplicate 와 decisionGate 는 마지막 줄 문안을 글자까지 맞춘다.
-// 부르는 쪽이 같은 글만 겹쳐 지우기 때문에, 한 글자만 달라도 「정말 다른
-// 주제다」 가 두 줄로 찍힌다 (실데이터 시험 A6).
+// nextForDuplicate 와 decisionGate 는 「다른 주제다」 줄에 같은 상수
+// (newTopicStep)를 쓴다. 부르는 쪽이 같은 글만 겹쳐 지우기 때문에, 한 글자만
+// 달라도 「정말 다른 주제다」 가 두 줄로 찍힌다 (실데이터 시험 A6).
 func nextForDuplicate(id string) []string {
 	return []string{
 		fmt.Sprintf("mem set %s --by-new   (그 기억을 이 내용으로 덮는다)", id),
@@ -493,6 +494,9 @@ func nextForDuplicate(id string) []string {
 
 // newTopicStep 은 「닮았지만 다른 주제다」 라고 말하는 길이다.
 const newTopicStep = "mem add … --new                       (정말 다른 주제다)"
+
+// NewTopicStep 은 화면이 다음 수를 모을 때 이 줄을 맨 앞으로 올리려고 연다.
+const NewTopicStep = newTopicStep
 
 // decisionGate 는 C04 다. 같은 scope 에 태그가 겹치는 살아 있는 decision 이
 // 있으면 `--by` 나 `--new` 없이는 못 들어온다.
@@ -507,21 +511,71 @@ func decisionGate(m *model.Memory, existing []*model.Memory, opt Options) []Find
 	if len(rivals) == 0 {
 		return nil
 	}
+	top := closestRival(m, rivals)
+	// 거절문이 이름 댄 상대(top)가 목록을 자를 때 빠지면 안 된다 — 맨 앞에
+	// 두고 나머지를 id 차례로 잇는다.
 	ids := make([]string, 0, len(rivals))
 	for _, one := range rivals {
-		ids = append(ids, one.ID)
+		if one.ID != top.ID {
+			ids = append(ids, one.ID)
+		}
 	}
 	sort.Strings(ids)
+	ids = append([]string{top.ID}, ids...)
 	if len(ids) > dupListMax {
 		ids = ids[:dupListMax]
 	}
 	return []Finding{{Rule: RuleDecisionGate, Level: opt.grade(RuleDecisionGate, m), ID: m.ID,
-		Reason:  fmt.Sprintf("같은 자리(scope %s · 태그 겹침)에 살아 있는 결정이 있다 — `%s`", m.Scope, ids[0]),
+		Reason:  rivalReason(m, top),
 		Related: ids,
+		// `--new` 가 먼저다. 덮기(`--by`)가 첫 줄이면 가장 쉬운 길이 남의 멀쩡한
+		// 결정을 무효로 만드는 길이 된다 (사용 피드백 2026-09-21 떡아이콘·손님그림).
 		Next: []string{
-			fmt.Sprintf("mem add … --by %s   (그 결정을 덮는다)", ids[0]),
 			newTopicStep,
+			fmt.Sprintf("mem add … --by %s   (그 결정을 이 기억이 뒤집을 때만 덮는다)", top.ID),
 		}}}
+}
+
+// closestRival 은 요약이 가장 닮은 상대다. 거절문이 id 만 찍으면 사람이
+// `mem show` 를 한 번 더 쳐야 「아, 다른 얘기구나」를 안다 — 가장 닮은
+// 하나의 제목·점수를 같이 보여 준다. 점수가 같으면 id 차례로 고정한다.
+func closestRival(m *model.Memory, rivals []*model.Memory) *model.Memory {
+	best := rivals[0]
+	bestSim := summarySim(m, best)
+	for _, other := range rivals[1:] {
+		sim := summarySim(m, other)
+		if sim > bestSim || (sim == bestSim && other.ID < best.ID) {
+			best, bestSim = other, sim
+		}
+	}
+	return best
+}
+
+// rivalTitleRoom 은 거절문에 싣는 상대 제목의 룬 수다. 제목 상한(40)과 같다.
+const rivalTitleRoom = 40
+
+// rivalReason 은 C04 거절 까닭이다. 왜 막혔는지 알아야 고치거나 넘길 수 있어
+// 부딪힌 상대의 제목 · 요약 닮음과 문턱 · 겹친 태그를 한 줄에 싣는다.
+// 제목은 남이 쓴 글이라 한 줄로 접고 중화한다 (불변조건 I3).
+func rivalReason(m *model.Memory, rival *model.Memory) string {
+	return fmt.Sprintf("같은 자리(scope %s)에 살아 있는 결정이 있다 — `%s` 「%s」 · 요약 닮음 %.3f (문턱 %.3f) · 겹친 태그 %s",
+		m.Scope, rival.ID, safe.Summary(rival.DisplayTitle(), rivalTitleRoom),
+		summarySim(m, rival), gateSummaryCut, strings.Join(commonTags(m.Tags, rival.Tags), "·"))
+}
+
+// commonTags 는 두 태그 목록이 같이 가진 것을 내 쪽 차례로 준다.
+func commonTags(mine, theirs []string) []string {
+	other := map[string]bool{}
+	for _, tag := range theirs {
+		other[strings.ToLower(tag)] = true
+	}
+	shared := []string{}
+	for _, tag := range mine {
+		if other[strings.ToLower(tag)] {
+			shared = append(shared, strings.ToLower(tag))
+		}
+	}
+	return shared
 }
 
 // gateRivals 는 C04(add 관문)가 막을 상대만 남긴다 (설계 결정 39).
@@ -545,12 +599,18 @@ func gateRivals(m *model.Memory, rivals []*model.Memory) []*model.Memory {
 		if tagOverlap(mine, other.Tags) < gateTagMin {
 			continue
 		}
-		if summarySim(m, other) < gateSummaryCut {
+		if !summaryBlocks(summarySim(m, other)) {
 			continue
 		}
 		kept = append(kept, other)
 	}
 	return kept
+}
+
+// summaryBlocks 는 요약 닮음이 C04 문턱에 닿았는지다. 시험이 조사 문서에서
+// 잰 닮음 값을 그대로 넣어 볼 수 있게 비교 한 줄을 따로 뒀다.
+func summaryBlocks(sim float64) bool {
+	return sim >= gateSummaryCut
 }
 
 // summarySim 은 두 결정이 「같은 것을 두고 말하는가」다. 제목과 요약만 본다 —
@@ -562,15 +622,24 @@ func summarySim(left, right *model.Memory) float64 {
 
 // gateTagMin·gateSummaryCut 은 C04 가 막기 전에 요구하는 둘이다.
 //
-// θ 는 실기억 130건에서 **태그 둘이 겹치는 살아 있는 결정 짝 126개**의 요약 닮음
-// 분포로 잡았다 : 중앙 0.000 · 90분위 0.028 · 95분위 0.052 · 최대 0.083.
-// 0.10 위는 한 짝도 없어 관문이 죽고, 0.025 는 위 10%(8짝 · 6.3%)만 막는다 —
-// S05 `add-reject-rate` 목표(5~20%)와 맞는 자리다. 견줌 : 정말 부딪히는 짝
-// (훅 예산 다섯 줄 ↔ 세 줄)이 0.029, 안 부딪히는 좋은 짝이 0.000, 요약을 베낀
-// 판박이가 0.744 다.
+// θ 처음 값 0.025 는 실기억 130건(태그 둘 겹치는 짝 126개)의 90분위로 잡았다.
+// 결정이 늘며 그 자리가 분포 가운데로 내려앉아 오탐이 잦아졌다 (사용 피드백
+// 2026-09-21 떡아이콘·손님그림). 2026-09-23 다시 쟀다 — 근거
+// `Docs/Research/2026-09-23-결정관문오탐조사.md` :
+//
+//	두 저장소 합쳐 태그 둘+ 겹치는 살아 있는 결정 짝 688개
+//	0.025 는 16% 를 막고 그중 80% 넘게가 오탐이다
+//	0.04 는 6~8% 를 막아 S05 `add-reject-rate` 목표(5~20%) 안이다
+//	사람이 `--by` 로 덮은 정답지 짝 중 관문이 잡던 11짝은 11짝 다 그대로 잡는다
+//	오탐은 91 → 37짝 (59% 제거). 0.05 는 정답지 한 짝(0.0444)을 놓친다
+//
+// 재현한 오탐 짝 (재료 아이콘 ↔ 건물 0.0265 · 손님 그림 ↔ 캔버스 0.0388)은 새
+// 문턱에서 지난다. 문턱을 올려 놓치는 짝은 C05(lint 후보)가 태그 하나 겹침으로
+// 넓게 잡는다. 태그 조건(2)은 그대로다 — scope 이름·흔한 태그를 빼면 정답지를
+// 절반 넘게 놓친다 (조사 문서 「대안 비교」).
 const (
 	gateTagMin     = 2
-	gateSummaryCut = 0.025
+	gateSummaryCut = 0.04
 )
 
 // LiveDecisionRivals 는 같은 scope 에 태그가 겹치는 살아 있는 decision 이다.

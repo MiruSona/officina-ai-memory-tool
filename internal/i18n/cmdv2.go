@@ -15,6 +15,7 @@ const (
 	GateWarnStored Key = "gate-warn-stored"
 	SetSuperseded  Key = "set-superseded"
 	SetByNewNext   Key = "set-by-new-next"
+	SetNotAdd      Key = "set-not-add"
 	// 무효화 전파 — 덮인 기억을 근거로 삼은 기억을 알린다.
 	SetUsedByFound   Key = "set-used-by-found"
 	SetUsedByNext    Key = "set-used-by-next"
@@ -37,7 +38,7 @@ const (
 
 // tags.
 const (
-	TagsNothing     Key = "tags-nothing"
+	TagsRenameOnly  Key = "tags-rename-only"
 	TagsAdded       Key = "tags-added"
 	TagsAliased     Key = "tags-aliased"
 	TagsBadPair     Key = "tags-bad-pair"
@@ -104,9 +105,10 @@ var commandV2Messages = map[Key]string{
 	GateFixed:      "고쳐 넣었다 : %s `%s` → `%s`",
 	GateCheckClean: "관문을 다 지났다. 넣어도 된다.",
 	GateCheckOnly:  "--check 는 미리보기라 넣지 않았다. 진짜로 넣으려면 --check 를 빼고 다시 친다.",
-	GateWarnStored: "위 %d가지는 경고다. 막지 않았고 기억은 큐에 들어갔다 — 고치려면 mem set 을 쓴다.",
+	GateWarnStored: "경고 %d가지 — 막지 않았고 기억은 큐에 들어갔다 (고치려면 mem set 을 쓴다) :",
 	SetSuperseded:  "덮음 표시를 달았다 : %s 를 %s 가 덮는다.",
 	SetByNewNext:   "새 기억을 넣을 때 `mem add … --by %s` 를 주면 덮음 표시가 채워진다.",
+	SetNotAdd:      "새 기억을 만들려면 `mem add` 를 쓴다. `set` 은 있는 기억의 칸만 고친다 (mem help set).",
 	SetUsedByFound: "이 기억을 근거로 삼은 기억이 %d건 있다 : %s",
 	SetUsedByNext:  "→ mem review --kind basis   (사람이 하나씩 판정한다)",
 	SetUsedByUnknown: "이 기억을 근거로 삼은 기억은 못 셌다 " +
@@ -124,7 +126,7 @@ var commandV2Messages = map[Key]string{
 	ShowUsedByLink:   "링크",
 	ShowUsedByDead:   "(이미 무효)",
 
-	TagsNothing:     "할 일을 안 줬다. --list · --add · --add-scope · --alias · --alias-scope · --rename · --check 중 하나를 준다.",
+	TagsRenameOnly:  "--apply · --dry-run 은 --rename <옛=새> 과 같이 준다. 목록만 보려면 옵션 없이 `mem tags` 를 친다.",
 	TagsListHead:    "표준 태그 — 상위 %d가지, 통틀어 %d가지",
 	TagsListScopes:  "표준 scope %d개 : %s",
 	TagsListNoScope: "표준 scope 가 아직 없다. mem tags --add-scope <이름> 으로 첫 이름을 정한다.",

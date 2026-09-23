@@ -161,6 +161,10 @@ func checkTags(m *model.Memory, opt Options) []Finding {
 		if !model.IsTag(tag) {
 			found = append(found, opt.finding(RuleTagShape, m,
 				fmt.Sprintf("`%s` 는 태그 규격 밖이다. 태그는 영어 소문자·숫자·하이픈만 쓴다", tag),
+				// 목록을 먼저 권한다. 거절당한 사람에게 필요한 것은 「지금 쓸 수
+				// 있는 태그」다 — --suggest 는 동의어 후보라 한 번 더 헤맨다
+				// (사용 피드백 2026-09-22).
+				"mem tags --list — 표준 태그·scope 를 다 본다 (여기서 고른다)",
 				"mem tags --suggest — 이 저장소가 쓰는 태그 후보를 본다",
 				"mem tags --add <영문태그> — 쓸 태그를 표준으로 삼는다"))
 			continue
@@ -186,9 +190,11 @@ func standardTagSteps(vocab config.Vocab, tag string) []string {
 		steps = append(steps,
 			fmt.Sprintf("가까운 표준 태그 : %s — 뜻이 같으면 이것을 쓴다", strings.Join(near, " · ")))
 	}
+	// --add 는 표준을 늘리는 명령이라 뒤에 둔다. 먼저 보여 줄 것은 이미 있는
+	// 목록이다 (사용 피드백 2026-09-21 떡배선).
 	return append(steps,
-		fmt.Sprintf("mem tags --add %s — 이 태그를 표준으로 삼는다", tag),
-		"mem tags --list — 표준 태그·scope 를 다 본다")
+		"mem tags --list — 표준 태그·scope 를 다 본다 (여기서 고른다)",
+		fmt.Sprintf("mem tags --add %s — 이 태그를 표준으로 삼는다", tag))
 }
 
 // learningNote 는 「아직 표준을 안 정해서 경고만 한다」 는 꼬리말이다.

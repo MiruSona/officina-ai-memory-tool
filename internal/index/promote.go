@@ -200,10 +200,23 @@ func (r *runner) applyAdd(name string, request *store.AddRequest) error {
 		twinID = r.sameBodyHere(request)
 	}
 	if twinID != "" {
+		if request.Supersedes != "" {
+			// 같은 `add --by X` 를 두 번 친 경우다. 두 벌은 안 만들되, add 가
+			// 큐에 같이 넣은 덮임 표시(X → 이번 id)는 없는 id 를 가리키게 된다.
+			// 살아남은 쌍둥이로 다시 댄다 (리뷰 2026-09-23).
+			r.redirectSupersede(name, request, twinID)
+		}
 		// 이미 있는 기억이니 이번 add 는 그 기억을 한 번 읽은 셈으로 친다.
 		store.AppendHit(r.store.Dir, "add", twinID)
 		r.result.Duplicated++
 		return nil
+	}
+	if request.Supersedes != "" {
+		// 덮는 기억(`add --by <옛id>`)은 옛 기억과 제목이 닮은 것이 당연하다.
+		// 합치면 add 가 알려 준 새 id 가 사라지고, 옛 기억의 superseded_by 는
+		// 없는 id 를 가리킨다 (사용 피드백 2026-09-20). 합침은 건너뛰고 늘 새
+		// 파일로 둔다. 글자까지 같은 완전중복만 위에서 걸렀다.
+		return r.createNew(name, request)
 	}
 	twin, err := r.findTwin(request)
 	if err != nil {
@@ -213,6 +226,52 @@ func (r *runner) applyAdd(name string, request *store.AddRequest) error {
 		return r.appendTo(name, twin, request)
 	}
 	return r.createNew(name, request)
+}
+
+// redirectSupersede 는 완전중복이라 안 만든 덮는 기억의 덮임 표시를 쌍둥이로
+// 옮긴다. 옛 기억에 바로 고치기를 걸고, 같은 회차에 뒤따를 add 의 patch 도
+// 표(redirect)로 다시 대게 한다. 고치기가 실패해도 add 는 그대로 중복 처리다 —
+// 옛 기억이 없으면 덮을 것도 없다.
+func (r *runner) redirectSupersede(name string, request *store.AddRequest, twinID string) {
+	date := request.Date
+	if date == "" {
+		date = r.today()
+	}
+	if r.redirect == nil {
+		r.redirect = map[string]string{}
+	}
+	r.redirect[model.QueueID(name, request.Body, date)] = twinID
+	if twinID == request.Supersedes {
+		// 옛 기억과 글자까지 같은 본문으로 「덮었다」. 덮을 것이 없다 —
+		// 뒤따를 patch 는 retarget 이 떼어 낸다.
+		return
+	}
+	patch := &store.PatchRequest{Op: store.OpPatch, ID: request.Supersedes,
+		Set: map[string]any{"superseded_by": twinID, "invalid_at": r.today()}}
+	if err := r.applyPatch(patch); err != nil {
+		r.note(name, err)
+	}
+}
+
+// retarget 은 덮임 표시가 가리키는 id 를 redirect 표로 바꾼다. 바꾼 결과가
+// 제 자신을 덮게 되면(쌍둥이가 옛 기억 자체였다) 덮을 것이 없으니 그 두 칸을
+// 떼고, 남는 칸이 없으면 true(할 일 없음)를 준다.
+func (r *runner) retarget(request *store.PatchRequest) bool {
+	value, ok := request.Set["superseded_by"].(string)
+	if !ok {
+		return false
+	}
+	target, moved := r.redirect[value]
+	if !moved {
+		return false
+	}
+	if target != request.ID {
+		request.Set["superseded_by"] = target
+		return false
+	}
+	delete(request.Set, "superseded_by")
+	delete(request.Set, "invalid_at")
+	return len(request.Set) == 0
 }
 
 func (r *runner) findTwin(request *store.AddRequest) (*candidate, error) {
@@ -386,6 +445,9 @@ func (r *runner) taken(id, body string) bool {
 
 // applyPatch 는 고칠 수 있다고 정해 둔 칸만 고친다.
 func (r *runner) applyPatch(request *store.PatchRequest) error {
+	if r.retarget(request) {
+		return nil
+	}
 	file, err := r.openTarget(request.ID)
 	if err != nil {
 		return err

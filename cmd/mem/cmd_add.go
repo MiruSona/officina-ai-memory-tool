@@ -129,11 +129,18 @@ func noteReject(opened *store.Store, verdict quality.Verdict) {
 
 // warnNote 는 경고만 나고 저장된 경우를 분명히 말한다. 경고 줄만 흘러가면
 // 1년차는 거절인지 통과인지 모른다 (실데이터 시험 4-3).
+//
+// 경고 본문(규칙 이름 + 까닭)을 이 줄 바로 밑에 한 번 더 찍는다. 위쪽 판정
+// 덩어리는 관련 id·다음에 할 것까지 붙어 길어서, 끝줄 근처만 보는 사람은
+// 「몇 가지가 경고다」만 읽고 무엇인지는 놓쳤다 (사용 피드백 2026-09-21 손님그림).
 func warnNote(verdict quality.Verdict) {
 	if verdict.Kind != quality.KindWarn {
 		return
 	}
 	fmt.Fprintln(os.Stderr, i18n.T(i18n.GateWarnStored, len(verdict.Findings)))
+	for _, one := range verdict.Findings {
+		fmt.Fprintf(os.Stderr, warnRowFormat+"\n", one.Rule, one.Reason)
+	}
 }
 
 func queueAdd(parsed *options, opened *store.Store, request store.AddRequest) int {
@@ -163,6 +170,10 @@ func queueAdd(parsed *options, opened *store.Store, request store.AddRequest) in
 	fmt.Fprintln(os.Stderr, i18n.T(i18n.AddQueuedNote, id))
 	return code
 }
+
+// warnRowFormat 은 경고 한 줄(규칙 이름 : 까닭)이다. 한글이 없는 짜임새라
+// i18n 표에 안 둔다 (tagsPlanFormat 과 같은 규칙).
+const warnRowFormat = "  - %s : %s"
 
 // strayRoom 은 되돌려 찍는 낱말 자리의 룬 수다.
 const strayRoom = 60
@@ -344,6 +355,9 @@ func decodeJSONL(text string, repository *config.Repository, opened *store.Store
 		if err := json.Unmarshal([]byte(line), &request); err != nil {
 			return nil, fixes, fail(i18n.T(i18n.JSONLBadLine, number+1, err.Error()))
 		}
+		// JSONL 길은 `--by` 를 안 받는다. 줄에 적힌 supersedes 는 id 검사도,
+		// 옛 기억 덮임 표시도 없이 들어오니 비운다 (리뷰 2026-09-23).
+		request.Supersedes = ""
 		given := request.Severity
 		fillDefaults(&request)
 		if request.Severity != given {
@@ -422,7 +436,7 @@ func requestOf(parsed *options, body string) store.AddRequest {
 		Pinned: parsed.flags["pin"], Importance: importance,
 		InvalidAt: parsed.text("invalid-at"), Links: linksOf(parsed),
 		Author: author, Sources: parsed.list("sources"), StaleAfter: parsed.text("stale-after"),
-		Review: parsed.flags["hold"], Body: body,
+		Review: parsed.flags["hold"], Supersedes: parsed.text("by"), Body: body,
 	}
 }
 

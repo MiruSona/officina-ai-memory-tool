@@ -58,8 +58,14 @@ func runTags(argv []string) int {
 		return checkTags(repository, opened)
 	case parsed.flags["suggest"]:
 		return runTagsSuggest(repository, opened)
+	case parsed.flags["apply"] || parsed.flags["dry-run"]:
+		// 이 둘은 --rename 에 붙는 말이다. 목록으로 떨어지면 「고쳤나?」를
+		// 사람이 헷갈린다 — 빠진 것을 그대로 알린다.
+		return fail(i18n.T(i18n.TagsRenameOnly))
 	}
-	return fail(i18n.T(i18n.TagsNothing))
+	// 할 일을 안 줬으면 목록을 보인다. 읽기라 위험이 없고, 인자 없이 치는
+	// 사람은 대개 「무엇이 있나」를 보려는 것이다 (사용 피드백 2026-09-22).
+	return listTags(repository, parsed)
 }
 
 // editVocab 은 vocab.toml 을 고친다. 기억 파일은 안 건드린다.

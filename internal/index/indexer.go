@@ -106,6 +106,9 @@ type runner struct {
 	// made 는 이번 회차에 승격해 만든 기억이다. 색인이 승격보다 나중이라
 	// DB 만 봐서는 같은 회차의 중복을 못 잡는다 (리뷰 C #2).
 	made []madeHere
+	// redirect 는 완전중복으로 안 만든 덮는 기억 id → 살아남은 쌍둥이 id 다.
+	// 같은 회차에 뒤따라오는 덮임 표시(patch)를 이 표로 다시 댄다.
+	redirect map[string]string
 	// deadline 은 이 회차가 끝나야 하는 벽시계 시각이다. 제로값이면 마감이 없다.
 	deadline time.Time
 	// types 는 승격·색인 검사가 쓸 종류 표다.

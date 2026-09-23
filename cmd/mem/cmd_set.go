@@ -24,6 +24,11 @@ func init() {
 	register(command{name: "set", run: runSet, bools: setBools, values: setValues})
 }
 
+// addOnlyOption 은 add 는 받고 set 은 안 받는 옵션인지다.
+func addOnlyOption(name string) bool {
+	return contains(addValues, name) || contains(addBools, name)
+}
+
 // textFields 는 `--이름 값` 이 그대로 머리말 칸으로 가는 것들이다.
 var textFields = map[string]string{
 	"summary":     "summary",
@@ -41,6 +46,13 @@ var textFields = map[string]string{
 func runSet(argv []string) int {
 	parsed, err := parseOptions(argv, setBools, setValues)
 	if err != nil {
+		// `set <id> --by-new --type decision` 처럼 add 와 헷갈려 치는 일이
+		// 잦다. add 에만 있는 옵션이면 두 명령이 무엇이 다른지 한 줄 더
+		// 알린다 (사용 피드백 2026-09-21 손님그림). 오타(`--sumary`)에 붙이면
+		// 엉뚱한 길을 가리키니 안 붙인다 (리뷰 2026-09-23).
+		if unknown := (unknownOptionError{}); errors.As(err, &unknown) && addOnlyOption(unknown.Name) {
+			return fail(err.Error() + "\n" + i18n.T(i18n.SetNotAdd))
+		}
 		return fail(err.Error())
 	}
 	if len(parsed.rest) == 0 {

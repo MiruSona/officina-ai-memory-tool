@@ -233,7 +233,7 @@ func TestDecisionGate(t *testing.T) {
 
 	fresh := goodMemory()
 	fresh.ID = "20260823-99999999"
-	fresh.Summary = "훅 예산을 절마다 세 줄로 줄인다. 20k 저장소에서 주입이 8,000바이트를 넘겨서다"
+	fresh.Summary = "훅 예산을 절마다 다섯 줄에서 세 줄로 줄인다. 20k 저장소에서 주입이 8,000바이트를 넘겨서다"
 	fresh.Title = "훅 예산을 세 줄로 줄인다"
 	fresh.Body = "20k 저장소에서 주입 블록이 상한을 넘겼다.\n\n절마다 3줄로 줄인다.\n긴 절부터 깎는 규칙은 그대로다."
 
@@ -273,7 +273,7 @@ func TestDecisionGateSkipsOtherScope(t *testing.T) {
 	live.Scope = "officina"
 	fresh := goodMemory()
 	fresh.ID = "20260823-99999999"
-	fresh.Summary = "훅 예산을 절마다 세 줄로 줄인다. 20k 저장소에서 주입이 8,000바이트를 넘겨서다"
+	fresh.Summary = "훅 예산을 절마다 다섯 줄에서 세 줄로 줄인다. 20k 저장소에서 주입이 8,000바이트를 넘겨서다"
 	fresh.Title = "훅 예산을 세 줄로 줄인다"
 	fresh.Body = "20k 저장소에서 주입 블록이 상한을 넘겼다.\n\n절마다 3줄로 줄인다.\n긴 절부터 깎는 규칙은 그대로다."
 	opt := testOptions()

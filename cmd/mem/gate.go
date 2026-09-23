@@ -122,10 +122,24 @@ func printNextSteps(out *os.File, verdict quality.Verdict) {
 	if len(steps) == 0 {
 		return
 	}
+	steps = newTopicFirst(steps)
 	fmt.Fprintln(out, i18n.T(i18n.GateNextHead))
 	for _, step := range steps {
 		fmt.Fprintln(out, "  "+step)
 	}
+}
+
+// newTopicFirst 는 「정말 다른 주제다(--new)」 줄을 맨 앞으로 올린다. 결정이
+// 중복 관문과 결정 관문에 같이 걸리면 중복 관문의 `mem set … --by-new` 덮기가
+// 첫 줄이 되어, 가장 쉬운 길이 남의 결정을 덮는 길이 된다 (리뷰 2026-09-23).
+func newTopicFirst(steps []string) []string {
+	for at, step := range steps {
+		if step == quality.NewTopicStep && at > 0 {
+			rest := append(append([]string{}, steps[:at]...), steps[at+1:]...)
+			return append([]string{step}, rest...)
+		}
+	}
+	return steps
 }
 
 // printVerdictJSON 은 --json 이 내는 판정 한 덩어리다.

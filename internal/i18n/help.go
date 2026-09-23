@@ -48,6 +48,8 @@ var commandHelp = map[string]string{
 	"add": `mem add — 기억 한 건을 관문에 걸고 통과하면 쓰기 큐에 넣는다
 
 쓰는 법 : mem add --type <종류> --title <제목> --summary <한 줄> --tags a,b --scope <범위> [옵션]
+먼저 --check 로 관문만 돌려 볼 수 있다 (저장 안 함). 닮은 결정에 막히면 정말 다른 주제일 때
+--new 로 지난다 (decision-gate · 중복 관문 둘 다). --by <옛id> 는 그 결정을 뒤집을 때만 쓴다.
   --type <종류>      todo history issue caution decision howto fact (필수)
                      vocab.toml 의 [type.<이름>] 으로 늘릴 수 있다
   --title <제목>     6~40자 한 줄 (필수). 요약 앞머리를 그대로 베끼면 거절이다
@@ -219,7 +221,7 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
 
 	"tags": `mem tags — 태그·scope 표준 목록을 보고 손본다
 
-쓰는 법 : mem tags [옵션]
+쓰는 법 : mem tags [옵션]      옵션 없이 치면 --list 와 같다
   --list                    표준 태그·scope 를 그대로 본다 (안 쓴 태그까지 다 나온다. --json 도 된다)
   --add <태그[=상위]>       표준 태그 목록에 넣는다
   --add-scope <이름>        표준 scope 목록에 넣는다

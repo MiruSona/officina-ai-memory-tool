@@ -59,8 +59,12 @@ type AddRequest struct {
 	StaleAfter string   `json:"stale_after,omitempty"`
 	// Review 는 `add --hold` 다. 승격되면 머리말에 `review: true` 로 남아
 	// 검색·훅에서 빠지고, 사람이 `review --promote` 로 뗀다 (결정 6).
-	Review bool   `json:"review,omitempty"`
-	Body   string `json:"body"`
+	Review bool `json:"review,omitempty"`
+	// Supersedes 는 `add --by <옛id>` 의 옛 id 다. 덮는 기억은 옛 기억과 닮은
+	// 것이 당연해서, 색인이 이것을 보고 합침 대상에서 뺀다 — 안 그러면 새 id 가
+	// 옛 기억에 녹아 사라진다 (사용 피드백 2026-09-20).
+	Supersedes string `json:"supersedes,omitempty"`
+	Body       string `json:"body"`
 }
 
 // PatchRequest changes a few front matter fields of a memory that already exists.
