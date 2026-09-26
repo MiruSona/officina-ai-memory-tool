@@ -94,7 +94,7 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 | --- | --- | --- |
 | `install` | exe 를 `%USERPROFILE%\.aimemory\bin\` 에 복사하고 PATH 에 넣고 **모델·DLL 을 받는다**. 기계마다 한 번 | `--bundle <폴더>` · `--no-embed` · `--check` · `--model <이름>` |
 | `init` | 이 프로젝트에 저장소를 붙인다 (뼈대·`mem.toml`·`vocab.toml`·`사용법.md`·`.gitignore`·훅·allow 규칙·규칙 블록). 여러 번 돌려도 안전 | — |
-| `add` | 기억 한 건을 **관문에 걸고** 통과하면 쓰기 큐에 넣는다 | **`--hold`** (보류로 넣기) |
+| `add` | 기억 한 건을 **관문에 걸고** 통과하면 저장한다 (락을 잡으면 그 자리에서 승격해 id 가 곧바로 보인다) | **`--hold`** (보류로 넣기) |
 | `set` | 있는 기억의 도구 칸을 고친다. `--by` 로 결정을 덮고 `--body` 로 본문을 간다 | **`--link <id>`** (링크 하나 더하기. `--links` 는 통째 교체) |
 | `search` | 찾는다. **질의가 없으면 조건 목록**만 준다. `--facet` · `--explain` | **`--include-held`** |
 | `show` | id 로 본문을 꺼낸다. `--head` 로 앞부분만, `--from-archive` 로 접힌 원본도, `--raw` 는 원문 그대로 | — |

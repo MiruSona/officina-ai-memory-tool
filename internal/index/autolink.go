@@ -74,7 +74,7 @@ func (r *runner) autoLink() {
 	}
 	// 아무것도 안 바뀐 회차는 표도 안 바뀐다. 20k 에서 이 한 줄이 헛수고
 	// 2.6초를 없앤다 (뒷정리 실측).
-	if !r.linkStale && r.result.Indexed == 0 && r.result.Removed == 0 {
+	if !r.linkStale && r.result.Indexed == 0 && r.result.Removed == 0 && len(r.pendingLinks) == 0 {
 		return
 	}
 	docs, err := r.db.LinkDocs()
@@ -92,6 +92,7 @@ func (r *runner) autoLink() {
 			return
 		}
 		r.result.AutoLinked = countLinks(found)
+		r.clearPendingLinks()
 		return
 	}
 	found, blocked := link.SuggestAllStats(docs, link.MaxLinks)
@@ -101,6 +102,78 @@ func (r *runner) autoLink() {
 		return
 	}
 	r.result.AutoLinked = countLinks(found)
+	r.clearPendingLinks()
+}
+
+// metaLinksPending 은 add 즉시 승격이 색인만 하고 이웃 링크를 미룬 기억 id 를
+// 빈칸으로 이어 적는 meta 칸이다. linksAll 이면 표를 통째로 다시 만든다.
+// 이것이 없으면 다음 index 가 「바뀐 파일 0건」이라 링크를 건너뛰어, add 로
+// 들어온 기억은 다른 파일이 바뀔 때까지 이웃이 없다.
+const (
+	metaLinksPending = "links_pending"
+	linksAll         = "*"
+	// pendingLinksMax 를 넘게 쌓이면 둘레만 재는 쪽이 더 비싸다 — 통째로 간다.
+	pendingLinksMax = 200
+)
+
+// deferLinks 는 이번에 색인한 기억을 미룬 목록에 더한다. full 이면 표를 통째로
+// 다시 만들라고 적는다 (방금 새로 만든 색인 · 표 꼴이 바뀐 경우).
+func (r *runner) deferLinks(full bool) error {
+	if !full && r.result.Indexed == 0 && r.result.Removed == 0 {
+		return nil
+	}
+	saved, err := r.db.Meta(metaLinksPending)
+	if err != nil {
+		return err
+	}
+	ids := strings.Fields(saved)
+	if full || r.result.Removed > 0 || containsText(ids, linksAll) {
+		ids = []string{linksAll}
+	} else {
+		for _, one := range r.result.Changed {
+			if !containsText(ids, one.ID) {
+				ids = append(ids, one.ID)
+			}
+		}
+		if len(ids) > pendingLinksMax {
+			ids = []string{linksAll}
+		}
+	}
+	return r.db.SetMeta(metaLinksPending, strings.Join(ids, " "))
+}
+
+// loadPendingLinks 는 미룬 목록을 읽는다. 통째로 다시 만들라는 표시면 표를
+// 버린 것과 같이 다룬다.
+func (r *runner) loadPendingLinks() error {
+	saved, err := r.db.Meta(metaLinksPending)
+	if err != nil {
+		return err
+	}
+	r.pendingLinks = strings.Fields(saved)
+	if containsText(r.pendingLinks, linksAll) {
+		r.linkStale = true
+	}
+	return nil
+}
+
+// clearPendingLinks 는 이웃 표를 다시 잰 뒤 미룬 목록을 비운다. 못 비우면 다음
+// 회차가 한 번 더 잴 뿐이다 — 파생물이라 틀릴 일은 없다.
+func (r *runner) clearPendingLinks() {
+	if len(r.pendingLinks) == 0 {
+		return
+	}
+	if err := r.db.SetMeta(metaLinksPending, ""); err != nil {
+		r.note(DBPath(r.store.Dir), err)
+	}
+}
+
+func containsText(list []string, value string) bool {
+	for _, item := range list {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 func countLinks(found map[string][]link.Candidate) int {
@@ -123,12 +196,18 @@ func (r *runner) smallChange(total int) map[string]bool {
 	if r.linkStale || r.fresh || r.result.Removed > 0 || total == 0 {
 		return nil
 	}
-	if len(r.result.Changed) == 0 || len(r.result.Changed)*smallChangeRatio > total {
+	if len(r.result.Changed) == 0 && len(r.pendingLinks) == 0 {
 		return nil
 	}
-	ids := make(map[string]bool, len(r.result.Changed))
+	if (len(r.result.Changed)+len(r.pendingLinks))*smallChangeRatio > total {
+		return nil
+	}
+	ids := make(map[string]bool, len(r.result.Changed)+len(r.pendingLinks))
 	for _, one := range r.result.Changed {
 		ids[one.ID] = true
+	}
+	for _, id := range r.pendingLinks {
+		ids[id] = true
 	}
 	return ids
 }

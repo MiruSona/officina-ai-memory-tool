@@ -11,6 +11,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
+	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
@@ -121,6 +122,18 @@ type runner struct {
 	// fresh 는 방금 만든 빈 색인이라는 뜻이다. 지울 옛 행이 없어 문서마다
 	// 두 번 하던 조회와 삭제를 건너뛴다.
 	fresh bool
+	// outcome 은 이름 준 큐 파일마다 승격 결과다. add 즉시 승격(PromoteNow)만
+	// 표를 만든다 — nil 이면 안 적는다.
+	outcome map[string]Outcome
+	// dropped 는 이번 회차에 bad 로 간 add 의 큐 id 다. 그 id 를 가리키는 덮임
+	// 표시(patch)를 막는다.
+	dropped map[string]bool
+	// queued 는 지금 승격 중인 add 의 큐 id 다. 영수증에 같이 적어, 늦게 온
+	// `add --by` 의 덮임 표시를 남이 바꾼 실제 id 로 다시 댈 수 있게 한다.
+	queued string
+	// pendingLinks 는 앞선 add 즉시 승격이 색인만 하고 이웃 링크를 미뤄 둔
+	// 기억 id 다. 이번 회차 이웃 링크가 그 둘레도 다시 잰다.
+	pendingLinks []string
 	// dirStamp 은 파일 목록을 훑기 직전에 본 store/ 폴더 자리표다. 훑은 뒤에
 	// 재면 그 사이에 들어온 파일을 색인 안 하고도 「따라잡았다」 고 적게 된다.
 	dirStamp string
@@ -202,6 +215,10 @@ func runLocked(options Options, result *Result) error {
 		return err
 	}
 	current.linkStale = dropped
+	// 앞선 add 즉시 승격이 미뤄 둔 이웃 링크를 이번에 같이 잰다.
+	if err := current.loadPendingLinks(); err != nil {
+		return err
+	}
 	// 이웃 링크는 색인이 다 선 뒤에야 후보를 볼 수 있다 (결정 42).
 	current.autoLink()
 	if err := current.finish(options.GC); err != nil {
@@ -217,6 +234,161 @@ func runLocked(options Options, result *Result) error {
 	}
 	result.Vectors = found
 	return nil
+}
+
+// PromoteResult 는 add 즉시 승격 한 번의 결과다.
+type PromoteResult struct {
+	// Locked 는 짧게 기다려도 락을 못 잡아 아무것도 안 했다는 뜻이다. 큐 파일은
+	// 그대로 inbox/new 에 있고 다음 index 가 승격한다.
+	Locked bool
+	// Outcomes 는 이름 준 큐 파일마다 결과다. 여기 없는 이름은 손대지 못한 것이다.
+	Outcomes map[string]Outcome
+	// Result 는 센 수다. 색인(Run)과 같은 꼴이다.
+	Result Result
+	// Deferred 는 색인을 새로 세워야 하는 판이라 승격을 안 하고 큐에 뒀다는
+	// 뜻이다. 다음 mem index 가 새 색인과 함께 승격한다.
+	Deferred bool
+}
+
+// PromoteWait 는 add 가 락을 기다려 주는 최대 시간이다. 훅 한 회차(1초 안)는
+// 기다리고, 전체 재색인(수 초~15초)은 못 기다려 큐로 간다 (설계 2026-09-23 5절).
+// 시험이 줄일 수 있게 변수로 둔다.
+var PromoteWait = time.Second
+
+// promoteTick 은 락을 다시 잡아 보는 간격이다.
+const promoteTick = 50 * time.Millisecond
+
+// PromoteNow 는 이름 준 큐 파일만 그 자리에서 승격하고 증분 색인한다. `mem add`
+// 가 찍는 id 가 곧바로 `show`·검색에 보이는 **실제로 남은 id** 가 되게 하는
+// 자리다 (설계 2026-09-23 2장). 색인(Run)과 **같은 락·같은 승격 코드**를 쓴다.
+// 남의 큐 파일 · gc · 벡터 · 이웃 링크는 안 한다 — 벡터와 이웃 링크는 다음
+// `mem index` 가 채운다. 락을 못 잡으면 아무것도 안 만지고 Locked 로 돌아간다.
+// 오류가 나도 그때까지 적힌 Outcomes 는 돌려준다.
+func PromoteNow(options Options, names []string) (*PromoteResult, error) {
+	outcome := PromoteResult{Outcomes: map[string]Outcome{}}
+	started := time.Now()
+	release, taken, err := waitLock(options.Store.Dir, PromoteWait)
+	if err != nil {
+		return &outcome, err
+	}
+	if !taken {
+		outcome.Locked = true
+		outcome.Result.Locked = true
+		return &outcome, nil
+	}
+	defer release()
+	clearStaleFiles(options.Store.Dir)
+	err = promoteLocked(options, names, &outcome)
+	outcome.Result.Elapsed = time.Since(started)
+	return &outcome, err
+}
+
+// waitLock 은 TryLock 을 promoteTick 간격으로 wait 동안 해 본다.
+func waitLock(dir string, wait time.Duration) (func(), bool, error) {
+	deadline := time.Now().Add(wait)
+	for {
+		release, taken, err := TryLock(dir)
+		if taken || err != nil {
+			return release, taken, err
+		}
+		if !time.Now().Before(deadline) {
+			return nil, false, nil
+		}
+		time.Sleep(promoteTick)
+	}
+}
+
+func promoteLocked(options Options, names []string, outcome *PromoteResult) error {
+	database, err := openForRun(options.Store.Dir, &outcome.Result)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	// 늘 조용히 돈다. 남의 파일 알림이 add 화면에 섞이면 안 된다 — 제 파일의
+	// 까닭은 Outcomes 로 돌려주고 add 가 찍는다.
+	current := runner{db: database, store: options.Store, result: &outcome.Result, now: time.Now(),
+		quiet: true, scanner: scannerFor(options.Secret), fresh: outcome.Result.Rebuilt,
+		types: typesFor(options.Types, options.Store.Dir), outcome: outcome.Outcomes}
+	first, err := needsFirstIndex(database, options.Store.StoreDir())
+	if err != nil {
+		return err
+	}
+	if current.fresh || first {
+		// 색인을 새로 세우는 판(방식이 바뀜 · 깨짐 · 받은 뒤 첫 색인 전)이다. 빈 색인에
+		// 대고 승격하면 쌍둥이·닮은 기억을 못 봐 겹친 파일이 생기고, 색인까지
+		// 하면 add 한 번이 store 전체 재색인을 떠안는다 (리뷰 2026-09-26 #4).
+		// 큐에 둔 채 다음 index 에 맡긴다. 이웃 링크도 통째로 다시 재게 적는다.
+		outcome.Deferred = true
+		if _, err := EnsureAutoLinks(database.sql); err != nil {
+			return err
+		}
+		return current.deferLinks(true)
+	}
+	mine, err := current.claimNames(names)
+	if err != nil {
+		return err
+	}
+	if err := current.promoteNames(mine); err != nil {
+		return err
+	}
+	if err := current.indexChanged(); err != nil {
+		return err
+	}
+	// 검색의 1-hop 는 파생 표가 있어야 읽는다. 표는 다음 index 가 채운다.
+	dropped, err := EnsureAutoLinks(database.sql)
+	if err != nil {
+		return err
+	}
+	if err := current.deferLinks(dropped); err != nil {
+		return err
+	}
+	// 증분 색인이 store/ 를 다 훑었으니 읽기 명령이 따라잡기를 건너뛰어도 된다.
+	return database.SetMeta(metaStoreDirs, current.dirStamp)
+}
+
+// claimNames 는 락을 잡은 뒤 이름 준 큐 파일이 아직 inbox/new 에 있는지 본다.
+// 기다리는 사이 남이 먼저 승격했으면 파일이 없다 — 그 파일을 다시 읽으려 들면
+// PathError 로 「색인 대기」 가 찍히고, 남이 합친 경우 찍힌 id 가 틀린다
+// (리뷰 2026-09-26 #1). 없는 이름은 여기서 결과를 정한다.
+//   - 영수증이 있으면 그 id (남이 만든 · 쌍둥이 · 붙인 기억)
+//   - inbox/bad 에 있으면 bad 와 남겨 둔 까닭
+//   - 둘 다 없으면 gone — 남이 끝까지 먹었는데(bad 가 아니다) 실제 id 를 모른다.
+//     add 가 아닌 항목(patch · body)이면 부르는 쪽이 먹힌 것(done)으로 친다
+//
+// 돌려주는 것은 아직 new 에 있어 이번에 승격할 이름이다.
+func (r *runner) claimNames(names []string) ([]string, error) {
+	if err := EnsurePromoted(r.db.sql); err != nil {
+		return nil, err
+	}
+	mine := []string{}
+	for _, name := range names {
+		if r.store.InInbox(name) {
+			mine = append(mine, name)
+			continue
+		}
+		found, err := r.db.promotedOf(name)
+		if err != nil {
+			return nil, err
+		}
+		switch {
+		case found.ID != "":
+			r.outcome[name] = Outcome{State: found.State, ID: found.ID, Foreign: true}
+			// 남이 add 만 먹고 같이 넣은 덮임 표시는 못 봤을 수 있다. 그 표시는
+			// 큐 id 를 가리키니 실제 id 로 다시 대게 표에 올린다.
+			if found.Queued != "" && found.Queued != found.ID {
+				if r.redirect == nil {
+					r.redirect = map[string]string{}
+				}
+				r.redirect[found.Queued] = found.ID
+			}
+		case r.store.InBad(name):
+			r.outcome[name] = Outcome{State: OutcomeBad, Foreign: true,
+				Reason: safe.Neutralize(safe.OneLine(r.store.BadReason(name)))}
+		default:
+			r.outcome[name] = Outcome{State: OutcomeGone, Foreign: true}
+		}
+	}
+	return mine, nil
 }
 
 // openForRun 은 색인을 열되, 방식이 바뀌었거나 파일이 깨졌으면 지우고 다시

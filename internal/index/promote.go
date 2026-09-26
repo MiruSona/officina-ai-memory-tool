@@ -30,6 +30,20 @@ func (r *runner) promoteInbox() error {
 	if err != nil {
 		return err
 	}
+	return r.promoteNames(names)
+}
+
+// promoteNames 는 이름 준 큐 파일만 차례대로 승격한다. 색인(promoteInbox)은
+// inbox/new 전부를, add 즉시 승격(PromoteNow)은 제가 쓴 파일만 넘긴다 — 같은
+// 코드·같은 락이다 (설계 2026-09-23 2-4).
+func (r *runner) promoteNames(names []string) error {
+	// 영수증 표는 승격하는 모든 길(색인 · 훅 · add)이 여기를 지나니 여기서 세운다.
+	if err := EnsurePromoted(r.db.sql); err != nil {
+		return err
+	}
+	if err := r.db.prunePromoted(r.now); err != nil {
+		return err
+	}
 	archived := []string{}
 	for _, name := range names {
 		// 큐가 밀려 있으면 여기서 시간을 다 먹는다. 훅은 마감을 주고 부른다.
@@ -126,16 +140,86 @@ func isRetryable(err error) bool {
 	return errors.As(err, &pathError)
 }
 
+// 큐 파일 하나가 승격에서 어떻게 끝났는지 (설계 2026-09-23 2-3).
+const (
+	// OutcomeNew 는 새 md 파일을 만들었다는 뜻이다.
+	OutcomeNew = "new"
+	// OutcomeDuplicate 는 같은 본문이 이미 있어 그 기억을 가리킨다는 뜻이다.
+	OutcomeDuplicate = "duplicate"
+	// OutcomeAppended 는 닮은 기억 뒤에 한 절로 붙었다는 뜻이다.
+	OutcomeAppended = "appended"
+	// OutcomeDone 은 add 가 아닌 항목(patch · body)이 먹혔다는 뜻이다.
+	OutcomeDone = "done"
+	// OutcomeBad 는 inbox/bad 로 갔다는 뜻이다 (비밀정보 · 규격 위반 · 대상 없음).
+	OutcomeBad = "bad"
+	// OutcomeLeft 는 파일 계층이 실패해 inbox/new 에 그대로 남았다는 뜻이다.
+	OutcomeLeft = "left"
+	// OutcomeGone 은 락을 잡고 보니 남이 먼저 승격해 큐 파일이 없고, 영수증도
+	// 없어 실제 id 를 모른다는 뜻이다 (색인을 새로 세웠거나 오래 기다렸다).
+	OutcomeGone = "gone"
+)
+
+// Outcome 은 이름 준 큐 파일 하나의 결과다. ID 는 **실제로 남은** 기억 id 다 —
+// 중복이면 쌍둥이, 붙었으면 닮은 기억이다. Reason 은 bad·left 일 때의 까닭으로
+// 이미 중화한 한 줄이다 (규칙 이름·칸 이름뿐, 값은 안 실린다).
+type Outcome struct {
+	State  string
+	ID     string
+	Reason string
+	Secret bool
+	// Foreign 은 이 항목을 남(`mem index` · 다른 add)이 먼저 승격했다는 뜻이다.
+	// ID 는 그 회차가 남긴 영수증에서 읽은 실제 id 다.
+	Foreign bool
+}
+
+// record 는 결과를 적는다. id 가 있는 결과는 누가 승격하든 영수증(promoted
+// 표)에 남긴다 — 락을 기다리던 add 가 남이 먹은 제 파일의 실제 id 를 거기서
+// 읽는다 (리뷰 2026-09-26 #1). 이름별 결과 표는 add 즉시 승격만 들고 있다.
+func (r *runner) record(name, state, id string) {
+	if id != "" {
+		if err := r.db.keepPromoted(name, r.queued, id, state, r.now); err != nil {
+			r.note(name, err)
+		}
+	}
+	if r.outcome == nil {
+		return
+	}
+	if _, done := r.outcome[name]; done {
+		// 한 항목 안에서 먼저 정해진 결과가 맞다. appendTo 가 본문 넘침으로
+		// createNew 로 넘어가는 길처럼 안쪽 함수가 이미 적었다.
+		return
+	}
+	r.outcome[name] = Outcome{State: state, ID: id}
+}
+
+// recordFailure 는 bad·left 결과를 까닭과 같이 적는다. 앞서 적힌 성공 결과가
+// 있어도 덮는다 — 파일을 쓴 뒤 표시 단계에서 실패하면 그 항목은 끝나지 않았다.
+func (r *runner) recordFailure(name, state string, reason error) {
+	if err := r.db.dropPromoted(name); err != nil {
+		r.note(name, err)
+	}
+	if r.outcome == nil {
+		return
+	}
+	r.outcome[name] = Outcome{State: state, Reason: safe.Neutralize(safe.OneLine(reason.Error())),
+		Secret: IsSecretBlock(reason)}
+}
+
 // promoteOne 은 이 항목이 끝났는지 알려준다. 나쁜 항목은 bad 로 옮기고, 파일
 // 계층이 실패한 것은 그 자리에 둔다.
 func (r *runner) promoteOne(name string) bool {
 	item, err := r.store.ReadInbox(name)
+	r.queued = ""
+	if err == nil && item.Add != nil {
+		r.queued = r.queueID(name, item.Add)
+	}
 	if err == nil {
 		err = r.apply(name, item)
 	}
 	if err != nil && isRetryable(err) {
 		r.result.Left++
 		r.note(name, err)
+		r.recordFailure(name, OutcomeLeft, err)
 		return false
 	}
 	if err != nil {
@@ -145,6 +229,8 @@ func (r *runner) promoteOne(name string) bool {
 			r.result.Secret++
 		}
 		r.note(name, err)
+		r.recordFailure(name, OutcomeBad, err)
+		r.forgetAdd(name, item)
 		if moveErr := r.store.MoveToBad(name); moveErr != nil {
 			// 못 옮기면 파일이 new 에 그대로 남아 매 회차 다시 bad 로 세어진다.
 			// 아무도 그걸 모르면 안 된다 (리뷰 A #10).
@@ -161,11 +247,36 @@ func (r *runner) promoteOne(name string) bool {
 		}
 		return false
 	}
+	if item.Add == nil {
+		r.record(name, OutcomeDone, "")
+	}
 	if err := r.db.markInbox(name); err != nil {
 		r.result.Left++
 		return false
 	}
 	return true
+}
+
+// forgetAdd 는 bad 로 간 add 의 큐 id 를 적어 둔다. 같은 회차에 뒤따르는 덮임
+// 표시(`add --by` 가 같이 넣은 patch)가 없는 id 를 옛 기억에 달지 않게 막는다.
+func (r *runner) forgetAdd(name string, item *store.InboxItem) {
+	if item == nil || item.Add == nil {
+		return
+	}
+	if r.dropped == nil {
+		r.dropped = map[string]bool{}
+	}
+	r.dropped[r.queueID(name, item.Add)] = true
+}
+
+// queueID 는 add 가 큐에 넣을 때 찍은 id 다. 날짜를 안 적은 옛 큐 파일은
+// 오늘로 친다 — createNew 와 같은 셈이다.
+func (r *runner) queueID(name string, request *store.AddRequest) string {
+	date := request.Date
+	if date == "" {
+		date = r.today()
+	}
+	return model.QueueID(name, request.Body, date)
 }
 
 func (r *runner) apply(name string, item *store.InboxItem) error {
@@ -209,6 +320,7 @@ func (r *runner) applyAdd(name string, request *store.AddRequest) error {
 		// 이미 있는 기억이니 이번 add 는 그 기억을 한 번 읽은 셈으로 친다.
 		store.AppendHit(r.store.Dir, "add", twinID)
 		r.result.Duplicated++
+		r.record(name, OutcomeDuplicate, twinID)
 		return nil
 	}
 	if request.Supersedes != "" {
@@ -233,14 +345,10 @@ func (r *runner) applyAdd(name string, request *store.AddRequest) error {
 // 표(redirect)로 다시 대게 한다. 고치기가 실패해도 add 는 그대로 중복 처리다 —
 // 옛 기억이 없으면 덮을 것도 없다.
 func (r *runner) redirectSupersede(name string, request *store.AddRequest, twinID string) {
-	date := request.Date
-	if date == "" {
-		date = r.today()
-	}
 	if r.redirect == nil {
 		r.redirect = map[string]string{}
 	}
-	r.redirect[model.QueueID(name, request.Body, date)] = twinID
+	r.redirect[r.queueID(name, request)] = twinID
 	if twinID == request.Supersedes {
 		// 옛 기억과 글자까지 같은 본문으로 「덮었다」. 덮을 것이 없다 —
 		// 뒤따를 patch 는 retarget 이 떼어 낸다.
@@ -366,6 +474,7 @@ func (r *runner) appendTo(name string, twin *candidate, request *store.AddReques
 	}
 	if strings.Contains(file.Memory.Body, strings.TrimSpace(request.Body)) {
 		r.result.Duplicated++
+		r.record(name, OutcomeDuplicate, twin.ID)
 		return nil
 	}
 	merged := file.Memory.Body + "\n\n" + i18n.T(i18n.AppendHeading, r.today()) + "\n\n" + request.Body
@@ -378,6 +487,7 @@ func (r *runner) appendTo(name string, twin *candidate, request *store.AddReques
 		return retryable(err)
 	}
 	r.result.Appended++
+	r.record(name, OutcomeAppended, twin.ID)
 	return nil
 }
 
@@ -413,6 +523,15 @@ func (r *runner) createNew(name string, request *store.AddRequest) error {
 	}
 	r.remember(memory.ID, model.StorePath(memory.ID), request)
 	r.result.Added++
+	r.record(name, OutcomeNew, memory.ID)
+	// id 충돌로 소금을 쳤으면 add 가 찍은 큐 id 와 다르다. 같은 회차에 뒤따르는
+	// 덮임 표시(patch)가 없는 id 를 달지 않게 새 id 로 다시 댄다.
+	if queued := model.QueueID(name, request.Body, date); queued != memory.ID {
+		if r.redirect == nil {
+			r.redirect = map[string]string{}
+		}
+		r.redirect[queued] = memory.ID
+	}
 	return nil
 }
 
@@ -445,6 +564,10 @@ func (r *runner) taken(id, body string) bool {
 
 // applyPatch 는 고칠 수 있다고 정해 둔 칸만 고친다.
 func (r *runner) applyPatch(request *store.PatchRequest) error {
+	if value, ok := request.Set["superseded_by"].(string); ok && r.dropped[value] {
+		// 덮는 기억이 bad 로 갔다. 표시를 달면 옛 기억이 없는 id 를 가리킨다.
+		return errors.New(i18n.T(i18n.SupersedeLost, value))
+	}
 	if r.retarget(request) {
 		return nil
 	}

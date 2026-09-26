@@ -105,7 +105,7 @@ var commandV2Messages = map[Key]string{
 	GateFixed:      "고쳐 넣었다 : %s `%s` → `%s`",
 	GateCheckClean: "관문을 다 지났다. 넣어도 된다.",
 	GateCheckOnly:  "--check 는 미리보기라 넣지 않았다. 진짜로 넣으려면 --check 를 빼고 다시 친다.",
-	GateWarnStored: "경고 %d가지 — 막지 않았고 기억은 큐에 들어갔다 (고치려면 mem set 을 쓴다) :",
+	GateWarnStored: "경고 %d가지 — 막지 않았고 기억은 저장한다 (고치려면 mem set 을 쓴다) :",
 	SetSuperseded:  "덮음 표시를 달았다 : %s 를 %s 가 덮는다.",
 	SetByNewNext:   "새 기억을 넣을 때 `mem add … --by %s` 를 주면 덮음 표시가 채워진다.",
 	SetNotAdd:      "새 기억을 만들려면 `mem add` 를 쓴다. `set` 은 있는 기억의 칸만 고친다 (mem help set).",

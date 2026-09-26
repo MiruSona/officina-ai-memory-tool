@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sort"
@@ -315,14 +316,30 @@ func (s *Store) WriteBadReason(name, reason string) error {
 }
 
 // BadReason 은 남겨 둔 이유를 돌려준다. 없으면 빈 글이다 — 이유 파일 없이
-// bad 로 간 옛 항목도 있을 수 있다.
+// bad 로 간 옛 항목도 있을 수 있다. 링크·특수 파일은 안 열고(경로 감옥)
+// badReasonLimit 까지만 읽는다 — 누가 거대한 파일을 넣어도 보기 명령이 안 먹힌다.
 func (s *Store) BadReason(name string) string {
-	data, err := os.ReadFile(filepath.Join(s.badReasonsDir(), name+".err"))
+	if strings.ContainsAny(name, `/\:`) {
+		return ""
+	}
+	path := filepath.Join(s.badReasonsDir(), name+".err")
+	if regularFile(path) != nil {
+		return ""
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	data, err := io.ReadAll(io.LimitReader(file, badReasonLimit))
 	if err != nil {
 		return ""
 	}
 	return string(data)
 }
+
+// badReasonLimit 은 까닭 파일에서 읽는 최대 바이트다. 까닭은 규칙 한 줄이다.
+const badReasonLimit = 1 << 16
 
 // ListBad 는 inbox/bad 에 남은 파일 이름이다. 무엇을 지우는지 먼저 보여줄 수
 // 있어야 지우는 명령을 만들 수 있다 (리뷰 C #14).
@@ -342,6 +359,61 @@ func (s *Store) ListBad() ([]string, error) {
 	}
 	sort.Strings(names)
 	return names, nil
+}
+
+// InInbox 는 큐 파일 name 이 아직 inbox/new 에 있는지다. 링크·특수 파일은 없는
+// 것으로 친다 (경로 감옥).
+func (s *Store) InInbox(name string) bool { return queuedFile(s.InboxNewDir(), name) }
+
+// InBad 는 큐 파일 name 이 inbox/bad 로 갔는지다.
+func (s *Store) InBad(name string) bool { return queuedFile(s.InboxBadDir(), name) }
+
+func queuedFile(dir, name string) bool {
+	if name == "" || strings.ContainsAny(name, `/\:`) {
+		return false
+	}
+	return regularFile(filepath.Join(dir, name)) == nil
+}
+
+// badPeekLimit 은 bad 파일에서 op 를 보려고 읽는 최대 바이트다. 큐 항목은 수 KB
+// 라 넉넉하다. 누가 거대한 파일을 넣어도 보기 명령이 통째로 먹지 않는다.
+const badPeekLimit = 1 << 20
+
+// BadOp 는 inbox/bad 파일 하나의 op 만 읽는다 (add · patch · body). 못 읽거나
+// JSON 이 깨졌거나 모르는 op 면 빈 글 — 부르는 쪽이 「깨짐」으로 찍는다.
+// 링크·특수 파일은 열지 않는다 (경로 감옥). 본문·값은 돌려주지 않는다.
+func (s *Store) BadOp(name string) string {
+	if strings.ContainsAny(name, `/\:`) {
+		return ""
+	}
+	path := filepath.Join(s.InboxBadDir(), name)
+	if regularFile(path) != nil {
+		return ""
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return ""
+	}
+	defer file.Close()
+	raw, err := io.ReadAll(io.LimitReader(file, badPeekLimit))
+	if err != nil {
+		return ""
+	}
+	text, _, err := decode(raw, path)
+	if err != nil {
+		return ""
+	}
+	envelope := opEnvelope{}
+	if json.Unmarshal(text, &envelope) != nil {
+		return ""
+	}
+	switch envelope.Op {
+	case OpAdd, OpPatch, OpBody:
+		return envelope.Op
+	case OpAmend:
+		return OpBody
+	}
+	return ""
 }
 
 // ClearBad 는 이름을 준 것만 지운다. 사람이 본 목록과 지운 것이 어긋나지 않게

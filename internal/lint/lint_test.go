@@ -42,6 +42,22 @@ func copyFixture(t *testing.T, opened *store.Store, name string) {
 	writeMemoryFile(t, opened, idOf(string(raw)), raw)
 }
 
+// copyFixtureCRLF 는 fixture 를 CRLF 줄끝으로 바꿔 넣는다. 시험 자료는
+// `.gitattributes` 로 어느 OS 에서 받아도 LF 라서, CRLF 는 여기서 바이트로
+// 만든다 — 체크아웃이 줄끝을 바꿔 주는 데 기대면 리눅스에서 깨진다.
+// 먼저 LF 로 되돌리는 것은 옛 Windows 사본(CRLF 로 받은 것)에서 `\r\r\n` 이
+// 생기지 않게 하려는 것이다.
+func copyFixtureCRLF(t *testing.T, opened *store.Store, name string) {
+	t.Helper()
+	raw, err := os.ReadFile(filepath.Join(fixtureDir, name))
+	if err != nil {
+		t.Fatal(err)
+	}
+	text := strings.ReplaceAll(string(raw), "\r\n", "\n")
+	text = strings.ReplaceAll(text, "\n", "\r\n")
+	writeMemoryFile(t, opened, idOf(text), []byte(text))
+}
+
 func idOf(text string) string {
 	if found := idLine.FindStringSubmatch(text); found != nil {
 		return found[1]
@@ -300,7 +316,11 @@ func TestSecretValueNeverPrinted(t *testing.T) {
 
 // TestFixOnlyReversible 은 --fix 가 되돌릴 수 있는 것만 고치는지 본다.
 func TestFixOnlyReversible(t *testing.T) {
-	opened := newRepo(t, "crlf.md", "bom.md", "field.md", "extra-field.md")
+	opened := newRepo(t, "bom.md", "field.md")
+	copyFixtureCRLF(t, opened, "crlf.md")
+	// 규격 밖 칸이 있는 파일도 고칠 거리(CRLF)가 있어야 「건너뜀」으로 잡힌다.
+	// 고칠 것이 없으면 건너뛸 것도 없다.
+	copyFixtureCRLF(t, opened, "extra-field.md")
 	report := runOn(t, opened, true)
 	if len(report.Fixes) != 2 {
 		t.Fatalf("고친 것이 2건이어야 한다 : %+v", report.Fixes)
@@ -317,6 +337,28 @@ func TestFixOnlyReversible(t *testing.T) {
 	}
 	if strings.HasPrefix(readStore(t, opened, "20260820-ffff5555.md"), string([]byte{0xEF, 0xBB, 0xBF})) {
 		t.Fatal("BOM 이 안 지워졌다")
+	}
+}
+
+// TestLintFixturesAreLF 는 받은 시험 자료가 LF 인지 본다. `.gitattributes` 가
+// `testdata/** text eol=lf` 로 못박는다 — 여기 CRLF 가 보이면 그 파일을 넣기 전에
+// 받은 옛 사본이다. CRLF 시험은 copyFixtureCRLF 가 바이트를 만든다.
+func TestLintFixturesAreLF(t *testing.T) {
+	entries, err := os.ReadDir(fixtureDir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range entries {
+		if !strings.HasSuffix(entry.Name(), ".md") {
+			continue
+		}
+		raw, err := os.ReadFile(filepath.Join(fixtureDir, entry.Name()))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if strings.Contains(string(raw), "\r\n") {
+			t.Fatalf("%s 가 CRLF 다. .gitattributes 전에 받은 사본이면 testdata 를 다시 받는다", entry.Name())
+		}
 	}
 }
 
@@ -339,7 +381,8 @@ func TestFixSwapsAliasTag(t *testing.T) {
 // TestFixWithoutLockOnlyChecks 는 남이 락을 쥐고 있으면 검사만 하는지 본다
 // (불변조건 2).
 func TestFixWithoutLockOnlyChecks(t *testing.T) {
-	opened := newRepo(t, "crlf.md")
+	opened := newRepo(t)
+	copyFixtureCRLF(t, opened, "crlf.md")
 	lock := filepath.Join(opened.Dir, "index.lock")
 	line := "999999 1 " + timeNow() + " othermachine\n"
 	if err := os.WriteFile(lock, []byte(line), 0o644); err != nil {
@@ -359,7 +402,8 @@ func TestFixWithoutLockOnlyChecks(t *testing.T) {
 
 // TestFixReadOnlyStore 는 읽기 전용 저장소에서 검사만 하는지 본다.
 func TestFixReadOnlyStore(t *testing.T) {
-	opened := newRepo(t, "crlf.md")
+	opened := newRepo(t)
+	copyFixtureCRLF(t, opened, "crlf.md")
 	readOnly := store.Open(opened.Dir, true)
 	report := runWith(t, Options{Store: readOnly, Config: config.Default("test"), Vocab: lintVocab(), Fix: true, NoGit: true})
 	if !report.FixReadOnly || len(report.Fixes) != 0 {

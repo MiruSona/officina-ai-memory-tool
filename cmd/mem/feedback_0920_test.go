@@ -23,23 +23,32 @@ func TestAddSaysRejectedAtTheEnd(t *testing.T) {
 	}
 }
 
-// 저장이면 「저장됨 : <id>」 가 **맨 마지막 줄**이다.
+// 저장이면 「저장됨 : <id>」 가 **맨 마지막 줄**이다. 바로 승격됐으면 색인
+// 대기 말이 없고, 락을 못 잡아 큐에 남았으면 「mem index 뒤에」 가 붙는다.
 func TestAddSaysStoredAsLastLine(t *testing.T) {
-	newRepo(t)
+	memory := newRepo(t)
 	out, code := captureBoth(t, func() int { return run(addArgs("다섯 줄짜리 본문이다")) })
 	if code != exitOK {
 		t.Fatalf("통과여야 한다 : %d (%s)", code, out)
 	}
-	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
-	last := lines[len(lines)-1]
-	if !strings.HasPrefix(last, "저장됨 : 2026") || !strings.Contains(last, "mem index") {
+	if last := lastLine(out); !strings.HasPrefix(last, "저장됨 : 2026") || strings.Contains(last, "mem index") {
 		t.Fatalf("마지막 줄이 저장 알림이 아니다 : %s", last)
+	}
+	holdLock(t, memory)
+	out, code = captureBoth(t, func() int { return run(append(addArgs("락이 잡힌 동안의 다른 본문이다"), "--new")) })
+	if code != exitOK {
+		t.Fatalf("통과여야 한다 : %d (%s)", code, out)
+	}
+	if last := lastLine(out); !strings.HasPrefix(last, "저장됨 : 2026") || !strings.Contains(last, "mem index") {
+		t.Fatalf("마지막 줄이 색인 대기 알림이 아니다 : %s", last)
 	}
 }
 
 // 색인 대기 id 를 show 하면 「없다」가 아니라 「아직 색인 전이다」다.
 func TestShowTellsQueuedID(t *testing.T) {
-	newRepo(t)
+	memory := newRepo(t)
+	// 남이 색인 중이라 add 가 락을 못 잡고 큐에 둔 경우다.
+	holdLock(t, memory)
 	added, code := capture(t, func() int { return run(addArgs("색인 전에 보려는 본문이다")) })
 	if code != exitOK {
 		t.Fatalf("넣기가 실패했다 : %s", added)

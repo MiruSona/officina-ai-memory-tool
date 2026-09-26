@@ -8,4 +8,4 @@ source: ai
 scope: mem-lint
 ---
 
-줄끝이 CRLF 다.
+CRLF 로 만들어 쓰는 원본이다. 파일은 LF 이고, 시험 코드 copyFixtureCRLF 가 줄끝을 CRLF 로 바꿔 쓴다.

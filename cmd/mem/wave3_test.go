@@ -44,11 +44,12 @@ func TestAddParsesNewOptions(t *testing.T) {
 // 관문 세 경우 — 통과(0) · 품질 거절(2) · 보안 거절(4).
 func TestAddGateThreeOutcomes(t *testing.T) {
 	memory := newRepo(t)
-	if _, code := capture(t, func() int { return run(addArgs("통과하는 기억")) }); code != exitOK {
+	passed, code := capture(t, func() int { return run(addArgs("통과하는 기억")) })
+	if code != exitOK {
 		t.Fatalf("갖춘 기억은 통과해야 한다 : %d", code)
 	}
-	if queuedCount(t, memory) != 1 {
-		t.Fatal("통과한 기억이 큐에 없다")
+	if _, err := os.Stat(storeFile(memory, strings.TrimSpace(passed))); err != nil {
+		t.Fatalf("통과한 기억이 안 남았다 : %v", err)
 	}
 	thin := []string{"add", "--type", "decision", "--scope", "aimemorytool", "--tags", "design",
 		"--author", "human:tester", "--title", "근거 없는 결정",
@@ -61,7 +62,7 @@ func TestAddGateThreeOutcomes(t *testing.T) {
 	if !strings.Contains(out, "다음에 할 것") {
 		t.Fatalf("다음에 뭘 할지 안 알려준다 : %s", out)
 	}
-	if queuedCount(t, memory) != 1 {
+	if queuedCount(t, memory) != 0 {
 		t.Fatal("거절한 기억이 큐에 들어갔다")
 	}
 }

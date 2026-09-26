@@ -13,9 +13,12 @@ import (
 // 멈춘 줄 안다.
 func TestBigQueueSaysItWillTakeLong(t *testing.T) {
 	memory := newRepo(t)
+	// 큐에 한 건을 남기려고 락을 쥔 채 add 한다.
+	release := holdLock(t, memory)
 	if _, code := capture(t, func() int { return run(addArgs("본문 한 줄이다")) }); code != 0 {
 		t.Fatal("add 가 실패했다")
 	}
+	release()
 	copyQueue(t, memory, queueNoticeMin+5)
 	out, code := capture(t, func() int { return run([]string{"index"}) })
 	if code != exitOK {
@@ -44,9 +47,11 @@ func TestSmallQueueSaysNothing(t *testing.T) {
 // --json 과 --quiet 에는 사람 글이 한 줄도 안 섞인다.
 func TestBigQueueNoticeStaysOutOfJSON(t *testing.T) {
 	memory := newRepo(t)
+	release := holdLock(t, memory)
 	if _, code := capture(t, func() int { return run(addArgs("본문 한 줄이다")) }); code != 0 {
 		t.Fatal("add 가 실패했다")
 	}
+	release()
 	copyQueue(t, memory, queueNoticeMin+5)
 	out, code := capture(t, func() int { return run([]string{"index", "--json"}) })
 	if code != exitOK {

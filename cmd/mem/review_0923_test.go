@@ -112,6 +112,8 @@ func TestJSONLDropsSupersedes(t *testing.T) {
 		"title":   "두 글자 검색어를 조심한다",
 		"summary": "두 글자 한글 검색어는 trigram 에 안 잡혀 0건이 되니 색인 쪽을 먼저 본다",
 		"body":    jsonlBody("첫째 줄이다."), "supersedes": "../../bad"})
+	// 큐 파일을 보려고 락을 쥔다. 잡히면 바로 승격돼 큐가 빈다.
+	holdLock(t, memory)
 	stdinOf(t, line+"\n")
 	out, code := captureBoth(t, func() int { return run([]string{"add", "--jsonl"}) })
 	if code != exitOK {

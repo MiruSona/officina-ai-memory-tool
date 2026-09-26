@@ -15,7 +15,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
-var indexBools = []string{"full", "gc", "no-gc", "quiet", "verify", "clear-bad", "json"}
+var indexBools = []string{"full", "gc", "no-gc", "quiet", "verify", "clear-bad", "bad", "json"}
 var indexValues = []string{"repo"}
 
 func init() {
@@ -32,6 +32,11 @@ func runIndex(argv []string) int {
 	repository, opened, err := openStore(parsed)
 	if err != nil {
 		return exitFor(err)
+	}
+	// --bad 는 보기만 한다. 락도 안 잡고 파일도 안 건드리니 --clear-bad 와
+	// 같이 줘도 이쪽이 먼저다 — 지우는 쪽으로 넘어가는 일이 없다.
+	if parsed.flags["bad"] {
+		return showBad(opened)
 	}
 	if parsed.flags["clear-bad"] {
 		return clearBad(opened)
@@ -70,12 +75,14 @@ func clearBad(opened *store.Store) int {
 		fmt.Println(i18n.T(i18n.IndexClearNone))
 		return exitOK
 	}
+	// 이름·까닭은 남이 만든 글이라 `--bad` 와 같이 중화를 지난다 (불변조건 I3).
 	for _, name := range names {
+		shown := safe.Summary(name, badNameRoom)
 		if reason := opened.BadReason(name); reason != "" {
-			fmt.Println("  " + name + " — " + reason)
+			fmt.Println("  " + shown + " — " + safe.Summary(reason, badReasonRoom))
 			continue
 		}
-		fmt.Println("  " + name)
+		fmt.Println("  " + shown)
 	}
 	gone, err := opened.ClearBad(names)
 	if err != nil {
@@ -83,6 +90,62 @@ func clearBad(opened *store.Store) int {
 	}
 	fmt.Println(i18n.T(i18n.IndexClearBad, gone))
 	return exitOK
+}
+
+// badRowFormat 은 `--bad` 한 줄이다 (이름 · 종류 · 까닭 · 푸는 길). 한글이 없는
+// 짜임새라 i18n 표에 안 둔다 (warnRowFormat 과 같은 규칙).
+const badRowFormat = "- %s · %s · %s · %s"
+
+// showBad 는 inbox/bad 에 쌓인 것을 보여주기만 한다. 옮기지도 지우지도 않고
+// 락도 안 잡는다 (설계 2026-09-23 3-3). 이름·까닭은 남이 만든 글이라 줄마다
+// 중화를 지난다 (불변조건 I3). 본문·값은 안 찍는다 — 까닭 파일도 규칙 이름·칸
+// 이름뿐이다.
+func showBad(opened *store.Store) int {
+	names, err := opened.ListBad()
+	if err != nil {
+		return fail(err.Error())
+	}
+	if len(names) == 0 {
+		fmt.Println(i18n.T(i18n.IndexBadNone))
+		return exitOK
+	}
+	fmt.Println(i18n.T(i18n.IndexBadHead, len(names)))
+	for _, name := range names {
+		op := opened.BadOp(name)
+		reason := opened.BadReason(name)
+		if reason == "" {
+			reason = i18n.T(i18n.IndexBadNoReason)
+		}
+		fmt.Printf(badRowFormat+"\n", safe.Summary(name, badNameRoom), badKind(op),
+			safe.Summary(reason, badReasonRoom), badFix(op))
+	}
+	fmt.Println(i18n.T(i18n.IndexBadClearHint))
+	return exitOK
+}
+
+// badNameRoom · badReasonRoom 은 한 줄에 싣는 룬 수다. 큐 이름은 60자 안쪽이고
+// 까닭은 규칙 한 줄이라 넉넉하다. 누가 손으로 긴 이름을 넣어도 화면이 안 무너진다.
+const (
+	badNameRoom   = 80
+	badReasonRoom = 160
+)
+
+// badKind 는 op 를 화면에 찍을 말로 바꾼다. 못 읽은 것은 「깨짐」이다.
+func badKind(op string) string {
+	if op == "" {
+		return i18n.T(i18n.IndexBadBroken)
+	}
+	return op
+}
+
+// badFix 는 종류마다 푸는 길이다. add 는 값을 고쳐 다시 넣어야 하고, 나머지
+// (patch · body · 깨짐)는 대상이 없어졌거나 손으로 쓴 것이라 치우면 끝이다
+// (설계 3-1 표). bad 를 큐로 되돌리는 길은 일부러 없다 — 같은 까닭으로 또 걸린다.
+func badFix(op string) string {
+	if op == store.OpAdd {
+		return i18n.T(i18n.IndexBadFixAdd)
+	}
+	return i18n.T(i18n.IndexBadFixDrop)
 }
 
 // reportRun 은 센 것을 한글로 찍는다. 색인 안 된 파일이 있으면 종료 코드 2 다.

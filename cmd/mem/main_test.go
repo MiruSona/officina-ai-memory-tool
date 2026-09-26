@@ -98,9 +98,11 @@ func issueBody(head string) string {
 		"\n## 해결\n질의 토크나이저가 두 글자를 안 버리게 고쳤다.\n회귀 시험을 하나 박아 뒀다."
 }
 
-// 설계 5-2 — add 는 store/ 를 안 건드리고 큐에만 쓴다. 그리고 최종 id 를 찍는다.
+// 설계 5-2 — 락을 못 잡은 add 는 store/ 를 안 건드리고 큐에만 쓴다. 그리고
+// 큐 id 를 찍는다 (락을 잡으면 바로 승격한다 — 설계 2026-09-23 2장).
 func TestAddQueuesAndPrintsID(t *testing.T) {
 	memory := newRepo(t)
+	holdLock(t, memory)
 	out, code := capture(t, func() int { return run(addArgs("본문 한 줄")) })
 	if code != 0 {
 		t.Fatalf("add 가 실패했다 : %s", out)
@@ -159,9 +161,12 @@ func TestShowReadsStoreFileByPath(t *testing.T) {
 
 func TestStatusCountsStoreAndInbox(t *testing.T) {
 	memory := newRepo(t)
+	// 락을 못 잡은 add 만 큐에 남는다.
+	release := holdLock(t, memory)
 	if _, code := capture(t, func() int { return run(addArgs("본문")) }); code != 0 {
 		t.Fatal("add 가 실패했다")
 	}
+	release()
 	// 훅도 PATH 도 없는 시험 저장소라 색인 건강은 나쁘다 (설계 9-5).
 	out, code := capture(t, func() int { return run([]string{"status"}) })
 	if code != exitCheck {

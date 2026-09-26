@@ -90,34 +90,57 @@ const (
 
 // add · set · show 가 쓰는 문장이다.
 const (
-	SecretFix        Key = "secret-fix"
-	AddQueuedNote    Key = "add-queued-note"
-	AddQueuedNoBy    Key = "add-queued-no-by"
-	AddRejectedNote  Key = "add-rejected-note"
-	AddStatusDefault Key = "add-status-default"
-	AddStrayWords    Key = "add-stray-words"
-	ShowQueued       Key = "show-queued"
-	CheckHeader      Key = "check-header"
-	CheckNone        Key = "check-none"
-	CheckNoIndex     Key = "check-no-index"
-	CheckSameBody    Key = "check-same-body"
-	JSONLBadLine     Key = "jsonl-bad-line"
-	JSONLAt          Key = "jsonl-at"
-	JSONLDone        Key = "jsonl-done"
-	JSONLFixed       Key = "jsonl-fixed"
-	JSONLEmpty       Key = "jsonl-empty"
-	BadHeadValue     Key = "bad-head-value"
-	ArchiveNoMemory  Key = "archive-no-memory"
-	IndexClearBad    Key = "index-clear-bad"
-	IndexClearNone   Key = "index-clear-none"
-	IndexBadKept     Key = "index-bad-kept"
-	HookOverBudget   Key = "hook-over-budget"
-	BadBoolValue     Key = "bad-bool-value"
-	NotBoolValue     Key = "not-bool-value"
-	VocabTypeName    Key = "vocab-type-name"
-	VocabTypeKey     Key = "vocab-type-key"
-	VocabTypeValue   Key = "vocab-type-value"
-	VocabScopeName   Key = "vocab-scope-name"
+	SecretFix     Key = "secret-fix"
+	AddQueuedNote Key = "add-queued-note"
+	AddQueuedNoBy Key = "add-queued-no-by"
+	// add 가 제 큐 파일을 그 자리에서 승격한 결과 (설계 2026-09-23 2-3).
+	AddStored         Key = "add-stored"
+	AddStoredTwin     Key = "add-stored-twin"
+	AddStoredAppended Key = "add-stored-appended"
+	AddStoredBad      Key = "add-stored-bad"
+	AddPromoteFailed  Key = "add-promote-failed"
+	AddIndexFailed    Key = "add-index-failed"
+	AddQueuedFresh    Key = "add-queued-fresh"
+	AddGone           Key = "add-gone"
+	AddByPending      Key = "add-by-pending"
+	JSONLGone         Key = "jsonl-gone"
+	JSONLWriteStopped Key = "jsonl-write-stopped"
+	JSONLStored       Key = "jsonl-stored"
+	JSONLStoredBad    Key = "jsonl-stored-bad"
+	SupersedeLost     Key = "supersede-lost"
+	// mem index --bad 보기 화면 (설계 3-3).
+	IndexBadHead      Key = "index-bad-head"
+	IndexBadNone      Key = "index-bad-none"
+	IndexBadClearHint Key = "index-bad-clear-hint"
+	IndexBadNoReason  Key = "index-bad-no-reason"
+	IndexBadBroken    Key = "index-bad-broken"
+	IndexBadFixAdd    Key = "index-bad-fix-add"
+	IndexBadFixDrop   Key = "index-bad-fix-drop"
+	AddRejectedNote   Key = "add-rejected-note"
+	AddStatusDefault  Key = "add-status-default"
+	AddStrayWords     Key = "add-stray-words"
+	ShowQueued        Key = "show-queued"
+	CheckHeader       Key = "check-header"
+	CheckNone         Key = "check-none"
+	CheckNoIndex      Key = "check-no-index"
+	CheckSameBody     Key = "check-same-body"
+	JSONLBadLine      Key = "jsonl-bad-line"
+	JSONLAt           Key = "jsonl-at"
+	JSONLDone         Key = "jsonl-done"
+	JSONLFixed        Key = "jsonl-fixed"
+	JSONLEmpty        Key = "jsonl-empty"
+	BadHeadValue      Key = "bad-head-value"
+	ArchiveNoMemory   Key = "archive-no-memory"
+	IndexClearBad     Key = "index-clear-bad"
+	IndexClearNone    Key = "index-clear-none"
+	IndexBadKept      Key = "index-bad-kept"
+	HookOverBudget    Key = "hook-over-budget"
+	BadBoolValue      Key = "bad-bool-value"
+	NotBoolValue      Key = "not-bool-value"
+	VocabTypeName     Key = "vocab-type-name"
+	VocabTypeKey      Key = "vocab-type-key"
+	VocabTypeValue    Key = "vocab-type-value"
+	VocabScopeName    Key = "vocab-scope-name"
 )
 
 // messages 는 키 하나에 문장 하나다. 서식은 fmt 그대로 쓴다.
@@ -193,7 +216,7 @@ var messages = map[Key]string{
 
   install  exe 를 사용자 폴더에 넣고 PATH 에 붙인다 (기계마다 한 번)
   init     이 프로젝트에 기억 저장소를 붙인다
-  add      기억 한 건을 쓰기 큐에 넣는다
+  add      기억 한 건을 관문에 걸고 저장한다
   set      이미 있는 기억의 머리말을 고친다
   search   기억을 찾는다
   show     기억 한 건을 id 로 보여준다
@@ -221,6 +244,27 @@ var messages = map[Key]string{
 		"(닮은 기억에 합쳐지면 id 가 바뀐다).",
 	AddQueuedNoBy: "저장됨 : %s — 다만 --by 덮기는 실패했다. 옛 기억 %s 은 그대로다 " +
 		"(`mem set <옛id> --by <새id>` 로 다시 건다).",
+	AddStored:         "저장됨 : %s",
+	AddStoredTwin:     "저장됨 : %s — 같은 본문이 이미 있어 그 기억을 가리킨다",
+	AddStoredAppended: "저장됨 : %s — 닮은 기억 뒤에 한 절로 붙였다",
+	AddStoredBad:      "저장 안 됨 — %s. inbox/bad 에 뒀다 (mem index --bad)",
+	AddPromoteFailed:  "바로 승격하지 못했다. 큐에 둔 채로 다음 mem index 를 기다린다 : %s",
+	AddIndexFailed:    "승격은 했지만 색인을 마치지 못했다. 색인은 다음 mem index 가 맞춘다 : %s",
+	AddQueuedFresh: "저장됨 : %s — 색인을 새로 세워야 하는 판이라 큐에 뒀다. " +
+		"다음 mem index 가 색인과 함께 승격한다 (닮은 기억에 합쳐지면 id 가 바뀐다).",
+	AddGone:           "이미 승격됨 — 락을 기다리는 사이 다른 색인이 먼저 먹었다. id 는 mem index 뒤 mem search 로 확인한다.",
+	AddByPending:      "덮임 표시는 색인 대기다 — mem index 뒤에 %s 를 %s 가 덮는다.",
+	JSONLGone:         "%d 건은 다른 색인이 먼저 승격했다 — id 는 mem index 뒤 mem search 로 확인한다.",
+	JSONLStored:       "%d 건을 저장했다.",
+	JSONLStoredBad:    "%d 건은 저장 안 됐다 — inbox/bad 에 뒀다 (mem index --bad).",
+	SupersedeLost:     "덮는 기억 %s 이 저장되지 않아 덮임 표시를 달지 않는다",
+	IndexBadHead:      "inbox/bad %d건",
+	IndexBadNone:      "inbox/bad 가 비어 있다.",
+	IndexBadClearHint: "치우려면 : mem index --clear-bad",
+	IndexBadNoReason:  "까닭 기록 없음",
+	IndexBadBroken:    "깨짐",
+	IndexBadFixAdd:    "고쳐서 다시 mem add",
+	IndexBadFixDrop:   "치워도 된다",
 	AddRejectedNote: "거절됨 — 저장하지 않았다 (%d가지). 고친 뒤 다시 친다. " +
 		"먼저 돌려 보려면 같은 명령 끝에 --check 를 붙인다.",
 	AddStatusDefault: "todo_status 를 안 줘서 `%s` 로 뒀다 (바꾸려면 --todo-status doing|done).",

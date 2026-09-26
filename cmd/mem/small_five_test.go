@@ -14,10 +14,13 @@ import (
 
 // ① index --json — 칸이 다 있고 사람 글이 안 섞인다.
 func TestIndexJSONHasFields(t *testing.T) {
-	newRepo(t)
+	memory := newRepo(t)
+	// 색인이 승격할 큐 한 건을 남기려고 락을 쥔 채 add 한다.
+	release := holdLock(t, memory)
 	if _, code := capture(t, func() int { return run(addArgs("본문 한 줄")) }); code != 0 {
 		t.Fatal("add 가 실패했다")
 	}
+	release()
 	out, code := capture(t, func() int { return run([]string{"index", "--json"}) })
 	if code != exitOK {
 		t.Fatalf("index --json 이 실패했다 : %d %s", code, out)

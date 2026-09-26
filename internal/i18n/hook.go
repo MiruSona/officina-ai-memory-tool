@@ -80,7 +80,7 @@ var hookMessages = map[Key]string{
 	HookMarkHook:   "[훅]",
 
 	HookNoticeGC:        "- 기억이 %d건이다. `mem gc --dry-run` 으로 볼 때가 됐다",
-	HookNoticeBad:       "- inbox/bad 에 %d건이 실패해 있다. `mem index` 를 한 번 돌려라",
+	HookNoticeBad:       "- inbox/bad 에 %d건 — `mem index --bad` 로 까닭을 보고 `--clear-bad` 로 치운다",
 	HookNoticeUnindexed: "- 색인 안 된 파일이 %d건 있다. `mem index` 를 한 번 돌려라",
 	HookBadEvent:        "`%s` 는 훅 이벤트 이름이 아니다. `mem hook session-start` 로 쳐라.",
 	HookNoCwd:           "훅 입력에 `cwd` 가 없다. 어느 저장소인지 몰라 아무것도 안 열었다.",

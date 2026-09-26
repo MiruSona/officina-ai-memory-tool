@@ -1,0 +1,4 @@
+# 시험 자료는 어느 OS 에서 받아도 LF 다. CRLF·BOM 시험은 시험 코드가 바이트를 만든다.
+testdata/** text eol=lf
+# 한글 cp949 바이트 — 줄끝 변환이 끼면 안 된다
+testdata/lint/encoding.cp949 -text

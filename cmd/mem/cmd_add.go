@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -11,6 +12,7 @@ import (
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
+	"github.com/mirusona/officina-ai-memory-tool/internal/index"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
@@ -35,7 +37,8 @@ func init() {
 }
 
 // runAdd 는 관문 여섯 단계를 지난 기억 한 건을 inbox/new 에 넣고 최종 id 를
-// 찍는다. store/ 는 색인이 락을 잡고 승격할 때만 만진다 (설계 3-1).
+// 찍는다. store/ 는 락을 잡은 승격 코드만 만진다 — add 도 락을 잡으면 제 큐 파일만
+// 그 자리에서 승격한다 (설계 2026-09-23 2장).
 func runAdd(argv []string) int {
 	parsed, err := parseOptions(argv, addBools, addValues)
 	if err != nil {
@@ -69,11 +72,10 @@ func runAdd(argv []string) int {
 	}
 	verdict := quality.Gate(memoryOf(request), gateOptions(repository, opened, parsed))
 	if parsed.flags["json"] {
-		code := printVerdictJSON(verdict)
 		if parsed.flags["check"] || verdict.Rejected() {
-			return code
+			return printVerdictJSON(verdict)
 		}
-		return queueAdd(parsed, opened, applyVerdict(request, verdict))
+		return queueAddJSON(parsed, repository, opened, applyVerdict(request, verdict), verdict)
 	}
 	// --check 는 미리보기다. 관문만 돌리고 무슨 일이 있어도 저장하지 않는다.
 	if parsed.flags["check"] {
@@ -89,7 +91,7 @@ func runAdd(argv []string) int {
 	printVerdict(verdict)
 	warnNote(verdict)
 	fixNote(verdict)
-	return queueAdd(parsed, opened, applyVerdict(request, verdict))
+	return queueAdd(parsed, repository, opened, applyVerdict(request, verdict))
 }
 
 // applyVerdict 는 관문이 스스로 고친 것(별칭 치환)을 큐 항목에 되돌려 담는다.
@@ -143,32 +145,214 @@ func warnNote(verdict quality.Verdict) {
 	}
 }
 
-func queueAdd(parsed *options, opened *store.Store, request store.AddRequest) int {
-	if err := opened.EnsureDirs(); err != nil {
-		return fail(err.Error())
+// queueAdd 는 큐에 넣고, 락을 잡으면 **제 파일만** 그 자리에서 승격한다
+// (설계 2026-09-23 2-3). 그래서 stdout 의 id 가 곧 실제로 남은 id 다 — 완전
+// 중복이면 쌍둥이, 닮은 기억에 붙었으면 그 기억이다. `--by` 의 덮임 표시도 같은
+// 락 안에서 같이 먹으니 add 와 덮기가 다른 회차로 갈리지 않는다.
+// 락을 못 잡으면 지금까지처럼 큐 id 를 찍고 「색인 대기」 로 끝낸다.
+func queueAdd(parsed *options, repository *config.Repository, opened *store.Store, request store.AddRequest) int {
+	stored, code := storeAdd(parsed, repository, opened, request)
+	if code != exitOK {
+		return code
 	}
-	name, err := opened.WriteAdd(request)
+	return stored.report(parsed, opened, request)
+}
+
+// queueAddJSON 은 `--json` 의 add 다. 승격을 먼저 하고, 관문 판정 JSON 에 승격
+// 결과(`promote` · `id`)를 실어 한 줄로 찍은 뒤 여느 add 화면을 잇는다 — stdout
+// 둘째 줄이 id 인 것은 전과 같다.
+func queueAddJSON(parsed *options, repository *config.Repository, opened *store.Store,
+	request store.AddRequest, verdict quality.Verdict) int {
+	stored, code := storeAdd(parsed, repository, opened, request)
+	if code != exitOK {
+		return code
+	}
+	state, id := stored.promoteState()
+	data, err := json.Marshal(addVerdictJSON{Verdict: verdict, Promote: state, ID: id})
 	if err != nil {
 		return fail(err.Error())
 	}
-	// 승격이 어디서 멈춰도 이 id 로 같은 자리를 가리킨다. 다만 닮은 기억에
-	// 합쳐지면 그 기억의 id 가 남는다 (설계 3-1 ⑥).
-	id := model.QueueID(name, request.Body, request.Date)
-	fmt.Println(id)
-	noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s%s", id, request.Title, request.Author,
-		forcedMark(parsed), heldMark(request)))
-	if request.Review {
-		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddHeldNote, id))
+	fmt.Println(string(data))
+	return stored.report(parsed, opened, request)
+}
+
+// addVerdictJSON 은 관문 판정에 승격 결과를 붙인 꼴이다. `promote` 는 new ·
+// duplicate · appended · bad · left · gone 중 하나다.
+type addVerdictJSON struct {
+	quality.Verdict
+	Promote string `json:"promote,omitempty"`
+	ID      string `json:"id,omitempty"`
+}
+
+// addStored 는 큐에 쓰고 승격까지 해 본 add 한 건이다.
+type addStored struct {
+	Name      string
+	PatchName string
+	Queued    string
+	ByErr     error
+	Promoted  *index.PromoteResult
+}
+
+// storeAdd 는 큐에 쓰고 이름 준 파일만 승격한다. 화면은 안 찍는다.
+func storeAdd(parsed *options, repository *config.Repository, opened *store.Store,
+	request store.AddRequest) (*addStored, int) {
+	if err := opened.EnsureDirs(); err != nil {
+		return nil, fail(err.Error())
 	}
-	code := supersedeOld(parsed, opened, id)
+	name, err := opened.WriteAdd(request)
+	if err != nil {
+		return nil, fail(err.Error())
+	}
+	stored := addStored{Name: name, Queued: model.QueueID(name, request.Body, request.Date)}
+	names := []string{name}
+	stored.PatchName, stored.ByErr = queueSupersede(parsed, opened, stored.Queued)
+	if stored.PatchName != "" {
+		names = append(names, stored.PatchName)
+	}
+	stored.Promoted = promoteNow(repository, opened, names)
+	return &stored, exitOK
+}
+
+// promoteState 는 `--json` 에 싣는 승격 상태와 실제 id 다. 락을 못 잡았거나
+// 색인을 새로 세울 판이라 큐에 둔 것은 left 와 큐 id 다.
+func (a *addStored) promoteState() (string, string) {
+	outcome, done := a.Promoted.Outcomes[a.Name]
+	switch {
+	case a.Promoted.Deferred || !done || outcome.State == index.OutcomeLeft:
+		return index.OutcomeLeft, a.Queued
+	case outcome.State == index.OutcomeBad || outcome.State == index.OutcomeGone:
+		return outcome.State, ""
+	}
+	return outcome.State, outcome.ID
+}
+
+// report 는 결과마다 화면을 찍고 종료 코드를 준다.
+func (a *addStored) report(parsed *options, opened *store.Store, request store.AddRequest) int {
+	outcome, done := a.Promoted.Outcomes[a.Name]
+	switch {
+	case a.Promoted.Deferred:
+		return reportQueued(parsed, opened, request, a.Queued, a.ByErr, i18n.AddQueuedFresh)
+	case !done || outcome.State == index.OutcomeLeft:
+		return reportQueued(parsed, opened, request, a.Queued, a.ByErr, i18n.AddQueuedNote)
+	case outcome.State == index.OutcomeBad:
+		return reportBad(outcome)
+	case outcome.State == index.OutcomeGone:
+		return reportGone(parsed, opened, request, a.Queued)
+	}
+	patch := a.Promoted.Outcomes[a.PatchName]
+	if a.PatchName == "" || patch.State == index.OutcomeGone {
+		// 덮기가 없거나, 남이 덮임 표시를 끝까지 먹었다(bad 면 inbox/bad 에 있다).
+		patch = index.Outcome{State: index.OutcomeDone}
+	}
+	return reportStored(parsed, opened, request, outcome, patch, a.ByErr)
+}
+
+// promoteNow 는 이름 준 큐 파일만 승격한다. 오류가 나도 add 는 이미 큐에
+// 들어 있으니 한 줄 알리고 그때까지의 결과를 돌려준다 — 결과가 없는 이름은
+// 부르는 쪽이 「색인 대기」 로 다룬다. 승격까지 끝내고 색인에서 넘어졌으면
+// 파일은 이미 store 에 있으니 그렇게 알린다.
+func promoteNow(repository *config.Repository, opened *store.Store, names []string) *index.PromoteResult {
+	promoted, err := index.PromoteNow(index.Options{Store: opened, GC: repository.Config.GC,
+		Secret: repository.Config.Secret}, names)
+	if promoted == nil {
+		promoted = &index.PromoteResult{Outcomes: map[string]index.Outcome{}}
+	}
+	if err != nil {
+		key := i18n.AddPromoteFailed
+		if promotedAny(promoted, names) {
+			key = i18n.AddIndexFailed
+		}
+		fmt.Fprintln(os.Stderr, i18n.T(key, safe.Summary(err.Error(), strayRoom*2)))
+	}
+	return promoted
+}
+
+// promotedAny 는 이름 준 파일 가운데 하나라도 store 까지 갔는지다.
+func promotedAny(promoted *index.PromoteResult, names []string) bool {
+	for _, name := range names {
+		switch promoted.Outcomes[name].State {
+		case index.OutcomeNew, index.OutcomeDuplicate, index.OutcomeAppended, index.OutcomeDone:
+			return true
+		}
+	}
+	return false
+}
+
+// reportQueued 는 큐에 둔 채 끝난 add 의 화면이다. 락을 못 잡았거나(지금까지의
+// 동작) 색인을 새로 세울 판이다. note 는 끝줄 문구다.
+func reportQueued(parsed *options, opened *store.Store, request store.AddRequest, id string, byErr error,
+	note i18n.Key) int {
+	fmt.Println(id)
+	noteAdded(parsed, opened, request, id)
+	code := noteSupersede(parsed, opened, id, byErr)
 	// 저장됐다는 말이 늘 **맨 마지막 줄**이라야 화면 끝만 보고도 안다.
 	// 덮기가 실패했으면 「저장됨」만 찍으면 안 된다 — 옛 기억은 그대로다.
 	if code != exitOK {
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddQueuedNoBy, id, parsed.text("by")))
 		return code
 	}
-	fmt.Fprintln(os.Stderr, i18n.T(i18n.AddQueuedNote, id))
+	fmt.Fprintln(os.Stderr, i18n.T(note, id))
 	return code
+}
+
+// reportGone 은 락을 기다리는 사이 남이 제 파일을 먼저 승격했는데 영수증이
+// 없어 실제 id 를 모르는 경우다. stdout 은 비운다 — 큐 id 는 합쳐졌으면 틀린
+// id 라 스크립트에 주면 안 된다 (리뷰 2026-09-26 #1). 기억은 들어갔으니 0 이다.
+func reportGone(parsed *options, opened *store.Store, request store.AddRequest, queued string) int {
+	noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s%s", queued, request.Title, request.Author,
+		forcedMark(parsed), goneMark))
+	fmt.Fprintln(os.Stderr, i18n.T(i18n.AddGone))
+	return exitOK
+}
+
+// goneMark 는 log.md 에서 큐 id 가 실제 id 와 다를 수 있다는 표시다.
+const goneMark = " (이미 승격됨 · 큐 id)"
+
+// reportBad 는 승격에서 bad 로 간 add 의 화면이다. stdout 에는 아무것도 안
+// 찍는다 — 스크립트가 없는 id 를 받으면 안 된다. 까닭은 규칙 이름·칸 이름뿐이다.
+func reportBad(outcome index.Outcome) int {
+	fmt.Fprintln(os.Stderr, i18n.T(i18n.AddStoredBad, outcome.Reason))
+	if outcome.Secret {
+		return exitSecurity
+	}
+	return exitCheck
+}
+
+// reportStored 는 승격까지 끝난 add 의 화면이다. 끝줄이 결과 줄이다. patch 는
+// `--by` 가 같이 넣은 덮임 표시의 결과다 — 없으면 부르는 쪽이 done 을 준다.
+// 덮임 표시가 아직 안 먹혔으면(left · 결과 없음) 「덮었다」 고 말하지 않는다.
+func reportStored(parsed *options, opened *store.Store, request store.AddRequest,
+	outcome, patch index.Outcome, byErr error) int {
+	id := outcome.ID
+	fmt.Println(id)
+	noteAdded(parsed, opened, request, id)
+	if patch.State == index.OutcomeBad && byErr == nil {
+		byErr = errors.New(patch.Reason)
+	}
+	if old := parsed.text("by"); old != "" && byErr == nil && patch.State != index.OutcomeDone {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddByPending, old, id))
+	} else if code := noteSupersede(parsed, opened, id, byErr); code != exitOK {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddQueuedNoBy, id, parsed.text("by")))
+		return code
+	}
+	switch outcome.State {
+	case index.OutcomeDuplicate:
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddStoredTwin, id))
+	case index.OutcomeAppended:
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddStoredAppended, id))
+	default:
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddStored, id))
+	}
+	return exitOK
+}
+
+// noteAdded 는 들어간 add 를 log.md 에 적고, 보류면 한 줄 알린다.
+func noteAdded(parsed *options, opened *store.Store, request store.AddRequest, id string) {
+	noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s%s", id, request.Title, request.Author,
+		forcedMark(parsed), heldMark(request)))
+	if request.Review {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddHeldNote, id))
+	}
 }
 
 // warnRowFormat 은 경고 한 줄(규칙 이름 : 까닭)이다. 한글이 없는 짜임새라
@@ -227,19 +411,35 @@ func heldMark(request store.AddRequest) string {
 	return ""
 }
 
-// supersedeOld 는 `add --by <옛id>` 가 옛 결정에 덮임 표시를 다는 자리다.
-// 도구만 쓰는 칸이라 사람이 손으로 못 적는다 (설계 2-2 · 3-4).
-func supersedeOld(parsed *options, opened *store.Store, newID string) int {
+// queueSupersede 는 `add --by <옛id>` 가 옛 결정에 달 덮임 표시를 큐에 넣는다.
+// 도구만 쓰는 칸이라 사람이 손으로 못 적는다 (설계 2-2 · 3-4). 가리키는 id 는
+// 큐 id 다 — 승격이 쌍둥이·소금 친 id 로 다시 댄다 (promote.go redirect).
+// `--by` 가 없으면 빈 이름과 nil 이다.
+func queueSupersede(parsed *options, opened *store.Store, queued string) (string, error) {
+	old := parsed.text("by")
+	if old == "" {
+		return "", nil
+	}
+	if !model.IsID(old) {
+		return "", errors.New(i18n.T(i18n.BadID, old))
+	}
+	set := map[string]any{"superseded_by": queued, "invalid_at": time.Now().Format(model.DayLayout)}
+	return opened.WritePatch(old, set)
+}
+
+// noteSupersede 는 덮임 표시가 어떻게 됐는지 알린다. 실패했으면 까닭 한 줄을
+// 찍고 사용법 오류(1)다 — 끝줄 「덮기는 실패했다」 는 부르는 쪽이 찍는다.
+func noteSupersede(parsed *options, opened *store.Store, newID string, byErr error) int {
 	old := parsed.text("by")
 	if old == "" {
 		return exitOK
 	}
-	if !model.IsID(old) {
-		return fail(i18n.T(i18n.BadID, old))
+	if byErr != nil {
+		return fail(byErr.Error())
 	}
-	set := map[string]any{"superseded_by": newID, "invalid_at": time.Now().Format(model.DayLayout)}
-	if _, err := opened.WritePatch(old, set); err != nil {
-		return fail(err.Error())
+	if old == newID {
+		// 옛 기억과 글자까지 같은 본문이라 그 기억 자체가 남았다. 덮을 것이 없다.
+		return exitOK
 	}
 	fmt.Fprintln(os.Stderr, i18n.T(i18n.SetSuperseded, old, newID))
 	noteLog(opened, store.LogSuper, old+" → "+newID)
@@ -293,9 +493,11 @@ func refuse(message string) int {
 	return exitSecurity
 }
 
-// runAddJSONL 은 표준입력에서 한 줄에 한 건씩 받는다. 한 줄이라도 관문에
-// 걸리면 **하나도 안 넣는다** — 반만 들어간 묶음은 사람이 어디까지 됐는지
-// 못 안다 (불변조건 I4).
+// runAddJSONL 은 표준입력에서 한 줄에 한 건씩 받는다. 한 줄이라도 **관문에**
+// 걸리면 하나도 안 넣는다 — 반만 들어간 묶음은 사람이 어디까지 됐는지 못
+// 안다 (불변조건 I4). 관문을 다 지난 뒤 **승격에서** bad 로 간 줄(손으로 쓴
+// 비밀정보 · 규격 위반)은 그 줄만 빠지고 나머지는 들어간다. 빠진 줄은 번호와
+// 까닭을 찍고 종료 2(비밀정보면 4)다.
 func runAddJSONL(parsed *options) int {
 	repository, opened, err := openStore(parsed)
 	if err != nil {
@@ -312,19 +514,90 @@ func runAddJSONL(parsed *options) int {
 	if err := opened.EnsureDirs(); err != nil {
 		return fail(err.Error())
 	}
+	names := make([]string, 0, len(requests))
+	var writeErr error
 	for _, request := range requests {
 		name, err := opened.WriteAdd(request)
 		if err != nil {
-			return fail(err.Error())
+			writeErr = err
+			break
 		}
-		id := model.QueueID(name, request.Body, request.Date)
-		fmt.Println(id)
-		noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s", id, request.Title, request.Author,
-			forcedMark(parsed)))
+		names = append(names, name)
+	}
+	// 락은 묶음 전체에 한 번 잡고 줄 차례대로 승격한다 (설계 2026-09-23 2-3).
+	// 쓰다가 넘어졌으면 이미 큐에 들어간 줄까지는 승격하고 id 를 찍는다 —
+	// 안 그러면 들어간 줄의 id 를 아무도 모른다 (리뷰 2026-09-26).
+	promoted := &index.PromoteResult{Outcomes: map[string]index.Outcome{}}
+	if len(names) > 0 {
+		promoted = promoteNow(repository, opened, names)
+	}
+	tally := jsonlTally{}
+	for at, name := range names {
+		tally.report(parsed, opened, requests[at], name, at+1, promoted)
 	}
 	fixes.note()
-	fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLDone, len(requests)))
-	return exitOK
+	code = tally.finish()
+	if writeErr != nil {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLWriteStopped, len(names)+1))
+		return fail(writeErr.Error())
+	}
+	return code
+}
+
+// jsonlTally 는 묶음 add 의 결과를 센다.
+type jsonlTally struct {
+	Stored int
+	Queued int
+	Bad    int
+	Gone   int
+	Secret bool
+}
+
+// report 는 한 건의 결과를 찍는다. stdout 은 들어간 건만 id 한 줄씩이다.
+func (t *jsonlTally) report(parsed *options, opened *store.Store, request store.AddRequest,
+	name string, number int, promoted *index.PromoteResult) {
+	outcome, done := promoted.Outcomes[name]
+	id := model.QueueID(name, request.Body, request.Date)
+	switch {
+	case promoted.Deferred || !done || outcome.State == index.OutcomeLeft:
+		t.Queued++
+	case outcome.State == index.OutcomeGone:
+		// 남이 먼저 먹었고 실제 id 를 모른다. 틀릴 수 있는 큐 id 는 안 찍는다.
+		t.Gone++
+		return
+	case outcome.State == index.OutcomeBad:
+		t.Bad++
+		t.Secret = t.Secret || outcome.Secret
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLBadLine, number, i18n.T(i18n.AddStoredBad, outcome.Reason)))
+		return
+	default:
+		t.Stored++
+		id = outcome.ID
+	}
+	fmt.Println(id)
+	noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s", id, request.Title, request.Author,
+		forcedMark(parsed)))
+}
+
+// finish 는 끝줄을 찍고 종료 코드를 준다. bad 가 하나라도 있으면 그 줄이 끝이다.
+func (t *jsonlTally) finish() int {
+	if t.Stored > 0 {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLStored, t.Stored))
+	}
+	if t.Queued > 0 {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLDone, t.Queued))
+	}
+	if t.Gone > 0 {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLGone, t.Gone))
+	}
+	if t.Bad == 0 {
+		return exitOK
+	}
+	fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLStoredBad, t.Bad))
+	if t.Secret {
+		return exitSecurity
+	}
+	return exitCheck
 }
 
 // addFixes 는 도구가 조용히 바꾸거나 채운 칸을 센다. 줄마다 찍으면 묶음

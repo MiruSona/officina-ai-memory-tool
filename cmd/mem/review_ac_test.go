@@ -180,11 +180,17 @@ func TestAddJSONLAllOrNothing(t *testing.T) {
 		t.Fatalf("한 줄이라도 나쁘면 하나도 안 넣어야 한다 : %d", queuedCount(t, memory))
 	}
 	stdinOf(t, string(first)+"\n"+string(first)+"\n")
-	if _, code := capture(t, func() int { return run([]string{"add", "--jsonl"}) }); code != exitOK {
+	out, code := capture(t, func() int { return run([]string{"add", "--jsonl"}) })
+	if code != exitOK {
 		t.Fatalf("멀쩡한 묶음은 0 이어야 한다 : %d", code)
 	}
-	if queuedCount(t, memory) != 2 {
-		t.Fatalf("두 건이 큐에 있어야 한다 : %d", queuedCount(t, memory))
+	// 두 줄 다 들어갔다. 같은 본문이라 두 번째는 첫 번째 id 를 가리킨다.
+	ids := strings.Fields(out)
+	if len(ids) != 2 || ids[0] != ids[1] {
+		t.Fatalf("두 줄 모두 같은 id 여야 한다 : %q", out)
+	}
+	if _, err := os.Stat(storeFile(memory, ids[0])); err != nil {
+		t.Fatalf("파일이 없다 : %v", err)
 	}
 }
 
