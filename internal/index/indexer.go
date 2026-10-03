@@ -203,10 +203,7 @@ func runLocked(options Options, result *Result) error {
 	current := runner{db: database, store: options.Store, result: result, now: time.Now(),
 		quiet: options.Quiet, verify: options.Verify, scanner: scannerFor(options.Secret),
 		fresh: result.Rebuilt, noLink: options.NoLink, types: typesFor(options.Types, options.Store.Dir)}
-	if err := current.promoteInbox(); err != nil {
-		return err
-	}
-	if err := current.indexChanged(); err != nil {
+	if err := current.promoteAndIndex(); err != nil {
 		return err
 	}
 	// 옛 색인에도 파생 표가 있어야 검색의 1-hop 가 읽는다. 쓰기 락 안이다.
@@ -423,6 +420,71 @@ func openForRun(dir string, result *Result) (*DB, error) {
 	}
 	result.Rebuilt = true
 	return Open(dir)
+}
+
+// promoteAndIndex 는 승격과 증분 색인이다. 색인이 store/ 를 아직 못 본 판이면
+// 색인 → 승격 → 승격한 것 색인 차례로 돈다 (설계 2026-09-23 5절).
+func (r *runner) promoteAndIndex() error {
+	first := r.fresh
+	if !first {
+		var err error
+		if first, err = needsFirstIndex(r.db, r.store.StoreDir()); err != nil {
+			return err
+		}
+	}
+	if !first {
+		if err := r.promoteInbox(); err != nil {
+			return err
+		}
+		if r.overBudget() {
+			return nil
+		}
+		return r.indexChanged()
+	}
+	if err := r.indexChanged(); err != nil {
+		return err
+	}
+	r.fresh = false
+	if r.overBudget() {
+		return nil
+	}
+	if err := r.promoteInbox(); err != nil {
+		return err
+	}
+	return r.indexPromoted()
+}
+
+// indexPromoted 는 승격이 쓴 파일만 색인에 따라 넣는 두 번째 훑기다. 첫 훑기가
+// 이미 센 건수·알림(Skipped · Bad · Secret · Unindexed)은 두 번 세지 않는다.
+func (r *runner) indexPromoted() error {
+	if r.result.Added+r.result.Appended+r.result.Patched == 0 || r.overBudget() {
+		return nil
+	}
+	saved := *r.result
+	quiet := r.quiet
+	r.quiet = true
+	err := r.indexChanged()
+	r.quiet = quiet
+	r.result.Skipped, r.result.Bad, r.result.Secret = saved.Skipped, saved.Bad, saved.Secret
+	r.result.Unindexed = saved.Unindexed
+	r.result.Changed = latestChanged(r.result.Changed)
+	r.result.Indexed = len(r.result.Changed)
+	return err
+}
+
+// latestChanged 는 두 번 색인된 기억(붙임·고치기)을 마지막 해시 하나로 줄인다.
+func latestChanged(changed []ChangedFile) []ChangedFile {
+	last := map[string]int{}
+	for i, one := range changed {
+		last[one.Path] = i
+	}
+	out := make([]ChangedFile, 0, len(last))
+	for i, one := range changed {
+		if last[one.Path] == i {
+			out = append(out, one)
+		}
+	}
+	return out
 }
 
 // indexChanged 는 세 갈래 판정이다 — mtime·size 가 같으면 안 열고, 열었으면

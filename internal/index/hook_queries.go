@@ -205,13 +205,8 @@ func overdue(deadline time.Time) bool {
 // runQuiet 은 한 단계라도 실패하면 거기서 멈춘다. 훅은 실패해도 있는 색인으로
 // 그냥 읽으므로 오류를 위로 올리지 않는다 (설계 7-7).
 func runQuiet(current *runner, gc config.GCConfig) {
-	if err := current.promoteInbox(); err != nil {
-		return
-	}
-	if current.overBudget() {
-		return
-	}
-	if err := current.indexChanged(); err != nil {
+	// 색인이 store/ 를 못 본 판이면 색인을 먼저 한다 (설계 2026-09-23 5절).
+	if err := current.promoteAndIndex(); err != nil {
 		return
 	}
 	if current.overBudget() {
