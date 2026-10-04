@@ -4,6 +4,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/budget"
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/index"
+	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/search"
 )
 
@@ -34,6 +35,9 @@ type Options struct {
 	// Vectors 는 의미 재정렬이다. nil 이면 낱말만으로 재는 판이다 — 그 값이
 	// 임베딩 전 값과 똑같아야 한다 (결정 16).
 	Vectors search.Vectors
+	// Types 는 이 저장소의 기억 종류 표(vocab.toml)다. `mem search` 와 같은 표를
+	// 넘겨야 감쇠 반감기·종류 가산이 실제 검색과 같게 돈다. 비면 기본 7종이다.
+	Types model.TypeTable
 }
 
 // CaseResult 는 질문 하나가 한 일이다.
@@ -216,6 +220,7 @@ func askOf(options Options, item Case) search.Options {
 		Stopwords: options.Stopwords, Synonym: options.Synonym,
 		RRFK: options.RRFK, BonusCap: options.BonusCap, Search: options.Search,
 		Embed: options.Embed, RepoDir: options.RepoDir, Vectors: options.Vectors,
+		Types: options.Types,
 	}
 	if item.Type != "" {
 		ask.Filter.Types = []string{item.Type}

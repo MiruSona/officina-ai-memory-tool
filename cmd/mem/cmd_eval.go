@@ -6,6 +6,7 @@ import (
 	"os"
 	"time"
 
+	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/eval"
 )
 
@@ -40,6 +41,8 @@ func runEval(argv []string) int {
 		Search: repos.settings.Search,
 		Embed:  repos.settings.Embed, RepoDir: repos.dirOf(),
 		Vectors: evalVectors(repos),
+		// 종류 표도 `mem search` 와 같게 넘긴다 — 안 넘기면 vocab 반감기가 자에 안 먹는다.
+		Types: config.TypesIn(repos.dirOf()),
 	})
 	if err != nil {
 		return evalExit(err)

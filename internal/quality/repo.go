@@ -44,14 +44,27 @@ func (r RepoReport) Findings(id string) []Finding { return r.ByID[id] }
 func CheckRepo(memories []*model.Memory, opt RepoOptions) RepoReport {
 	opt.Options = opt.Options.normalized()
 	report := RepoReport{ByID: map[string][]Finding{}}
+	// (R1) 저장소 규칙은 한 갈래로 20k 에서 약 5초라, 그동안 중복 판정을 옆에서
+	// 같이 돌린다. 둘 다 memories·opt 를 읽기만 하고, 중복 쪽은 제 결과만 채워
+	// 넘긴다. 합치는 차례는 예전 그대로(규칙 → 중복)라 답이 같다.
+	duplicates := make(chan duplicateResult, 1)
+	go func() { duplicates <- findDuplicates(memories, opt) }()
+	report.repoRules(memories, opt)
+	// 받는 쪽은 저장소 규칙이 끝난 **뒤에** 기다린다 — 그 전엔 ByID 를 안 만진다.
+	report.addDuplicates(memories, opt, <-duplicates)
+	return report
+}
+
+// repoRules 는 중복 판정을 뺀 저장소 규칙이다. 한 갈래로 돌고 report 만 채운다.
+func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
 	add := func(m *model.Memory, rule, reason string, related ...string) {
 		one := opt.finding(rule, m, reason, nextFor(rule, m, related)...)
 		one.Related = related
-		report.ByID[m.ID] = append(report.ByID[m.ID], one)
+		r.ByID[m.ID] = append(r.ByID[m.ID], one)
 	}
 
-	report.Wide = append(report.Wide, tagBroad(memories, opt)...)
-	report.Wide = append(report.Wide, scopeSkew(memories, opt)...)
+	r.Wide = append(r.Wide, tagBroad(memories, opt)...)
+	r.Wide = append(r.Wide, scopeSkew(memories, opt)...)
 
 	newerByTag := newestPerTag(memories)
 	pointed := pointedIDs(memories)
@@ -81,14 +94,12 @@ func CheckRepo(memories []*model.Memory, opt RepoOptions) RepoReport {
 		}
 		staleSources(m, opt.SourceMissing, add)
 		if opt.Hits != nil {
-			report.coldAndOrphan(m, pointed, opt, add)
+			r.coldAndOrphan(m, pointed, opt, add)
 		}
 	}
 	staleBasis(memories, opt, add)
 	checkLinkMissing(memories, opt, add)
 	notationDrift(memories, opt, add)
-	report.duplicates(memories, opt)
-	return report
 }
 
 // coldAndOrphan 은 조회 기록이 있을 때만 도는 둘이다 (C09·C10).
@@ -113,6 +124,19 @@ func (r RepoReport) coldAndOrphan(m *model.Memory, pointed map[string]bool, opt 
 // 서로를 안 보므로 **자리 번호로 갈라** 일꾼에게 나눠 준다. 표는 다 채운 뒤로는
 // 안 바뀌고 결과는 자리 번호대로 모으므로 답은 한 갈래로 돌린 것과 같다.
 func (r RepoReport) duplicates(memories []*model.Memory, opt RepoOptions) {
+	r.addDuplicates(memories, opt, findDuplicates(memories, opt))
+}
+
+// duplicateResult 는 중복 판정이 기억 자리마다 낸 것이다. found 는 C01~C03,
+// clash 는 모순 짝(C13) 후보다. 둘 다 memories 와 같은 차례다.
+type duplicateResult struct {
+	found [][]Finding
+	clash [][]string
+}
+
+// findDuplicates 는 중복 판정을 재기만 하고 report 는 안 만진다. 그래서
+// CheckRepo 가 저장소 규칙과 겹쳐 돌릴 수 있다.
+func findDuplicates(memories []*model.Memory, opt RepoOptions) duplicateResult {
 	docs := make([]*Doc, len(memories))
 	InParallel(len(memories), func(from, to int) {
 		for at := from; at < to; at++ {
@@ -135,10 +159,15 @@ func (r RepoReport) duplicates(memories []*model.Memory, opt RepoOptions) {
 			clash[at] = clashingIDs(docs[at], session)
 		}
 	})
+	return duplicateResult{found: found, clash: clash}
+}
+
+// addDuplicates 는 중복 판정 결과를 기억 자리 차례로 report 에 붙인다.
+func (r RepoReport) addDuplicates(memories []*model.Memory, opt RepoOptions, result duplicateResult) {
 	for at, m := range memories {
-		r.ByID[m.ID] = append(r.ByID[m.ID], found[at]...)
+		r.ByID[m.ID] = append(r.ByID[m.ID], result.found[at]...)
 	}
-	staleConflictPairs(clash, memories, func(m *model.Memory, rule, reason string, related ...string) {
+	staleConflictPairs(result.clash, memories, func(m *model.Memory, rule, reason string, related ...string) {
 		one := opt.finding(rule, m, reason, nextFor(rule, m, related)...)
 		one.Related = related
 		r.ByID[m.ID] = append(r.ByID[m.ID], one)

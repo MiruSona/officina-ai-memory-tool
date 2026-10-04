@@ -250,6 +250,9 @@ type Similar struct {
 	scopeID map[string]int32
 	// vectors 는 임베딩 셋째 신호다. nil 이면 안 쓴다 (vectors.go).
 	vectors Vectors
+	// bounds 는 자리마다 후보 자를 어림할 값이다 (docs 와 같은 차례). 문서를
+	// 포인터로 따라가지 않고 붙은 배열에서 읽어야 거르는 값이 싸다 (R1).
+	bounds []rankBound
 	// near 는 기억마다 가장 가까운 k 개다 (dupRankK). ready() 가 채운다.
 	near map[string]map[string]bool
 	// nearWide 는 기억마다 벡터가 데려오는 후보다 (vectorLimit). 옛 판은 이것을
@@ -416,6 +419,8 @@ func (s *Similar) Add(doc *Doc) {
 		}
 		doc.scopeID = number
 	}
+	s.bounds = append(s.bounds, rankBound{fingerprint: doc.Fingerprint, tagBits: doc.tagBits,
+		scopeID: doc.scopeID, tagCount: len(doc.tagIDs)})
 }
 
 // probe 는 견줄 기억 하나를 번호로 옮겨 둔 것이다. 후보마다 다시 만들지 않는다.
@@ -701,7 +706,13 @@ func topRanked(found []int, doc *Doc, ss *Session, limit int) []int {
 	// 태그·scope 번호는 후보마다가 아니라 **한 번만** 구한다.
 	one := s.idsFor(doc)
 	for _, at := range found {
-		picker.push(rankedOf(s.docs[at], doc, at, ss.sketchStamp[at] == round, one))
+		sketched := ss.sketchStamp[at] == round
+		// (R1) 힙이 다 찼으면 태그를 세기 전에 어림으로 먼저 거른다. 거른 것은
+		// 넣어도 꼭대기에 밀려 버려질 것뿐이라 답이 같다.
+		if picker.full() && surelyBehind(picker.heap[0], s.bounds[at], sketched, one, doc.Fingerprint) {
+			continue
+		}
+		picker.push(rankedOf(s.docs[at], doc, at, sketched, one))
 	}
 	best := picker.sorted()
 	out := make([]int, 0, len(best))
@@ -737,6 +748,9 @@ func (p *topPicker) push(one ranked) {
 	p.heap[0] = one
 	p.siftDown(0)
 }
+
+// full 은 상한만큼 다 들었는지다. 다 들어야 꼭대기가 「가장 뒤」로 정해진다.
+func (p *topPicker) full() bool { return p.limit > 0 && len(p.heap) == p.limit }
 
 // sorted 는 고른 것을 앞선 차례로 준다.
 func (p *topPicker) sorted() []ranked {
@@ -778,6 +792,35 @@ type ranked struct {
 func rankedOf(other, doc *Doc, at int, sketched bool, one probe) ranked {
 	return ranked{doc: other, at: at, shared: shared(other, one), sketched: sketched,
 		gap: simhash.Distance(other.Fingerprint, doc.Fingerprint)}
+}
+
+// rankBound 는 후보 하나의 자를 위로 어림할 값이다. 표에 넣을 때 한 번 만든다.
+type rankBound struct {
+	fingerprint uint64
+	tagBits     uint64
+	scopeID     int32
+	tagCount    int
+}
+
+// surelyBehind 는 이 후보가 top 을 **절대 못 이기는지**다. 나눠 가진 태그 수를
+// 세지 않고 「많아야 이만큼」으로 어림한다. 「못 이긴다」고 할 때만 맞으면 되고,
+// 모르면 false 를 줘 제대로 재게 한다 (자는 rankBefore 와 같은 차례).
+func surelyBehind(top ranked, bound rankBound, sketched bool, one probe, fingerprint uint64) bool {
+	if top.sketched != sketched {
+		return top.sketched
+	}
+	most := 0
+	if bound.tagBits&one.bits != 0 {
+		most = min(bound.tagCount, len(one.tags))
+	}
+	if bound.scopeID >= 0 && bound.scopeID == one.scope {
+		most++
+	}
+	if most != top.shared {
+		return most < top.shared
+	}
+	// 태그가 같아도 많아야 동점이다. 지문이 더 멀면 동점이어도 진다.
+	return simhash.Distance(bound.fingerprint, fingerprint) > top.gap
 }
 
 // shared 는 두 기억이 나눠 가진 태그 수다. 같은 scope 면 하나 더 친다.
