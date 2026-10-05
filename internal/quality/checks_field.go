@@ -119,7 +119,8 @@ func checkTitle(m *model.Memory, opt Options) []Finding {
 			fmt.Sprintf("제목이 %d자다. %d~%d자로 쓴다", count, titleMinRunes, titleMaxRunes)))
 	} else if titleEchoesSummary(m.Title, m.Summary) {
 		found = append(found, opt.finding(RuleTitleShape, m,
-			"제목이 요약 앞머리를 그대로 베꼈다. 제목에는 요약에 없는 말을 쓴다"))
+			"제목이 요약 앞머리를 그대로 베꼈다. 제목에는 요약에 없는 말을 쓴다",
+			"요약은 다른 말로 시작한다 — 예: 제목 'X 를 Y 로 바꾼다' / 요약 '까닭 … 그래서 X 를 Y 로'"))
 	}
 	if generic := genericTitle(m.Title); generic != "" {
 		found = append(found, opt.finding(RuleTitleNotGeneric, m,

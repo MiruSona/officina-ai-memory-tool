@@ -379,11 +379,17 @@ func Explain(result *Result) string {
 	return strings.Join(lines, "\n")
 }
 
+// kindOf 는 표의 종류 칸이다. 할 일은 상태(open·doing·done)를, issue·caution 은
+// 심각도를 붙인다 — 끝난 할 일을 show 없이 가려 보게 한다.
 func kindOf(hit Hit) string {
-	if hit.Severity == "" {
-		return hit.Type
+	kind := hit.Type
+	if hit.TodoStatus != "" {
+		kind += " " + hit.TodoStatus
 	}
-	return hit.Type + " " + hit.Severity
+	if hit.Severity != "" {
+		kind += " " + hit.Severity
+	}
+	return kind
 }
 
 func shortDate(date string) string {

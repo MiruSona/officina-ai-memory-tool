@@ -170,7 +170,8 @@ func ensureConfig(root string, dryRun bool) (Step, error) {
 		}
 		return step, os.WriteFile(path, config.Encode(config.Default(filepath.Base(root))), 0o644)
 	}
-	missing := config.MissingKeys(string(text))
+	body := strings.TrimPrefix(string(text), utf8BOM)
+	missing := config.MissingKeys(body)
 	if len(missing) == 0 {
 		step.Now, step.Todo = i18n.T(i18n.InitStatePresent), i18n.T(i18n.InitTodoKeep)
 		return step, nil
@@ -180,13 +181,29 @@ func ensureConfig(root string, dryRun bool) (Step, error) {
 	if dryRun {
 		return step, nil
 	}
-	loaded, err := config.Parse(string(text))
-	if err != nil {
+	if _, err := config.Parse(body); err != nil {
 		step.Now, step.Todo, step.Changed = i18n.T(i18n.InitStateBadConfig), i18n.T(i18n.InitTodoManual), false
 		return step, nil
 	}
-	fillSynonymSeeds(&loaded)
-	return step, os.WriteFile(path, config.Encode(loaded), 0o644)
+	// 파일을 다시 쓰지 않고 빠진 키 줄만 끼운다 — 사람이 단 주석·줄 차례·줄 끝을
+	// 지키려고다 (mem issue 20261005-ebe02fad). 끼운 뒤 원래 값이 바뀌면 안 쓴다.
+	filled, err := config.FillMissing(body)
+	if err != nil {
+		step.Todo, step.Changed = i18n.T(i18n.InitTodoManual), false
+		return step, err
+	}
+	return step, writeWithBOM(path, strings.HasPrefix(string(text), utf8BOM), filled)
+}
+
+// utf8BOM 은 메모장이 붙이는 머리 표시다. 읽을 때 벗기고 쓸 때 원래대로 붙인다.
+const utf8BOM = "\ufeff"
+
+// writeWithBOM 은 원래 파일에 BOM 이 있었으면(bom) 그대로 붙여 쓴다.
+func writeWithBOM(path string, bom bool, text string) error {
+	if bom {
+		text = utf8BOM + text
+	}
+	return os.WriteFile(path, []byte(text), 0o644)
 }
 
 // retainHeader 는 mem.toml 에 [retain] 절이 이미 있는지 볼 때 찾는 줄이다.
@@ -213,32 +230,20 @@ func ensureRetainConfig(root string, dryRun bool) (Step, error) {
 	if len(text) == 0 {
 		text = config.Encode(config.Default(filepath.Base(root)))
 	}
+	// 규칙 블록과 같은 붙이기다 — CRLF 파일이면 [retain] 절도 CRLF 로 붙는다.
 	block := config.RetainBlock(config.Default("").Retain)
-	joined := strings.TrimRight(string(text), "\r\n") + "\n\n" + block
-	return step, os.WriteFile(path, []byte(joined), 0o644)
+	return step, os.WriteFile(path, []byte(appendBlock(string(text), block)), 0o644)
 }
 
+// hasRetainHeader 는 머리를 파서와 같은 함수로 읽는다. `[retain] # 자동` 도 있는
+// 절이다 — 하나 더 붙이면 뒤 절이 사람이 고친 값을 기본값으로 덮는다.
 func hasRetainHeader(text string) bool {
 	for _, line := range strings.Split(text, "\n") {
-		if strings.TrimSpace(line) == retainHeader {
+		if name, ok := config.SectionHeader(line); ok && "["+name+"]" == retainHeader {
 			return true
 		}
 	}
 	return false
-}
-
-// fillSynonymSeeds 는 이미 있는 mem.toml 에 빠진 씨앗만 더한다. 사람이 적은
-// 것은 건드리지 않는다 (설계 6-7).
-func fillSynonymSeeds(loaded *config.Config) {
-	if loaded.Synonym == nil {
-		loaded.Synonym = map[string][]string{}
-	}
-	for word, others := range config.DefaultSynonyms() {
-		if _, found := loaded.Synonym[word]; found {
-			continue
-		}
-		loaded.Synonym[word] = others
-	}
 }
 
 // ensureVocab 은 Memory/vocab.toml 을 쓴다. mem.toml 과 같은 자를 쓴다 —
@@ -262,7 +267,8 @@ func ensureVocab(root string, dryRun bool) (Step, error) {
 		}
 		return step, os.WriteFile(path, config.EncodeVocab(config.DefaultVocab()), 0o644)
 	}
-	missing := config.MissingVocabKeys(string(text))
+	body := strings.TrimPrefix(string(text), utf8BOM)
+	missing := config.MissingVocabKeys(body)
 	if len(missing) == 0 {
 		step.Now, step.Todo = i18n.T(i18n.InitStatePresent), i18n.T(i18n.InitTodoKeep)
 		return step, nil
@@ -272,34 +278,30 @@ func ensureVocab(root string, dryRun bool) (Step, error) {
 	if dryRun {
 		return step, nil
 	}
-	loaded, err := config.ParseVocab(string(text))
+	loaded, err := config.ParseVocab(body)
 	if err != nil {
 		step.Now, step.Todo, step.Changed = i18n.T(i18n.InitStateBadVocab), i18n.T(i18n.InitTodoManual), false
 		return step, nil
 	}
-	return step, os.WriteFile(path, config.EncodeVocab(fillVocab(loaded)), 0o644)
+	// mem.toml 과 같은 까닭으로 파일을 다시 쓰지 않고 빠진 절만 끝에 붙인다.
+	// 붙인 뒤 원래 낱말이 하나라도 달리 읽히면 안 쓴다.
+	filled := config.AppendSections(body, missing, vocabSeeds(loaded))
+	if err := config.CheckVocabKept(body, filled); err != nil {
+		step.Todo, step.Changed = i18n.T(i18n.InitTodoManual), false
+		return step, err
+	}
+	return step, writeWithBOM(path, strings.HasPrefix(string(text), utf8BOM), filled)
 }
 
-// fillVocab 은 빠진 절만 채운다. **낱말은 하나도 안 더한다** — vocab.toml 은
+// vocabSeeds 는 빠진 절에 넣을 줄이다. **낱말은 하나도 안 더한다** — vocab.toml 은
 // 설정이 아니라 사람이 정한 목록이라, 씨앗을 도로 밀어 넣으면 지운 태그가
 // 살아 돌아온다. 못 쓰는 태그 목록만은 비어 있으면 씨앗을 준다.
-func fillVocab(loaded config.Vocab) config.Vocab {
-	if loaded.Tags == nil {
-		loaded.Tags = map[string][]string{}
-	}
-	if loaded.Scopes == nil {
-		loaded.Scopes = map[string][]string{}
-	}
-	if loaded.TagAlias == nil {
-		loaded.TagAlias = map[string]string{}
-	}
-	if loaded.ScopeAlias == nil {
-		loaded.ScopeAlias = map[string]string{}
-	}
+func vocabSeeds(loaded config.Vocab) map[string][]string {
+	bodies := map[string][]string{}
 	if len(loaded.TagDeny) == 0 {
-		loaded.TagDeny = config.DefaultVocab().TagDeny
+		bodies["tag.deny"] = []string{config.DenyLine(config.DefaultVocab().TagDeny)}
 	}
-	return loaded
+	return bodies
 }
 
 // ensureLog 는 Memory/log.md 자리를 마련한다. 도구가 한 줄씩 덧붙여 쓰는
@@ -418,12 +420,13 @@ func rulesPath(root string) string {
 }
 
 func ensureRules(path string, dryRun bool) (Step, error) {
-	text, found, err := readText(path)
+	text, bom, found, err := readTextBOM(path)
 	if err != nil {
 		return Step{}, err
 	}
 	step := Step{What: filepath.Base(path)}
-	if strings.Contains(text, i18n.InstallRulesBlock) {
+	// git 체크아웃이 블록까지 CRLF 로 바꿔 놓는다. 줄 끝만 다른 같은 블록이다.
+	if strings.Contains(toLF(text), i18n.InstallRulesBlock) {
 		step.Now, step.Todo = i18n.T(i18n.InitStateHasBlock), i18n.T(i18n.InitTodoKeep)
 		return step, nil
 	}
@@ -445,7 +448,7 @@ func ensureRules(path string, dryRun bool) (Step, error) {
 	if old {
 		text = cutRulesBlock(text)
 	}
-	return step, os.WriteFile(path, []byte(appendBlock(text, i18n.InstallRulesBlock)), 0o644)
+	return step, writeWithBOM(path, bom, appendBlock(text, i18n.InstallRulesBlock))
 }
 
 // hasRulesBlock 은 표식이든 제목이든 하나만 있으면 이미 붙은 것으로 본다.
@@ -455,7 +458,7 @@ func hasRulesBlock(text string) bool {
 }
 
 func removeRules(path string, dryRun bool) (Step, error) {
-	text, found, err := readText(path)
+	text, bom, found, err := readTextBOM(path)
 	if err != nil {
 		return Step{}, err
 	}
@@ -471,7 +474,7 @@ func removeRules(path string, dryRun bool) (Step, error) {
 	if dryRun {
 		return step, nil
 	}
-	return step, os.WriteFile(path, []byte(cutRulesBlock(text)), 0o644)
+	return step, writeWithBOM(path, bom, cutRulesBlock(text))
 }
 
 // cutRulesBlock 은 표식 사이를 통째로 지운다. 표식이 없으면 제목부터 다음
@@ -502,5 +505,9 @@ func cutRulesBlock(text string) string {
 		inPlain = false
 		kept = append(kept, line)
 	}
-	return strings.TrimRight(strings.Join(kept, "\n"), "\n") + "\n"
+	newline := "\n"
+	if mostlyCRLF(text) {
+		newline = "\r\n"
+	}
+	return strings.TrimRight(strings.Join(kept, "\n"), "\r\n") + newline
 }

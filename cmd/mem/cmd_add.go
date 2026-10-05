@@ -81,8 +81,10 @@ func runAdd(argv []string) int {
 		if count := ambiguousSession(parsed, retain.LoadState(repository.Dir), time.Now()); count > 0 {
 			return fail(i18n.T(i18n.AddSessionNeeded, int(sessionWindow/time.Minute), count))
 		}
-		// 자동 기억은 `--new` 로 중복 관문을 못 민다 — R4 가 그 판정을 봐야 한다.
+		// 자동 기억은 `--new` 로도 `--by` 로도 중복 관문을 못 민다 — R4 가 그
+		// 판정을 봐야 한다. `--by` 자체는 R5 가 따로 거절한다 (코드리뷰 10-05).
 		gate.AllowDuplicate = false
+		gate.SupersedeOf = ""
 		return runAddAuto(parsed, repository, opened, request,
 			quality.Gate(memoryOf(request), gate), origin)
 	}
@@ -704,21 +706,103 @@ func fillDefaults(request *store.AddRequest) {
 	request.Body = trimTail(request.Body)
 }
 
-// bodyOf 는 --body 를 쓰거나, 없으면 표준입력을 통째로 읽는다.
+// stdinFirstByteWait 는 --body·--stdin 없이 파이프로 부른 add 가 첫 바이트를
+// 기다리는 시한이다. `echo 본문 | mem add` 는 이 안에 첫 바이트가 온다.
+const stdinFirstByteWait = 2 * time.Second
+
+// stdinWait 는 시험이 시한을 줄일 수 있게 둔 자리다. 평소에는 위 상수 그대로다.
+var stdinWait = stdinFirstByteWait
+
+// bodyOf 는 --body 를 쓰거나, --stdin 이면 표준입력을 끝까지 읽는다. 둘 다
+// 없으면 파이프에 이미 든 본문만 받는다 — 에이전트는 입력을 못 넣어서
+// 말없이 기다리면 시간 한도까지 묶인다 (반복 06 피드백 4번).
 func bodyOf(parsed *options) (string, error) {
 	if text := parsed.text("body"); text != "" {
 		return trimTail(text), nil
 	}
-	return readStdin()
+	if parsed.flags["stdin"] {
+		return readStdin()
+	}
+	return readStdinWithin(os.Stdin, stdinWait)
 }
 
-// readStdin 은 표준입력을 통째로 읽는다. add 와 set 이 같이 쓴다.
+// stdinChunk 는 표준입력에서 한 번 읽은 토막이다. err 가 있으면 마지막 토막이다.
+type stdinChunk struct {
+	data []byte
+	err  error
+}
+
+// readStdinWithin 은 콘솔이면 바로, 파이프면 wait 안에 본문 글자가 안 오거나
+// 끝내 비어 있으면 「--body 나 --stdin」 으로 거절한다. 시한을 넘긴 읽기
+// 고루틴은 프로세스가 끝날 때 같이 사라진다.
+func readStdinWithin(input *os.File, wait time.Duration) (string, error) {
+	noBody := errors.New(i18n.T(i18n.AddNoBody))
+	if isConsole(input) {
+		return "", noBody
+	}
+	chunks := make(chan stdinChunk, 16)
+	go readChunks(input, chunks)
+	timer := time.NewTimer(wait)
+	defer timer.Stop()
+	var received []byte
+	for {
+		// BOM·줄바꿈만 온 동안은 아직 본문이 아니다 — 쓰는 쪽이 BOM 만 보내고
+		// 안 닫는 파이프(.NET Process 의 StandardInput)도 시한에 걸린다.
+		deadline := timer.C
+		if bodyText(received) != "" {
+			deadline = nil
+		}
+		select {
+		case chunk := <-chunks:
+			received = append(received, chunk.data...)
+			if chunk.err == nil {
+				continue
+			}
+			if chunk.err != io.EOF {
+				return "", chunk.err
+			}
+			if text := bodyText(received); text != "" {
+				return text, nil
+			}
+			return "", noBody
+		case <-deadline:
+			return "", noBody
+		}
+	}
+}
+
+// readChunks 는 표준입력을 끝(또는 오류)까지 토막으로 읽어 보낸다.
+func readChunks(input *os.File, chunks chan<- stdinChunk) {
+	for {
+		buffer := make([]byte, 4096)
+		count, err := input.Read(buffer)
+		chunks <- stdinChunk{data: buffer[:count], err: err}
+		if err != nil {
+			return
+		}
+	}
+}
+
+// bodyText 는 받은 바이트에서 BOM 과 끝 줄바꿈을 뗀 본문이다.
+// Windows PowerShell 5.1 은 파이프 앞에 BOM 을 붙인다 — `$null |` 도 BOM 한 글자가 온다.
+func bodyText(received []byte) string {
+	return trimTail(strings.TrimPrefix(string(received), string(rune(0xFEFF))))
+}
+
+// isConsole 은 표준입력이 사람이 치는 콘솔인지 본다 (hook 의 isTerminal 과 같은 판별).
+func isConsole(input *os.File) bool {
+	info, err := input.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// readStdin 은 표준입력을 통째로 읽는다. add 와 set 이 같이 쓴다. 맨 앞 BOM 하나는
+// 파이프만 준 길(bodyText)과 똑같이 벗긴다 (코드리뷰 10-05).
 func readStdin() (string, error) {
 	data, err := io.ReadAll(os.Stdin)
 	if err != nil {
 		return "", err
 	}
-	return trimTail(string(data)), nil
+	return bodyText(data), nil
 }
 
 func trimTail(text string) string {

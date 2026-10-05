@@ -335,28 +335,53 @@ func shortPath(path string) string {
 
 // readText 는 파일 내용을 주고, 없으면 빈 글과 false 를 준다. BOM 은 벗긴다.
 func readText(path string) (string, bool, error) {
-	data, err := os.ReadFile(path)
-	if os.IsNotExist(err) {
-		return "", false, nil
-	}
-	if err != nil {
-		return "", false, err
-	}
-	return strings.TrimPrefix(string(data), "\ufeff"), true, nil
+	text, _, found, err := readTextBOM(path)
+	return text, found, err
 }
 
-// appendBlock 은 글 끝에 빈 줄 하나를 두고 블록을 붙인다.
+// readTextBOM \uc740 readText \uc5d0 \u300c\ub9e8 \uc55e\uc5d0 BOM \uc774 \uc788\uc5c8\ub098\u300d \ub97c \ub354 \uc900\ub2e4. \ub2e4\uc2dc \uc4f8 \ub54c
+// writeWithBOM \uc73c\ub85c \uadf8\ub300\ub85c \ubd99\uc774\ub824\uace0\ub2e4 \u2014 \uba54\ubaa8\uc7a5\uc73c\ub85c \uc5f0 AGENTS.md \uc758 BOM \uc744 \uc9c0\ud0a4\uac8c.
+func readTextBOM(path string) (string, bool, bool, error) {
+	data, err := os.ReadFile(path)
+	if os.IsNotExist(err) {
+		return "", false, false, nil
+	}
+	if err != nil {
+		return "", false, false, err
+	}
+	text := string(data)
+	return strings.TrimPrefix(text, utf8BOM), strings.HasPrefix(text, utf8BOM), true, nil
+}
+
+// appendBlock 은 글 끝의 빈 줄을 다 걷고 빈 줄 하나를 둔 뒤 블록을 붙인다.
+// 파일이 CRLF 가 대부분이면 블록도 CRLF 로 바꿔 붙인다 — 한 파일에 줄 끝이
+// 섞이면 체크아웃 때마다 블록 비교가 어긋난다.
 func appendBlock(text, block string) string {
+	newline := "\n"
+	if mostlyCRLF(text) {
+		newline = "\r\n"
+		block = toCRLF(block)
+	}
+	// 빈 글이어도 줄 끝은 원래 파일을 따른다 — 옛 블록만 든 CRLF 파일을 갈아
+	// 끼우면 남는 것은 "\r\n" 하나다 (코드리뷰 10-05).
 	if strings.TrimSpace(text) == "" {
 		return block
 	}
-	if !strings.HasSuffix(text, "\n") {
-		text += "\n"
-	}
-	if !strings.HasSuffix(text, "\n\n") {
-		text += "\n"
-	}
-	return text + block
+	return strings.TrimRight(text, "\r\n") + newline + newline + block
+}
+
+// mostlyCRLF 는 줄 끝의 절반 넘게 CRLF 인지다.
+func mostlyCRLF(text string) bool {
+	crlf := strings.Count(text, "\r\n")
+	return crlf*2 > strings.Count(text, "\n")
+}
+
+func toCRLF(text string) string {
+	return strings.ReplaceAll(toLF(text), "\n", "\r\n")
+}
+
+func toLF(text string) string {
+	return strings.ReplaceAll(text, "\r\n", "\n")
 }
 
 func lineCount(block string) int {

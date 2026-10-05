@@ -65,9 +65,10 @@ var commandHelp = map[string]string{
                      (decision·issue·caution·fact 는 하나 이상 필수)
                      **여러 개는 쉼표로 잇는다.** 공백으로 이으면 뒤가 사라진다
   --author <누가>    human:<아이디> · <도구>/<버전> · hook:<이름> (기본 mem/판)
-  --body <본문>      본문. 안 주면 표준입력을 읽는다
+  --body <본문>      본문. 안 주면 파이프에 든 본문을 읽는다
+                     (콘솔이거나 2초 안에 첫 바이트가 안 오면 거절 — 멈춰 기다리지 않는다)
                      **실질 3줄 이상**이라야 한다. howto 는 1. 2. 번호 차례로 쓴다
-  --stdin            본문을 표준입력에서 읽는다 (--body 를 안 줄 때와 같다)
+  --stdin            본문을 표준입력에서 끝까지 기다려 읽는다
   --date <날짜>      기억의 날짜 (기본 오늘)
   --invalid-at <날짜> 이 날부터 이 기억은 무효다
   --todo-status <값> open doing done. 안 주면 open 이다

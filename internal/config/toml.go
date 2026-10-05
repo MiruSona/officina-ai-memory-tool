@@ -153,7 +153,7 @@ func parseTOML(text string) (*tomlFile, error) {
 			pending = line
 			continue
 		}
-		if strings.HasPrefix(line, "[") && !strings.Contains(line, "=") {
+		if headerShaped(line) {
 			name, ok := parseSectionName(line)
 			if !ok {
 				Warn(i18n.T(i18n.SkippedConfigLine, from, line))
@@ -220,6 +220,21 @@ func scanOutsideQuotes(text string) []rune {
 		}
 	}
 	return out
+}
+
+// headerShaped 는 주석을 떼고 다듬은 줄이 절 머리 꼴인지다.
+func headerShaped(line string) bool {
+	return strings.HasPrefix(line, "[") && !strings.Contains(line, "=")
+}
+
+// SectionHeader 는 날 줄 하나를 파서와 똑같이 읽어 절 머리면 이름을 준다.
+// `[search] # 주석`·`[ search ]` 도 search 다. init·vocab·retain 이 모두 이것만 쓴다.
+func SectionHeader(raw string) (string, bool) {
+	line := strings.TrimSpace(stripComment(raw))
+	if !headerShaped(line) {
+		return "", false
+	}
+	return parseSectionName(line)
 }
 
 func parseSectionName(line string) (string, bool) {

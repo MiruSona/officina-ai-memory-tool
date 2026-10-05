@@ -75,7 +75,8 @@ func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
 		if m.StaleAfter != "" && !model.IsFutureDate(m.StaleAfter, opt.Now) && model.IsDate(m.StaleAfter) {
 			add(m, RuleStaleAfterPassed, fmt.Sprintf("다시 볼 날(%s)이 지났다", m.StaleAfter))
 		}
-		if rivals := LiveDecisionRivals(m, memories, opt.Now, opt.typeSpec(m)); len(rivals) > 0 {
+		// 이미 덮이거나 무효인 기억은 자기가 물러난 쪽이라 모순 상대를 안 센다.
+		if rivals := LiveDecisionRivals(m, memories, opt.Now, opt.typeSpec(m)); Live(m, opt.Now) && len(rivals) > 0 {
 			add(m, RuleDecisionConflictLive, fmt.Sprintf("같은 자리에 살아 있는 결정이 %d건 더 있다. 어느 쪽이 지금 맞는지 표시가 없다", len(rivals)), idsOf(rivals)...)
 			if newer := newestRival(m, rivals); newer != "" && m.SupersededBy == "" {
 				add(m, RuleSupersedeMissing, fmt.Sprintf("더 새 결정 `%s` 이 있는데 이 기억에 superseded_by 가 없다", newer), newer)

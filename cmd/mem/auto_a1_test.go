@@ -96,6 +96,26 @@ func TestAutoAddCannotForceDuplicate(t *testing.T) {
 	}
 }
 
+// 코드리뷰 10-05 중간 3 — 자동 기억은 `--by` 로도 중복 관문 면제를 못 받는다.
+// R5 가 `--by` 를 따로 막지만, R5 가 풀려도 R4 가 닮은 기억을 잡게 둘 다 본다.
+// 사람 add 는 `--by <옛id>` 면 닮은 옛 기억을 지나 덮는다.
+func TestAutoAddCannotSkipDuplicateWithBy(t *testing.T) {
+	autoRepo(t)
+	out, code := capture(t, func() int { return run(addArgs("본문 한 줄")) })
+	if code != exitOK {
+		t.Fatalf("사람 add 가 실패했다 : %s", out)
+	}
+	old := strings.TrimSpace(out)
+	out, code = capture(t, func() int { return run(append(autoArgs("본문 한 줄 고침"), "--by", old)) })
+	if code == exitOK || !strings.Contains(out, retain.RuleNoMerge) || !strings.Contains(out, retain.RuleNoBy) {
+		t.Fatalf("자동 기억 --by 가 R4·R5 둘 다로 안 걸렸다 : %d %s", code, out)
+	}
+	out, code = capture(t, func() int { return run(append(addArgs("본문 한 줄 고침"), "--by", old)) })
+	if code != exitOK {
+		t.Fatalf("사람 add --by 가 막혔다 : %d %s", code, out)
+	}
+}
+
 func TestAutoUndoRedoRoundTrip(t *testing.T) {
 	memory := autoRepo(t)
 	out, code := capture(t, func() int { return run(autoArgs("본문 한 줄")) })

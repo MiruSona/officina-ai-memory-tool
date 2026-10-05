@@ -409,15 +409,34 @@ func checkDuplicate(m *model.Memory, opt Options) []Finding {
 	}
 	table := newSimilarFor(opt)
 	live := []*model.Memory{}
+	var target *model.Memory
 	for _, other := range existing {
 		if other == nil || other.ID == m.ID || other.Type == model.TypeObservation {
+			continue
+		}
+		// `--by <옛id>` 로 덮겠다고 가리킨 기억은 닮은 게 당연하다. 그 하나만 뺀다.
+		if opt.SupersedeOf != "" && other.ID == opt.SupersedeOf {
+			target = other
 			continue
 		}
 		table.Add(NewDoc(other))
 		live = append(live, other)
 	}
 	found := allowNew(DuplicateFindings(NewDoc(m), table, m, opt), opt)
+	found = append(found, sameBodyAsTarget(m, target, opt)...)
 	return append(found, decisionGate(m, live, opt)...)
+}
+
+// sameBodyAsTarget 은 `--by` 로 덮을 옛 기억과 본문이 글자까지 같은지다. 같으면
+// 덮을 것이 없다 — `--new` 처럼 C03 은 그대로 거절이다 (allowNew 와 같은 자).
+func sameBodyAsTarget(m, target *model.Memory, opt Options) []Finding {
+	if target == nil || !SameBody(NewDoc(m), NewDoc(target)) {
+		return nil
+	}
+	return []Finding{{Rule: RuleSameBody, Level: opt.grade(RuleSameBody, m), ID: m.ID,
+		Reason:  fmt.Sprintf("본문이 덮으려는 `%s` 와 글자까지 같다 — 덮을 것이 없다", target.ID),
+		Related: []string{target.ID},
+		Next:    []string{"바뀐 내용을 본문에 적고 다시 친다 (머리말만 고칠 때는 `mem set " + target.ID + "`)"}}}
 }
 
 // allowNew 는 `--new` 를 준 add 의 닮음 거절을 경고로 내린다. 거절 문구가

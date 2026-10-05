@@ -329,6 +329,14 @@ func EncodeVocab(v Vocab) []byte {
 	return []byte(out.String())
 }
 
+// DenyLine 은 `[tag.deny]` 절의 한 줄이다. init 이 빠진 절을 붙일 때 EncodeVocab 과
+// 같은 꼴로 쓴다.
+func DenyLine(words []string) string {
+	out := strings.Builder{}
+	writeList(&out, "words", words)
+	return strings.TrimSuffix(out.String(), "\n")
+}
+
 // vocabSections 는 vocab.toml 이 가져야 할 절이다.
 var vocabSections = []string{"tag", "tag.alias", "tag.deny", "scope", "scope.alias"}
 
@@ -340,9 +348,8 @@ var vocabSections = []string{"tag", "tag.alias", "tag.deny", "scope", "scope.ali
 func MissingVocabKeys(text string) []string {
 	have := map[string]bool{}
 	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			have[strings.Trim(line, "[]")] = true
+		if name, ok := SectionHeader(line); ok {
+			have[name] = true
 		}
 	}
 	missing := []string{}

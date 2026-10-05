@@ -152,7 +152,8 @@ func checkTypeBody(m *model.Memory, opt Options) []Finding {
 			// 길을 같이 준다 (리뷰 B → C 넘김 · 실데이터 시험 4-1).
 			return []Finding{opt.finding(RuleIssueSections, m, reason,
 				"그 절에 줄을 하나씩 더 적는다 — 무엇이 보였나 · 무엇을 고쳤나",
-				fmt.Sprintf("한 줄로 길게 써도 된다 (한 절 %d자 넘으면 통과)", sectionMinRunes))}
+				fmt.Sprintf("한 줄로 길게 써도 된다 (한 절 %d자 넘으면 통과)", sectionMinRunes),
+				"아직 안 고쳤으면 `--type todo` 로 넣거나, `## 해결` 에 '아직 안 고쳤다 — 다음에 …' 를 적는다")}
 		}
 	case model.BodyNumbered:
 		if !numberedSteps(m.Body) {

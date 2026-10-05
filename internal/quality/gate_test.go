@@ -223,6 +223,44 @@ func TestDuplicateRejects(t *testing.T) {
 	}
 }
 
+// `--by <옛id>` 로 덮겠다고 가리킨 그 기억과 닮은 것은 중복 관문을 지난다.
+// 다른 기억과 닮은 것은 그대로 막는다 (반복 06 피드백 3번).
+func TestDuplicateSkipsSupersededTarget(t *testing.T) {
+	existing := goodMemory()
+	existing.ID = "20260822-1fae6641"
+	near := goodMemory()
+	near.ID = "20260823-99999999"
+	near.Body = strings.Replace(near.Body, "3,300자", "3,000자", 1)
+	same := goodMemory()
+	same.ID = "20260823-99999999"
+	cases := []struct {
+		name   string
+		fresh  *model.Memory
+		by     string
+		reject bool
+	}{
+		{"--by 없음", near, "", true},
+		{"--by 가 그 옛 기억", near, existing.ID, false},
+		{"--by 가 다른 id", near, "20260801-00000000", true},
+		// 본문이 글자까지 같으면 덮을 것이 없다 — --new 처럼 C03 은 그대로 거절이다.
+		{"--by 가 그 옛 기억인데 본문이 같음", same, existing.ID, true},
+	}
+	for _, test := range cases {
+		opt := testOptions()
+		opt.Repo = MemorySlice{existing}
+		opt.SupersedeOf = test.by
+		verdict := Gate(test.fresh, opt)
+		duplicate := hasRule(verdict.Findings, RuleDuplicateHard) || hasRule(verdict.Findings, RuleSameBody) ||
+			hasRule(verdict.Findings, RuleDuplicateSoft)
+		if duplicate != test.reject {
+			t.Fatalf("%s : 닮음 거절 %v, 바란 것 %v (%v)", test.name, duplicate, test.reject, verdict.Rules())
+		}
+		if !test.reject && verdict.Kind == KindQualityReject {
+			t.Fatalf("%s : 거절됐다 (%v)", test.name, verdict.Rules())
+		}
+	}
+}
+
 // TestDecisionGate 는 ⑤ 결정 관문 C04 다.
 func TestDecisionGate(t *testing.T) {
 	live := goodMemory()

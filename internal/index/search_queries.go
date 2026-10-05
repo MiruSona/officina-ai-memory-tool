@@ -534,7 +534,7 @@ func whereOf(narrow Filter, now time.Time) (string, []any) {
 		args = append(args, "% "+LikeEscape(tag)+" %")
 	}
 	if narrow.Status != "" {
-		clause.WriteString(" AND status = ?")
+		clause.WriteString(" AND todo_status = ?")
 		args = append(args, narrow.Status)
 	}
 	if narrow.Severity != "" {

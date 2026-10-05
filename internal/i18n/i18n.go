@@ -119,6 +119,7 @@ const (
 	AddRejectedNote   Key = "add-rejected-note"
 	AddStatusDefault  Key = "add-status-default"
 	AddStrayWords     Key = "add-stray-words"
+	AddNoBody         Key = "add-no-body"
 	ShowQueued        Key = "show-queued"
 	CheckHeader       Key = "check-header"
 	CheckNone         Key = "check-none"
@@ -160,7 +161,7 @@ var messages = map[Key]string{
 	MissingSources:      "`%s` 는 근거(`sources`)가 하나 이상 있어야 한다. `file:` `commit:` `url:` `mem:` `note:` 중 하나로 적는다.",
 	BadAuthor:           "`author` 는 `human:<아이디>` · `<도구>/<버전>` · `hook:<이름>` 중 하나여야 한다 : %s",
 	BadTitleLength:      "`title` 은 6~40자여야 한다. 지금 %d 자다.",
-	TitleEchoesSummary:  "`title` 이 `summary` 앞머리를 그대로 베꼈다. 무엇을 정했는지가 드러나는 제목을 쓴다.",
+	TitleEchoesSummary:  "`title` 이 `summary` 앞머리를 그대로 베꼈다. 무엇을 정했는지가 드러나는 제목을 쓴다. 요약은 다른 말로 시작한다 — 예: 제목 'X 를 Y 로 바꾼다' / 요약 '까닭 … 그래서 X 를 Y 로'",
 	BadSourceEntry:      "`sources` 항목은 `file:` `commit:` `url:` `mem:` `note:` 로 시작해야 한다 : %s",
 	SupersedePairBroken: "`superseded_by` 와 `invalid_at` 은 한 짝이다. 둘 다 적거나 둘 다 비운다.",
 	StatusOnlyTodo:      "`todo_status` 는 `todo` 에만 붙는다. 지금 type 은 %s 다.",
@@ -187,7 +188,7 @@ var messages = map[Key]string{
 	IndexRebuilt:       "색인을 처음부터 다시 만들었다.",
 	IndexLinkBlocked:   "이웃 후보 통 %d개가 너무 커서 건너뛰었다 (가장 큰 통 %d건 · 상한 %d). 그 통에 든 기억끼리는 자동 링크를 안 만든다 — 태그를 좁히면 살아난다.",
 	IndexUnindexed:     "색인 안 된 파일 %d건 (규격을 벗어났다 — 위 줄에서 이유를 본다. 흔한 원인은 store/YYYY/MM/ 자리가 아니다)",
-	SetQueued:          "고칠 것을 큐에 넣었다 : %s (`mem index` 가 반영한다)",
+	SetQueued:          "고칠 것을 큐에 넣었다 : %s — 다음 `mem search` 나 `mem index` 때 반영된다 (`show` 는 반영 전 모습)",
 	SetNothing:         "고칠 것을 하나도 안 줬다.",
 	BadImportanceValue: "`--importance` 는 1~5 여야 한다 : %s",
 
@@ -197,7 +198,7 @@ var messages = map[Key]string{
 	VocabTypeKey:      "vocab.toml 의 `[type.%s]` 에 모르는 칸 `%s` 가 있어 무시했다.",
 	VocabTypeValue:    "vocab.toml 의 `[type.%s]` 칸 `%s` 값 `%s` 를 못 읽어 기본값을 썼다.",
 	VocabScopeName:    "vocab.toml 의 `[scope]` 키 `%s` 는 이름 규격(영어 소문자·숫자·하이픈 30자까지)이 아니라 버렸다.",
-	OldFieldWeights:   "[search] field_weights 가 옛 세 값이다. 열이 넷으로 늘어 메타(태그+scope) 자리를 기본값 %g 로 채웠다. `mem init` 이 파일을 고쳐 준다.",
+	OldFieldWeights:   "[search] field_weights 가 옛 세 값이다. 열이 넷으로 늘어 메타(태그+scope) 자리를 기본값 %g 로 채웠다. 파일의 그 줄을 네 값(제목·메타·요약·본문)으로 고쳐 적으면 이 알림이 없어진다 (`mem init` 은 있는 줄을 안 고친다).",
 	BadFieldWeights:   "[search] field_weights 를 못 읽었다 (값 %d개). 넷(제목·메타·요약·본문)이라야 한다. 기본값으로 돈다.",
 	BadWeightValue:    "[search] field_weights 의 %d번째 값이 0 이상의 숫자가 아니다 : %s. 기본값으로 돈다.",
 	QueueWait:         "큐에 %d건이 밀려 있다. 이번 색인은 그것을 다 반영하느라 오래 걸린다 (2만 건이면 6분쯤). 다음 색인부터는 평소 속도다.",
@@ -272,6 +273,7 @@ var messages = map[Key]string{
 		"먼저 돌려 보려면 같은 명령 끝에 --check 를 붙인다.",
 	AddStatusDefault: "todo_status 를 안 줘서 `%s` 로 뒀다 (바꾸려면 --todo-status doing|done).",
 	AddStrayWords:    "옵션 값이 아닌 낱말이 있다 : %s — 여러 값은 쉼표로 잇는다 (--sources a,b · --tags a,b)",
+	AddNoBody:        "본문을 못 받았다 — --body 나 --stdin 을 준다 (파이프로 넘길 때 --stdin 을 붙이면 끝까지 기다린다).",
 	ShowQueued:       "아직 색인 전이다 : %s — mem index 를 돌린 뒤에 보인다",
 	CheckHeader:      "닮은 기억 %d건 (--check 라서 넣지 않았다) :",
 	CheckNone:        "닮은 기억이 없다. 넣어도 된다. (--check 라서 넣지 않았다)",

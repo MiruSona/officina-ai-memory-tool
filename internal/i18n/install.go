@@ -74,6 +74,7 @@ const (
 	InstallPathSkipped  Key = "install-path-skipped"
 	InstallUndoExeNote  Key = "install-undo-exe-note"
 	HookStatusMessage   Key = "hook-status-message"
+	InitFillChanged     Key = "init-fill-changed"
 )
 
 // status --doctor 가 쓰는 점검 이름과 안내다 (설계 6-1).
@@ -119,6 +120,7 @@ var installMessages = map[Key]string{
 	InitStateKeysMissing:  "키 %d 개 빠짐",
 	InitStateBadConfig:    "mem.toml 을 못 읽음",
 	InitStateBadVocab:     "vocab.toml 을 못 읽음",
+	InitFillChanged:       "%s 에 빠진 키를 끼우면 원래 값이 바뀐다 (%s) — 파일을 안 고쳤다. 빠진 키는 손으로 넣는다.",
 	InstallStateSelf:      "이미 그 자리에서 돌고 있음",
 	InstallStateSameExe:   "같은 판이 있음",
 	InstallStateInPath:    "이미 들어 있음",

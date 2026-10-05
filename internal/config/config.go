@@ -31,23 +31,14 @@ func MissingKeys(text string) []string {
 // tomlKeySet scans `[절]` and `키 = 값` lines only, into a "절.키" set. A
 // section with no keys of its own gives none, so an empty [synonym] or
 // [score] block is skipped on its own.
+// It reads lines the same way InsertMissing does, so what one calls missing the
+// other can fill. Quoted keys are unquoted; lines inside a multi-line list are not keys.
 func tomlKeySet(text string) map[string]bool {
 	keys := map[string]bool{}
-	section := ""
-	for _, line := range strings.Split(text, "\n") {
-		line = strings.TrimSpace(line)
-		if line == "" || strings.HasPrefix(line, "#") {
-			continue
+	for _, one := range scanTOMLLines(strings.Split(text, "\n")) {
+		if one.key != "" {
+			keys[one.section+"."+one.key] = true
 		}
-		if strings.HasPrefix(line, "[") && strings.HasSuffix(line, "]") {
-			section = strings.Trim(line, "[]")
-			continue
-		}
-		name, _, found := strings.Cut(line, "=")
-		if !found {
-			continue
-		}
-		keys[section+"."+strings.TrimSpace(name)] = true
 	}
 	return keys
 }
