@@ -68,16 +68,18 @@ func capture(t *testing.T, action func() int) (string, int) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// 파이프 버퍼(Windows 4KB)를 넘는 출력이 쓰기에서 멈추지 않게 따로 읽는다.
+	done := make(chan []byte)
+	go func() {
+		out, _ := io.ReadAll(reader)
+		done <- out
+	}()
 	before := os.Stdout
 	os.Stdout = writer
 	code := action()
 	os.Stdout = before
 	writer.Close()
-	out, err := io.ReadAll(reader)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(out), code
+	return string(<-done), code
 }
 
 // addArgs 는 v0.2 규격을 다 갖춘 add 다. 관문이 기본으로 켜져 있어 필수 칸을

@@ -1,0 +1,186 @@
+# abstain 탐침 셋 — 저장소에 없는 주제 질의 30건 (2026-10-05)
+#
+# 근거 : AIMemoryTool/Docs/Research/2026-10-05-abstain탐침과칸조사.md
+#
+# 왜 따로 두나 : 골든셋 v2·v3 의 abstain 10건은 「strict 0건인 것을 확인하고」 골랐다.
+#  그래서 낱말 하나만 맞아도 strict 로 앉는 약점을 못 본다. 이 셋은 **검색 결과를 보기 전에**
+#  30건을 다 쓰고, 그 뒤 원문 검색으로 「정말 저장소에 답이 없나」만 확인했다.
+#
+# 고른 규칙
+#  - 게임 개발 일반(네트워크 · 저장 · 빌드 · UI · 사운드 · AI · 결제 · 현지화 · 운영)과
+#    이 저장소가 안 다루는 도구들로 고루. 사람이 칠 만한 2~6낱말.
+#  - v3 의 abstain(인앱 결제 영수증 검증 · 블렌더 리깅 · leaderboard …)과 겹치는 것은 처음부터 피했다.
+#  - 원문 검색에서 답이 실제로 있는 질의는 빼지 않고 아래 「정답 있음」 칸에 주석으로 남긴다
+#    (abstain 으로 세지 않는다). 건별 판정 표는 조사 문서 2절.
+#
+# 재는 것 : `mem eval --golden abstain-probe.yaml --json` 의 abstain 지표 = 1 − strict 오답률.
+#  상위 5 strict 칸 수는 JSON 의 results[].got · all 로 센다 (조사 문서 5절 명령).
+#  합격선은 없다 — G2 보조 자다. 공식 G2 는 v3 의 abstain 10건 그대로다.
+#
+# 칸 : goldenset-v3.yaml 과 같다. 전부 kind abstain · expect 빈 목록.
+version: 4
+cases:
+  # ── 네트워크 ──
+  - q: 서버 권위 넷코드 롤백
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: dedicated server hosting cost
+    kind: abstain
+    lang: en
+    variant: literal
+    expect: []
+  - q: Photon 룸 최대 인원
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── 저장 ──
+  # 「정답 있음」 : 원문 검색에서 게임 데이터 파일 암호화(압축 뒤 AES-256-GCM · 2차로 미룸)를
+  # 다룬 기억이 나왔다. 세이브 파일은 아니지만 같은 물음에 쓸 만한 답이라 abstain 으로 세지 않는다.
+  # 815건 저장소 기준 id. 206건 저장소에는 없다(그 판에서는 unknown_expect 로 찍힌다).
+  - q: 세이브 파일 암호화
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260918-f399aa7f, 20260918-73ad1ae6]
+    expect_mode: any
+  - q: 오토세이브 슬롯 개수
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── 빌드 · 출시 ──
+  - q: 안드로이드 빌드 서명 키
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: iOS 앱스토어 심사 거절
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: Jenkins 빌드 캐시
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── UI ──
+  - q: UI Toolkit 데이터 바인딩
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 세이프 에어리어 노치 대응
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 인벤토리 드래그 앤 드롭
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── 사운드 ──
+  - q: 대사 나올 때 배경음 덕킹
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+  - q: 배경음 크로스페이드
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: FMOD 이벤트 파라미터
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── 게임 AI ──
+  - q: 비헤이비어 트리 순찰
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: A* 길찾기 격자
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 적 시야 판정 각도
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── 결제 · 광고 ──
+  - q: 구매 복원 버튼
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 구독 환불 처리
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 보상형 광고 쿨타임
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── 현지화 ──
+  - q: 현지화 문자열 테이블 일본어
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 아랍어 RTL 텍스트
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 중국어 폰트 폴백
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  # ── 운영 · 플랫폼 · 기타 ──
+  - q: 서버 시간 조작 치트 방지
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 푸시 알림 예약
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 이탈률 퍼널 분석
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: Steam 업적 연동
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: 게임패드 진동 햅틱
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []
+  - q: replay recording system
+    kind: abstain
+    lang: en
+    variant: literal
+    expect: []
+  # ── 이 저장소가 안 다루는 도구 ──
+  - q: Houdini 절차적 지형
+    kind: abstain
+    lang: ko
+    variant: literal
+    expect: []

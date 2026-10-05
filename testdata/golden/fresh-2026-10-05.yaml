@@ -1,0 +1,278 @@
+# 새 질문 셋 fresh-2026-10-05 — 33건 (답 있음 26 · 답 없음 7)
+#
+# 만든 법 : 스튜디오 기억 사본(830건)에서 오늘(10-05) 만든 기억 · 덮인/무효 · 보류를 뺀 756건 중
+#           씨앗 20261005 로 40건을 뽑아 **본문만** 새 Opus 서브에이전트에게 주었다.
+#           그 에이전트는 입력 파일 하나만 읽고 검색(mem search)을 한 번도 돌리지 않았다.
+# 받은 뒤 고친 것 (질문 문구는 안 고쳤다) :
+#   - 정답 id 26건이 사본에 있고 덮이지 않았는지 확인했다.
+#   - 「조사가 붙으면 안 걸리는 문제」 에 지금 결정(01efa3e3 · B2 바이그램)을 둘째 정답(any)으로 더했다.
+#   - 한 낱말 질의 CS0111 · nupkg 의 lang 을 ko → en 으로 바로잡았다(글자가 영문).
+# 쓰는 법 : 손잡이를 고르는 데 쓰지 않는다. 전/후 exe 를 한 번씩만 잰다
+#           (AIMemoryTool/Docs/Research/2026-10-05-뜻후보섞기측정.md).
+# 구성 경고(유형별 최소 건수)는 난다 — extract·abstain 만 든 셋이다.
+version: 3
+cases:
+  # PowerShell 5.1 에서 && 를 못 쓰고 ; 와 if ($?) 를 쓴다는 환경 사실
+  - q: 윈도우 기본 셸에서 앞 명령이 성공했을 때만 다음 명령을 돌리게 하려면 어떻게 써야 해?
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260830-89379e0a]
+    expect_mode: any
+
+  # MAX_THINKING_TOKENS 를 안 주면 adaptive 가 가고 llama.cpp 변환기가 무시해 예산이 안 걸린다
+  - q: 로컬 llama 서버에 붙였을 때 생각 길이 제한이 하나도 안 걸리는 이유
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260915-923a8db5]
+    expect_mode: any
+
+  # 캐시는 지워도 effort scan --rebuild 로 되살아난다
+  - q: 공수 측정 툴의 캐시 폴더를 날려 버렸는데 다시 만들 수 있나?
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260831-496580c4]
+    expect_mode: any
+
+  # 로컬 .git 의 미도달 객체에 실명 원본이 살아 있음 · 공개하려면 새 clone 을 새 저장소로
+  - q: 나중에 묶음 저장소를 공개로 돌리고 싶은데, 로컬 깃 폴더 안에 예전 민감한 원본이 아직 남아 있을까 봐 걱정된다. 어떤 식으로 올려야 안전하고 무엇을 하면 안 되나?
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260903-4a2507bf]
+    expect_mode: any
+
+  # gc 압축 면제 목록(pinned·decision·caution·안 닫힌 todo 등)
+  - q: 오래된 기억을 접어서 줄일 때 절대 손대지 않는 종류는 뭐였지?
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-d565e874]
+    expect_mode: any
+
+  # 훅 입력 source 값 startup · resume · clear 로 상황 구분
+  - q: how can a session start hook tell a resumed conversation from a brand new one
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260822-87d8984b]
+    expect_mode: any
+
+  # reap320 · reap-test 폴더를 지워 디스크 310G → 371G
+  - q: reap320 모델 폴더 지운 뒤 디스크 남은 양
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260915-d0edaaea]
+    expect_mode: any
+
+  # Flash-Next 가 max_tokens 8192 를 생각에 다 쓰고 본문 0자 · 컨텍스트 탓 아님
+  - q: 로컬 모델에게 어려운 코드 분석을 시켰더니 출력 토큰은 한도까지 찼는데 답 본문이 한 글자도 없이 끝났다. 컨텍스트 길이를 늘려도 똑같이 나오는데 어떻게 맡겨야 하나?
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260914-ff64d194]
+    expect_mode: any
+
+  # tokenchars 설정이 URL 을 한 토큰으로 묶어 안의 영문 낱말을 못 찾음
+  - q: 링크 주소 안에 들어 있는 영어 단어가 검색에 안 잡히는 원인
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-21608937]
+    expect_mode: any
+
+  # 2단계 벡터 후보: multilingual-e5-small 가성비 1순위, all-MiniLM 은 영어 위주라 안 됨
+  - q: which embedding model should we use for Korean text if we add semantic search later
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260822-81a53d8e]
+    expect_mode: any
+
+  # ProjectSettings.asset 에 scriptingBackend · m_BuildTargetBatching 두 줄이 diff 에 뜸, 커밋은 사람이 고름
+  - q: 유니티 배치모드로 검증을 돌리고 나면 프로젝트 설정 파일에 바뀐 줄이 생기는데 이거 커밋해도 되나?
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20261003-e8788a24]
+    expect_mode: any
+
+  # pgrep -f 가 죽은 ssh 세션의 고아 껍데기까지 잡아 영원히 기다림
+  - q: background script wait loop never finishes because the process match also catches orphaned shells from a dead ssh session
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260831-061f21f9]
+    expect_mode: any
+
+  # recolor --multiply 대신 새 명령 tint 로 한다
+  - q: 그림 색을 곱해서 입히는 기능은 기존 색 바꾸기에 옵션으로 붙이나, 따로 명령을 만드나?
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20261004-e12d70eb]
+    expect_mode: any
+
+  # exec.CommandContext 는 자식만 죽여 손자가 살아남음 → taskkill /T /F
+  - q: Go context cancel leaves grandchild process alive on Windows
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260909-5858ed99]
+    expect_mode: any
+
+  # mem set --by 로 덮을 때 한쪽 내용이 사라지는 버그, 고치기 전엔 --by 쓰지 말 것
+  - q: 기억을 다른 기억으로 대체했더니 한쪽 내용이 통째로 사라졌다
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260921-ad3abd53]
+    expect_mode: any
+
+  # effort rules --measure 를 새로 만들어 배율·시드를 손계산 대신 뽑음
+  - q: 작업 크기별 배율을 손으로 계산하지 않고 다시 뽑아내는 방법
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260904-42751cea]
+    expect_mode: any
+
+  # 한 낱말: 생성 코드와 Unity 원본이 겹쳐 난 CS0111 중복 오류
+  - q: CS0111
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260918-688d554e]
+    expect_mode: any
+
+  # Flash-Next 에 설계를 맡긴 시험 결과 — 설계·판단은 Opus 유지
+  - q: 로컬 모델에게 설계 일을 통째로 넘겨도 되는지 시험해 본 결과는?
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260902-3b4bb3d6]
+    expect_mode: any
+
+  # 앵커 파일 x·y 는 프레임 왼쪽 위 기준 정수 픽셀, 실수 좌표는 들여올 때 한 번만 반올림
+  - q: 캐릭터 프레임마다 붙이는 기준점 좌표는 실수로 저장하나 정수 픽셀로 하나?
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260825-b0f5014b]
+    expect_mode: any
+
+  # unicode61 은 조사가 붙으면 낱말 검색이 안 돼서 한글은 trigram 표로 보냄
+  - q: 한국어 낱말 뒤에 조사가 붙으면 전문 검색에서 안 걸리는 문제 어떻게 풀었지
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-cd660827, 20260822-01efa3e3]
+    expect_mode: any
+
+  # 두 툴의 공통 조상 파일을 이력에 넣을지 — ArtTool 은 넣었고 SoundTool 때 겹침 주의
+  - q: 툴 폴더를 따로 저장소로 떼어 낼 때, 예전에 두 툴 내용이 한 파일에 같이 있던 문서가 있다. 그 옛 파일을 새 저장소 이력에 넣어야 하나 빼야 하나?
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260903-abe42385]
+    expect_mode: any
+
+  # 알림 짝짓기 열쇠는 toolUseId 가 아니라 task-id
+  - q: 백그라운드 갈래가 끝났다는 알림을 어느 서브에이전트 것인지 맞출 때 쓰는 열쇠
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260901-d74100e1]
+    expect_mode: any
+
+  # 한 낱말: claude -p 를 로컬 서버에 붙이면 뜨는 무해한 경고
+  - q: unrecognized_model
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260831-38fcba9d]
+    expect_mode: any
+
+  # 기준점 차감 — snap 때 이미 바뀐 파일은 빼고 판정
+  - q: 일 시키기 전에 이미 커밋 안 된 변경이 잔뜩 있는 상태에서 검사기를 돌렸더니, 이번에 손도 안 댄 파일들이 범위 위반으로 우르르 걸렸다. 왜 그렇고 지금은 어떻게 처리하나?
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260902-096894da]
+    expect_mode: any
+
+  # 자동은 hooks, 수동은 CLI, MCP 는 도구 정의가 상주해 토큰 비용이 커서 미룸
+  - q: why use hooks and a CLI instead of an MCP server for the memory store
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260822-4cdb34c1]
+    expect_mode: any
+
+  # 한 낱말: nupkg 압축 항목 FullName 의 겹친 / 를 줄여 견줌
+  - q: nupkg
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20261003-de1c891f]
+    expect_mode: any
+
+  # ---- 답 없음 ----
+  # 모바일 앱 난독화 — 툴 모음과 무관
+  - q: 안드로이드 앱 릴리스 빌드에서 ProGuard 난독화 규칙 쓰는 법
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 컨테이너 운영 — 저장소에 서버 배포 없음
+  - q: 쿠버네티스 파드가 CrashLoopBackOff 일 때 원인 찾는 순서
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 웹 서버 설정 — 무관
+  - q: how to configure CORS headers in an Express.js server
+    kind: abstain
+    lang: en
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 프런트엔드 프레임워크 — 무관
+  - q: 리액트 useEffect 가 개발 모드에서 두 번 실행되는 이유
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 앱 스토어 심사 — 무관
+  - q: iOS 앱 스토어 심사에서 거절당했을 때 대응 방법
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 웹 프레임워크 DB 마이그레이션 — 무관
+  - q: 장고 마이그레이션 파일이 두 갈래로 충돌할 때 합치는 법
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 클라우드 서버리스 — 무관
+  - q: how to reduce AWS Lambda cold start time for a Java function
+    kind: abstain
+    lang: en
+    variant: paraphrase
+    expect: []
+    expect_mode: any

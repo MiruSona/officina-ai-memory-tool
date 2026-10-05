@@ -50,6 +50,8 @@ type SearchRow struct {
 	StaleAfter int64
 	Simhash    int64
 	State      string
+	// ObsStale 은 모음 기억의 낡음 까닭이다 (B1). 비면 안 낡았거나 모음 기억이 아니다.
+	ObsStale string
 }
 
 // Filter 는 읽기 명령이 같이 쓰는 좁히기 조건이다.
@@ -90,7 +92,7 @@ func FieldWeights() [4]float64 { return fieldWeights }
 const searchColumns = `SELECT docid, id, type, title, summary, tags, scope,
 	COALESCE(todo_status, ''), COALESCE(severity, ''), author, pinned, created_at, updated_at,
 	COALESCE(invalid_at, 0), hit_count, importance, COALESCE(superseded_by, ''),
-	COALESCE(stale_after, 0), simhash, state FROM memories`
+	COALESCE(stale_after, 0), simhash, state, obs_stale FROM memories`
 
 // MatchKO 는 한글 색인에 묻는다. bm25 는 음수고 작을수록 좋아서 그대로 정렬한다.
 func (d *DB) MatchKO(expression string, limit int) ([]Ranked, error) {
@@ -106,6 +108,23 @@ func (d *DB) MatchNorm(expression string, limit int) ([]Ranked, error) {
 // MatchEN 은 영문·코드 색인에 묻는다.
 func (d *DB) MatchEN(expression string, limit int) ([]Ranked, error) {
 	return d.matchTable("fts_en", expression, limit)
+}
+
+// MatchKeys 는 keys 표(keys_ko·keys_en·keys_norm) 하나에 묻는다 (C1). 열 이름이
+// 큰 표와 같아 같은 질의식이 그대로 들어간다. 다른 표 이름은 받지 않는다.
+func (d *DB) MatchKeys(table, expression string, limit int) ([]Ranked, error) {
+	switch table {
+	case "keys_ko", "keys_en", "keys_norm":
+		return d.matchTable(table, expression, limit)
+	}
+	return nil, ErrBadExpr
+}
+
+// HasKeys 는 keys 칸을 단 기억이 하나라도 있는지다. 없으면 검색이 keys 랭킹을
+// 통째로 건너뛴다 — 옛 저장소는 질의 수도 안 는다.
+func (d *DB) HasKeys() bool {
+	found := 0
+	return d.sql.QueryRow("SELECT 1 FROM keys_ko LIMIT 1").Scan(&found) == nil
 }
 
 func (d *DB) matchTable(table, expression string, limit int) ([]Ranked, error) {
@@ -220,6 +239,23 @@ func (d *DB) WordCountOK(table, expression string) (int, bool) {
 	return found, true
 }
 
+// LiveWordCount 는 WordCount 와 같되 보류 기억(review: true)을 뺀다. 0건 설명이
+// 「"낱말" 은 1건 있다」 고 할 때 검색에 못 뜨는 보류 기억을 세면 거짓 안내다 —
+// `auto undo` 로 되돌린 기억이 거기 샜다 (A1 뒷정리).
+func (d *DB) LiveWordCount(table, expression string) int {
+	if expression == "" {
+		return 0
+	}
+	found := 0
+	query := "SELECT COUNT(*) FROM (SELECT rowid FROM " + table + " WHERE " + table +
+		" MATCH ? AND rowid NOT IN (SELECT docid FROM memories WHERE review = 1) LIMIT " +
+		strconv.Itoa(countCap) + ")"
+	if err := d.sql.QueryRow(query, expression).Scan(&found); err != nil {
+		return 0
+	}
+	return found
+}
+
 // WordExists 는 그 조각이 든 기억이 하나라도 있는지다. 자격 관문은 몇 건인지가
 // 아니라 있는지만 알면 되는데, COUNT(*) 는 전부 훑는다 (리뷰B #3).
 func (d *DB) WordExists(table, expression string) (bool, bool) {
@@ -250,8 +286,9 @@ func (d *DB) HeadWordsLike(prefix string, limit int) ([]VocabCount, error) {
 		return out, nil
 	}
 	pattern := "%" + LikeEscape(prefix) + "%"
+	// 보류 기억은 검색에 못 뜨니 「이 낱말을 쳐 보라」 후보에서도 뺀다 (A1 뒷정리).
 	rows, err := d.sql.Query(`SELECT title, summary FROM memories
-		WHERE title LIKE ? ESCAPE '' OR summary LIKE ? ESCAPE '' LIMIT ?`,
+		WHERE review = 0 AND (title LIKE ? ESCAPE '' OR summary LIKE ? ESCAPE '') LIMIT ?`,
 		pattern, pattern, headScan)
 	if err != nil {
 		return out, err
@@ -452,7 +489,7 @@ func (d *DB) scanSearch(query string, args []any) ([]SearchRow, error) {
 		err := rows.Scan(&item.Docid, &item.ID, &item.Type, &item.Title, &item.Summary, &item.Tags,
 			&item.Scope, &item.Status, &item.Severity, &item.Source, &pinned, &item.CreatedAt,
 			&item.UpdatedAt, &item.InvalidAt, &item.HitCount, &item.Importance, &item.SupersededBy,
-			&item.StaleAfter, &item.Simhash, &item.State)
+			&item.StaleAfter, &item.Simhash, &item.State, &item.ObsStale)
 		if err != nil {
 			return nil, err
 		}
@@ -473,6 +510,11 @@ func whereOf(narrow Filter, now time.Time) (string, []any) {
 		clause.WriteString(" AND (invalid_at IS NULL OR invalid_at > ?)" +
 			" AND (superseded_by IS NULL OR superseded_by = '')")
 		args = append(args, now.Unix())
+		// 근거 중 보류된 것이 있는 모음 기억도 뺀다. 카드 제목·요약·본문에 보류된
+		// 기억의 글이 그대로 들어 있어 `auto undo` 의 「검색·훅에 안 뜬다」 가 깨진다
+		// (리뷰 2026-10-05). 모음 기억이 아니면 이 칸은 늘 '' 이다.
+		clause.WriteString(" AND obs_stale <> ?")
+		args = append(args, ObsStaleHeld)
 	}
 	if len(narrow.Types) > 0 {
 		clause.WriteString(" AND type IN (" + placeholders(len(narrow.Types)) + ")")

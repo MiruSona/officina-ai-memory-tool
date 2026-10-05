@@ -62,6 +62,8 @@ const (
 	RungLabel4 Key = "rung-label-4"
 	RungLabel5 Key = "rung-label-5"
 	RungLabel6 Key = "rung-label-6"
+	// RungLabelMeaning 은 뜻으로만 올라온 답의 꼬리표다 (C2).
+	RungLabelMeaning Key = "rung-label-meaning"
 )
 
 // --explain (설계 6-10).
@@ -70,6 +72,7 @@ const (
 	ExplainRRF   Key = "explain-rrf"
 	ExplainBonus Key = "explain-bonus"
 	ExplainDecay Key = "explain-decay"
+	ExplainMix   Key = "explain-mix"
 	ExplainRung  Key = "explain-rung"
 )
 
@@ -174,10 +177,13 @@ var searchMessages = map[Key]string{
 	RungLabel5: "[붙은낱말]",
 	RungLabel6: "[부분일치]",
 
+	RungLabelMeaning: "[뜻]",
+
 	ExplainTitle: "%d. [%s] %s      점수 %.4f",
 	ExplainRRF:   "     rrf %.4f — 랭킹 %s",
 	ExplainBonus: "     가산 %.2f (%s)",
 	ExplainDecay: "     감쇠바닥 %.2f · 신뢰계수 %.2f",
+	ExplainMix:   "     섞기 순위 몫 %.4f (섞기를 켜면 score 는 이 값이다. 위 곱과 안 맞는다)",
 	ExplainRung:  "     %d번 칸 %s",
 
 	EvalHeader:      "검색 품질 — 골든셋 %d건 (합격선 대조) : %s",

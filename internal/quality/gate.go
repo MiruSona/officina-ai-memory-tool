@@ -167,6 +167,9 @@ type Options struct {
 	Spec int
 	// Near 는 중복 후보의 셋째 신호(임베딩)다. nil 이면 안 쓴다 (vectors.go).
 	Near Vectors
+	// Lookup 은 id 로 저장소 기억 하나를 준다. 모음 기억 근거가 또 모음 기억인지
+	// (B13) 볼 때 쓴다. nil 이면 그 검사를 건너뛴다.
+	Lookup func(id string) *model.Memory
 }
 
 // types 는 이 저장소의 기억 종류 표다. vocab.toml 이 늘릴 수 있다.
@@ -308,6 +311,7 @@ func Gate(m *model.Memory, opt Options) Verdict {
 	verdict.Findings = append(verdict.Findings, checkField(fixed, opt)...)
 	verdict.Findings = append(verdict.Findings, checkBody(fixed, opt)...)
 	verdict.Findings = append(verdict.Findings, checkValue(fixed, opt)...)
+	verdict.Findings = append(verdict.Findings, checkObsCite(fixed, opt)...)
 
 	security := checkSecurity(fixed, opt)
 	verdict.Findings = append(verdict.Findings, security...)
@@ -318,6 +322,7 @@ func Gate(m *model.Memory, opt Options) Verdict {
 
 	verdict.Findings = append(verdict.Findings, checkMulti(fixed, opt)...)
 	verdict.Findings = append(verdict.Findings, checkDuplicate(fixed, opt)...)
+	verdict.Findings = obsExempt(fixed, verdict.Findings)
 	verdict.Kind = kindOf(verdict.Findings)
 	return verdict
 }
@@ -330,9 +335,10 @@ func Check(m *model.Memory, opt Options) []Finding {
 	found := checkField(fixed, opt)
 	found = append(found, checkBody(fixed, opt)...)
 	found = append(found, checkValue(fixed, opt)...)
+	found = append(found, checkObsCite(fixed, opt)...)
 	found = append(found, checkSecurity(fixed, opt)...)
 	found = append(found, checkMulti(fixed, opt)...)
-	return append(found, checkDuplicate(fixed, opt)...)
+	return obsExempt(fixed, append(found, checkDuplicate(fixed, opt)...))
 }
 
 func kindOf(found []Finding) Kind {
@@ -404,7 +410,7 @@ func checkDuplicate(m *model.Memory, opt Options) []Finding {
 	table := newSimilarFor(opt)
 	live := []*model.Memory{}
 	for _, other := range existing {
-		if other == nil || other.ID == m.ID {
+		if other == nil || other.ID == m.ID || other.Type == model.TypeObservation {
 			continue
 		}
 		table.Add(NewDoc(other))

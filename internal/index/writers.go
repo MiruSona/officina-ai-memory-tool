@@ -2,8 +2,10 @@ package index
 
 import (
 	"database/sql"
+	"strings"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
+	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
 // writerSet 은 색인 알맹이가 되풀이해 쓰는 문장이다. 문서 하나마다 SQL 을 다시
@@ -21,8 +23,8 @@ type writerSet struct {
 const insertMemorySQL = `INSERT INTO memories
 	(id, path, type, title, summary, tags, scope, author, todo_status, severity, pinned, importance,
 	 created_at, updated_at, invalid_at, stale_after, superseded_by, body_hash, simhash, state, archived, spec,
-	 review, n_title, n_meta, n_sum, n_body, mtime, size, sha)
-	VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
+	 review, n_title, n_meta, n_sum, n_body, mtime, size, sha, basis_hash)
+	VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`
 
 const upsertFileSQL = `INSERT INTO files(path, mtime, size, hash, indexed_at) VALUES(?, ?, ?, ?, ?)
 	ON CONFLICT(path) DO UPDATE SET mtime=excluded.mtime, size=excluded.size, hash=excluded.hash, indexed_at=excluded.indexed_at`
@@ -68,8 +70,40 @@ func (w *writerSet) close() {
 	}
 }
 
-// ftsTables 는 색인이 쓰는 FTS5 표다.
-var ftsTables = []string{"fts_ko", "fts_en", "fts_norm"}
+// ftsTables 는 색인이 쓰는 FTS5 표다. keys_* 셋은 keys 칸(C1)만 담는 따로 표다 —
+// 큰 표 셋을 안 건드려야 keys 가 빈 기억의 점수가 한 자리도 안 바뀐다.
+var ftsTables = []string{"fts_ko", "fts_en", "fts_norm", "keys_ko", "keys_en", "keys_norm"}
+
+// keysInsert 는 keys 표 셋에 넣는 문장이다. 열 이름을 큰 표와 똑같이 둬서
+// 열 거름(`{title_s summary_s}`)이 든 질의식을 그대로 던질 수 있다. keys 는 제목 열에만 담는다.
+var keysInsert = map[string]string{
+	"keys_ko":   "INSERT INTO keys_ko(rowid, title_s, meta_s, summary_s, body_s) VALUES(?, ?, '', '', '')",
+	"keys_en":   "INSERT INTO keys_en(rowid, title_e, meta_e, summary_e, body_e) VALUES(?, ?, '', '', '')",
+	"keys_norm": "INSERT INTO keys_norm(rowid, title_n, meta_n, summary_n, body_n) VALUES(?, ?, '', '', '')",
+}
+
+// insertKeys 는 keys 가 있는 기억만 keys 표에 한 줄씩 넣는다. keys_norm 은
+// 정규화가 글자를 바꿨을 때만 넣는다 — fts_norm 과 같은 규칙이다 (R4).
+func (d *DB) insertKeys(docid int64, memory *model.Memory) error {
+	if len(memory.Keys) == 0 {
+		return nil
+	}
+	joined := strings.Join(memory.Keys, " ")
+	ko := token.ForIndex(joined)
+	texts := map[string]string{"keys_ko": ko, "keys_en": token.LatinOnly(ko)}
+	if norm := token.ForIndex(Normalize(joined)); norm != ko {
+		texts["keys_norm"] = norm
+	}
+	for _, table := range []string{"keys_ko", "keys_en", "keys_norm"} {
+		if texts[table] == "" {
+			continue
+		}
+		if _, err := d.sql.Exec(keysInsert[table], docid, texts[table]); err != nil {
+			return err
+		}
+	}
+	return nil
+}
 
 // deferMerges 는 통째로 다시 만드는 동안 FTS5 의 중간 합치기를 미룬다. 넣는
 // 중에 조각을 합쳐 봐야 마지막에 한 번 더 합칠 뿐이다.
@@ -95,7 +129,7 @@ func (d *DB) optimizeFTS() error {
 	return nil
 }
 
-// RewriteFTS 는 한 문서의 FTS 세 표를 지우고 다시 넣는다. contentless 표는
+// RewriteFTS 는 한 문서의 FTS 표(keys 셋 포함)를 지우고 다시 넣는다. contentless 표는
 // UPDATE 가 안 되기 때문이다 (결정 58 · v0.1 에서 warm 접기가 100% 실패한 자리).
 // gc 가 본문을 접은 뒤 이것을 부르면 fts_norm 까지 한 번에 맞는다.
 func (d *DB) RewriteFTS(docid int64, memory *model.Memory) error {
@@ -115,9 +149,10 @@ func (d *DB) RewriteFTS(docid int64, memory *model.Memory) error {
 	if _, err := writers.ftsEN.Exec(docid, text.TitleEN, text.MetaEN, text.SummaryEN, text.BodyEN); err != nil {
 		return err
 	}
-	if !text.NormChanged() {
-		return nil
+	if text.NormChanged() {
+		if _, err := writers.ftsNRM.Exec(docid, text.TitleNM, text.MetaNM, text.SummaryNM, text.BodyNM); err != nil {
+			return err
+		}
 	}
-	_, err = writers.ftsNRM.Exec(docid, text.TitleNM, text.MetaNM, text.SummaryNM, text.BodyNM)
-	return err
+	return d.insertKeys(docid, memory)
 }

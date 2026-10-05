@@ -40,6 +40,9 @@ type Options struct {
 	// Solo 는 혼자 쓰는 사람이다. 내장 auto memory 를 끄자고 **권하기만** 한다 —
 	// 안전망 하나를 우리가 말없이 꺼 버리지 않는다 (설계 5-3).
 	Solo bool
+	// Retain 은 자동 쌓기 훅 셋(Stop · PreCompact · SessionEnd)을 더 붙이고 mem.toml 에
+	// [retain] 칸을 단다 (자동쌓기설계 2-2). 기본은 안 붙인다.
+	Retain bool
 }
 
 // Step 은 계획 표의 한 줄이다 : 무엇을 · 지금 어떤지 · 무엇을 하는지.

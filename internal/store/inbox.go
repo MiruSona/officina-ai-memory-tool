@@ -35,7 +35,11 @@ var PatchableFields = []string{"pinned", "status", "invalid_at", "links",
 	// author·sources·migrated 를 채워 옛 기억을 새 규격으로 올린다 (설계 2-5).
 	"todo_status", "stale_after", "author", "sources", "migrated",
 	// v0.3 이 늘린 칸. `review --promote` 가 이 칸을 떼는 유일한 길이다 (결정 6).
-	"review"}
+	"review",
+	// C1 이 늘린 칸. 사람이 찾을 때 칠 다른 낱말 (모음기억설계 4-3).
+	"keys",
+	// B1 이 늘린 칸. 모음 기억을 다시 쓸 때 consolidate 가 근거 해시·판을 고친다.
+	"basis_hash", "rev", "rule"}
 
 // AddRequest is a new memory waiting to be promoted to Markdown.
 type AddRequest struct {
@@ -44,6 +48,7 @@ type AddRequest struct {
 	Date       string   `json:"date,omitempty"`
 	Summary    string   `json:"summary"`
 	Tags       []string `json:"tags"`
+	Keys       []string `json:"keys,omitempty"`
 	Source     string   `json:"source"`
 	Scope      string   `json:"scope"`
 	Title      string   `json:"title,omitempty"`
@@ -65,7 +70,15 @@ type AddRequest struct {
 	// 것이 당연해서, 색인이 이것을 보고 합침 대상에서 뺀다 — 안 그러면 새 id 가
 	// 옛 기억에 녹아 사라진다 (사용 피드백 2026-09-20).
 	Supersedes string `json:"supersedes,omitempty"`
-	Body       string `json:"body"`
+	// Origin·OriginSession 은 자동 관문을 지난 자동 기억의 출처다 (자동쌓기설계 2-4).
+	Origin        string `json:"origin,omitempty"`
+	OriginSession string `json:"origin_session,omitempty"`
+	// BasisHash·Rev 는 모음 기억 카드(consolidate)만 채운다 (자동쌓기설계 3-2).
+	BasisHash string `json:"basis_hash,omitempty"`
+	Rev       int    `json:"rev,omitempty"`
+	// CardRule 은 카드를 만든 묶음 규칙이다 (consolidate 만 채운다).
+	CardRule string `json:"rule,omitempty"`
+	Body     string `json:"body"`
 }
 
 // PatchRequest changes a few front matter fields of a memory that already exists.

@@ -35,6 +35,8 @@ const (
 	RuleSourcesNoteOnly = "sources-note-only" // F18
 	RuleAuthorShape     = "author-shape"      // F19
 	RuleDateShape       = "date-shape"        // F20
+	RuleKeysShape       = "keys-shape"        // F21 · keys 칸 꼴 (C1)
+	RuleKeysEcho        = "keys-echo"         // F22 · keys 가 제목·요약·본문에 이미 있다 (C1)
 
 	// B 계열 — 본문.
 	RuleBodyThin            = "body-thin"             // B01
@@ -49,6 +51,7 @@ const (
 	RuleUnfixedMarker       = "unfixed-marker"        // B10
 	RuleBodyMax             = "body-max"              // B11
 	RuleNoValue             = "no-value"              // B12
+	RuleObsCite             = "obs-cite"              // B13 · 모음 기억 본문 줄의 [mem:id] 가 근거와 어긋남 (B1)
 
 	// M 계열 — 여러 사실 섞임.
 	RuleMultiTable   = "multi-table"   // M01
@@ -70,6 +73,7 @@ const (
 	RuleStaleAge             = "stale-age"              // C12
 	RuleStaleConflictPair    = "stale-conflict-pair"    // C13
 	RuleStaleBasis           = "stale-basis"            // C14
+	RuleObsStale             = "obs-stale"              // C15 · 모음 기억의 근거가 바뀜 (B1)
 
 	// D 계열 — 링크·경로.
 	RuleDeadMemLink = "dead-mem-link" // D01
@@ -180,6 +184,10 @@ var Catalog = []Rule{
 	{RuleSourcesNoteOnly, "F18", "F", StageBoth, GradeWarn, "", true, []string{TypeSrc}},
 	{RuleAuthorShape, "F19", "F", StageBoth, GradeReject, "", false, []string{TypeField}},
 	{RuleDateShape, "F20", "F", StageBoth, GradeReject, "", false, []string{TypeFormat}},
+	// F21 은 model.Validate 가 승격 때 무조건 막는 자라 못 내린다 — F09-2 와 같은 까닭.
+	// F22 는 「검색에 보탬이 없다」 는 알림일 뿐이라 경고다 (모음기억설계 4-3).
+	{RuleKeysShape, "F21", "F", StageBoth, GradeReject, "", false, []string{TypeFormat}},
+	{RuleKeysEcho, "F22", "F", StageBoth, GradeWarn, "", true, nil},
 
 	{RuleBodyThin, "B01", "B", StageBoth, GradeReject, "", true, []string{TypeThin}},
 	{RuleBodyLong, "B02", "B", StageBoth, GradeWarn, "", true, nil},
@@ -206,6 +214,9 @@ var Catalog = []Rule{
 	// B12 는 「여섯 달 뒤에 이 기억이 쓸모가 있나」다 (설계 결정 37). 짧다가
 	// 아니라 **확인 가능한 조각이 있나**를 본다. 사람이 판정할 자리라 경고다.
 	{RuleNoValue, "B12", "B", StageBoth, GradeWarn, "", true, []string{TypeNoValue}},
+	// B13 은 모음 기억(observation)만 본다. 줄마다 끝에 [mem:id] 가 있고 그 id 가 전부
+	// sources 안이어야 한다 (자동쌓기설계 3-2). 근거 없는 줄은 지어낸 말일 수 있다.
+	{RuleObsCite, "B13", "B", StageBoth, GradeReject, "", false, []string{TypeSrc}},
 
 	{RuleMultiTable, "M01", "M", StageBoth, GradeWarn, GradeReject, true, []string{TypeMulti}},
 	{RuleMultiSummary, "M02", "M", StageBoth, GradeWarn, GradeReject, true, []string{TypeMulti}},
@@ -229,6 +240,9 @@ var Catalog = []Rule{
 	// C14 는 근거로 삼은 기억이 죽은 것이다. 「그래서 이 기억이 틀렸나」는
 	// 코드가 못 가리므로 후보 등급이고, 사람이 review 큐에서 판정한다.
 	{RuleStaleBasis, "C14", "C", StageLint, GradeCandidate, "", true, []string{TypeStale}},
+	// C15 는 모음 기억의 근거가 덮이거나·보류되거나·고쳐진 것이다 (자동쌓기설계 3-4).
+	// 다시 쓰기는 `mem consolidate --apply` 가 하니 사람은 큐에서 보기만 한다.
+	{RuleObsStale, "C15", "C", StageLint, GradeCandidate, "", true, []string{TypeStale}},
 
 	{RuleDeadMemLink, "D01", "D", StageBoth, GradeReject, "", true, nil},
 	{RuleDeadPath, "D02", "D", StageBoth, GradeWarn, "", true, nil},

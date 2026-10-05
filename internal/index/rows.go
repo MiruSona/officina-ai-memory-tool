@@ -181,11 +181,13 @@ func (d *DB) dropMemory(path string) error {
 		return err
 	}
 	// contentless 표는 UPDATE 가 안 된다 — 지우고 다시 넣는 길뿐이다 (결정 58).
-	for _, statement := range []string{"DELETE FROM fts_ko WHERE rowid = ?", "DELETE FROM fts_en WHERE rowid = ?",
-		"DELETE FROM fts_norm WHERE rowid = ?", "DELETE FROM memories WHERE docid = ?"} {
-		if _, err := d.sql.Exec(statement, docid); err != nil {
+	for _, table := range ftsTables {
+		if _, err := d.sql.Exec("DELETE FROM "+table+" WHERE rowid = ?", docid); err != nil {
 			return err
 		}
+	}
+	if _, err := d.sql.Exec("DELETE FROM memories WHERE docid = ?", docid); err != nil {
+		return err
 	}
 	return d.dropSideRows(id)
 }
@@ -243,7 +245,7 @@ func (d *DB) insertMemory(memory *model.Memory, path string, file fileRow, updat
 		boolToInt(memory.Pinned), importanceOr(memory.Importance), dayToUnix(memory.Date), updatedAt,
 		nullableDay(memory.InvalidAt), nullableDay(memory.StaleAfter), nullable(memory.SupersededBy), bodyHash,
 		simhashOf(memory), stateOr(memory.State), memory.Archived, int(memory.Spec),
-		boolToInt(memory.Review), lens[0], lens[1], lens[2], lens[3], file.MTime, file.Size, file.Hash)
+		boolToInt(memory.Review), lens[0], lens[1], lens[2], lens[3], file.MTime, file.Size, file.Hash, memory.BasisHash)
 	if err != nil {
 		return err
 	}
@@ -261,6 +263,9 @@ func (d *DB) insertMemory(memory *model.Memory, path string, file fileRow, updat
 		if _, err := writers.ftsNRM.Exec(docid, text.TitleNM, text.MetaNM, text.SummaryNM, text.BodyNM); err != nil {
 			return err
 		}
+	}
+	if err := d.insertKeys(docid, memory); err != nil {
+		return err
 	}
 	for _, tag := range memory.Tags {
 		if _, err := writers.tag.Exec(memory.ID, tag); err != nil {
@@ -366,10 +371,12 @@ func (d *DB) HasPath(path string) bool {
 	return err == nil && found == 1
 }
 
-// PinnedCount 는 지금 고정된 기억이 몇 건인지다.
+// PinnedCount 는 지금 고정된 기억이 몇 건인지다. 덮이거나 무효가 된 기억은
+// pinned 칸이 남아 있어도 안 센다 — 훅이 안 싣는 것을 「고정 N건」 에 넣으면
+// 상한(pin_max) 경고가 거짓으로 뜬다 (A1 뒷정리). 기준은 훅의 liveWhere 와 같다.
 func (d *DB) PinnedCount() (int, error) {
 	count := 0
-	err := d.sql.QueryRow("SELECT COUNT(*) FROM memories WHERE pinned = 1").Scan(&count)
+	err := d.sql.QueryRow("SELECT COUNT(*) FROM memories WHERE pinned = 1" + liveWhere).Scan(&count)
 	return count, err
 }
 

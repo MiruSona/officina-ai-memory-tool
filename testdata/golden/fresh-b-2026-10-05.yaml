@@ -1,0 +1,359 @@
+# 새 질문 셋 fresh-b-2026-10-05 — 43건 (답 있음 34 · 답 없음 9)
+#
+# 만든 법 : 스튜디오 기억 사본(830건)에서 오늘(10-05) 만든 기억 · 덮인/무효 · 보류 ·
+#           fresh-2026-10-05 의 입력 40건 · 골든셋 v2~v4 와 fresh-2026-10-05 의 정답 id 를 뺀 678건 중
+#           씨앗 202610052 로 46건을 뽑아 **본문만** 새 Opus 서브에이전트에게 주었다.
+#           그 에이전트는 입력 파일 하나만 읽고 검색(mem search)을 한 번도 돌리지 않았다. 12건은 건너뛰었다.
+# 받은 뒤 고친 것 (질문 문구는 안 고쳤다) :
+#   - 정답 id 34건이 그 46건 안에 있고 사본에서 덮이지 않았는지 확인했다.
+#   - 한 낱말 질의 rfxgen · decision-gate · grade3.sh · MemoryPack 의 lang 을 ko → en 으로 바로잡았다(글자가 영문).
+# 쓰는 법 : C2 2차 판의 **최종 판정 전용**이다. 손잡이·규칙을 고르는 데 쓰지 않는다.
+#           전 / 1차 / 2차 exe 를 한 번씩만 잰다 (AIMemoryTool/Docs/Research/2026-10-05-뜻후보섞기측정.md 7절).
+#           파일 SHA-256 은 internal/eval 의 로더 시험이 얼려 둔다 — 고치면 시험이 깨진다.
+# 구성 경고(유형별 최소 건수)는 난다 — extract·abstain 만 든 셋이다.
+version: 3
+cases:
+  # AIMemoryTool 은 이 저장소 전용이 아니라 다른 프로젝트에 가져다 쓰는 툴 — 1만 건 규모까지 내다봄
+  - q: 기억 툴을 몇 건 규모까지 버티게 잡았더라? 우리 저장소에서만 쓰는 거였나
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-3727333b]
+    expect_mode: any
+
+  # 미니PC llama.cpp 는 Vulkan 백엔드 + KV 캐시 f16 그대로
+  - q: Which GPU backend and KV cache precision did we settle on for llama.cpp on the mini PC?
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260831-d7451305]
+    expect_mode: any
+
+  # Flash-Next 전문가 320 으로 자른 판 — 긴 한국어에서 같은 글자 반복 고장, 다음엔 384·448
+  - q: 전문가 수 줄인 모델이 한글 긴 답 쓰다가 같은 글자만 계속 찍던 거 몇 점 나왔어
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260914-1b4da45e]
+    expect_mode: any
+
+  # laurent 갈래 빌드 함정 — 설치본에 RPATH 가 없어 빌드 트리 bin 을 써야 함
+  - q: laurent 갈래 빌드했는데 설치 폴더 bin 에서 libllama-server-impl.so 를 못 찾는다
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20260910-af1536d7]
+    expect_mode: any
+
+  # gitignore 된 파일은 하네스 지문에 안 잡혀 G0 무변경·G2 실패로 찍힘
+  - q: 로컬 모델한테 하네스로 문서 고치라고 시켰는데 분명 파일은 바뀌었거든. 그런데 판정은 아무것도 안 바뀌었다고 나오고 두 번째 판에선 모델이 이미 고쳐져 있다고 해. 뭐가 문제였지?
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260917-29b4289e]
+    expect_mode: any
+
+  # Go 는 UTF-8 이라 SetConsoleOutputCP 불필요
+  - q: Go 툴에서 한글 깨질까 봐 콘솔 코드페이지 바꿔야 하나
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-61571eb1]
+    expect_mode: any
+
+  # 기억 관련 논문 요약 — MemGPT·Generative Agents·망각곡선 등에서 가져갈 것
+  - q: 잊기 규칙 만들 때 참고한 망각 곡선 논문이 뭐였지
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-05dce59d]
+    expect_mode: any
+
+  # git-filter-repo paths-from-file 에서 이름 바꾸기 줄은 걸러내기가 아님 — 순서 주의
+  - q: git-filter-repo with a rename line in paths-from-file dropped almost all my files, why?
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260903-175a15f5]
+    expect_mode: any
+
+  # REAP-320 을 작은 컨텍스트로 띄우면 40K 프롬프트에서 decode 가 1 tok/s 로 주저앉음
+  - q: 가지치기한 모델을 6만5천 컨텍스트로 올렸을 때 짧은 프롬프트는 잘 답했어. 근데 긴 프롬프트 넣으니까 토큰이 초당 1개 수준으로 떨어지고 답이 여러 언어로 섞였지. 컨텍스트를 크게 잡으면 멀쩡했던 걸로 기억하는데 그때 교훈이 뭐였어?
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260914-a141033e]
+    expect_mode: any
+
+  # 1단계에서 안 만들기로 한 것 — 자동 업데이트·MSI·데몬 등
+  - q: mem 이 스스로 새 버전 받아오는 기능은 왜 안 넣었어
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-7c3c2577]
+    expect_mode: any
+
+  # stage lint 파일 인자 버그 — 판 끝에 돌리면 새 파일 L1·L2 를 건너뜀
+  - q: stage lint 에 파일 넘기면 새 파일 검사를 건너뛰는 버그
+    kind: extract
+    lang: ko
+    variant: literal
+    expect: [20261004-707d7661]
+    expect_mode: any
+
+  # 위협 넷 — 고정 절 컨텍스트 폭탄 14만 토큰 재현, PATH 하이재킹 등
+  - q: 고정된 기억 하나가 엄청 길면 주입 예산을 넘어 버리는 문제 재현했던 거
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-c0528075]
+    expect_mode: any
+
+  # .rfx 리틀 엔디안 — 빅 엔디안이면 rfxgen 이 파라미터 버림
+  - q: rfxgen
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260825-eb018dc2]
+    expect_mode: any
+
+  # 도트 자료 조사 — heriet 404, pixelartlab.net 숫자는 교차 확인만
+  - q: 픽셀아트 강좌 사이트 중에 믿기 좀 애매하다고 했던 데가 어디였더라
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20261004-017c53ad]
+    expect_mode: any
+
+  # 고칠 필요 없다고 확인한 곳 — SQL·FTS5 주입 없음, YAML 별칭 폭탄 안 통함
+  - q: 검색어에 따옴표나 NEAR 같은 거 넣으면 FTS 질의가 뚫리지 않나
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-484ab02f]
+    expect_mode: any
+
+  # 3번 묶음 구현 — 같은 scope 결정을 잇달아 넣으면 decision-gate 에 걸림
+  - q: decision-gate
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260926-a55391e6]
+    expect_mode: any
+
+  # grade3.sh q12 줄 — 작은따옴표 안 백슬래시 때문에 답2 칸은 절대 O 가 안 됨
+  - q: grade3.sh
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260915-2372e17e]
+    expect_mode: any
+
+  # 훅 평문 stdout 이 먹히는 이벤트는 SessionStart·UserPromptSubmit 둘뿐
+  - q: Which Claude Code hook events accept plain stdout as context without wrapping it in JSON?
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260822-1f920282]
+    expect_mode: any
+
+  # OpenCode 와 --bare 비교 — 하네스 갈아탈 값 없음
+  - q: 오픈코드로 바꿔 보자는 얘기 결론 어떻게 났지? 정확도 차이 얼마였어
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260910-b0c35bba]
+    expect_mode: any
+
+  # 예산 소진은 stop_reason==max_tokens 로 안 잡힘 — api_error·error_max_turns 모양
+  - q: 하네스에서 모델이 출력 한도를 넘었는지 판정하려고 stop_reason 을 봤는데 한 번도 안 걸리더라. 실제로 claude -p 결과 json 에는 그게 어떻게 찍혀? 턴 수 한도 넘었을 때랑 구분도 하고 싶어.
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260915-8b44a7ab]
+    expect_mode: any
+
+  # 설계 검토 5갈래 — hit_count 안 올림·gc 안 돎·pin 상한 없음 등
+  - q: 다섯 갈래로 동시에 돌린 설계 검토에서 나온 상중하 건수랑 통합 문서
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-52e2625a]
+    expect_mode: any
+
+  # trigram 색인 7.16배 — 수 MB 규모에서만 견딤
+  - q: How much bigger is the trigram index database than the raw text?
+    kind: extract
+    lang: en
+    variant: paraphrase
+    expect: [20260822-bfe7f2e1]
+    expect_mode: any
+
+  # DeepSeek V4 Flash — 최소 GGUF 82.5GB 라 64GB 기계에선 못 씀
+  - q: Can we run DeepSeek V4 Flash locally as a coding agent model?
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260912-f505f896]
+    expect_mode: any
+
+  # 로컬 모델 고를 때 품질 먼저, 속도는 하한 10 tok/s 만
+  - q: 로컬 모델 후보 고를 때 속도 기준선 몇이었지
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260909-3ff06ba6]
+    expect_mode: any
+
+  # 같은 이벤트에 훅 여러 개면 시작 비용이 곱으로 붙음
+  - q: 세션 시작 훅을 몇 개로 쪼개 걸면 느려지나
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-d57c5a52]
+    expect_mode: any
+
+  # 기성품 대신 직접 만들기 — 네 조사 합의 (FTS5·BM25·임베딩 없음·Go)
+  - q: 기억 툴을 오픈소스 가져다 쓰지 않고 새로 짠 이유
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260822-8a83e843]
+    expect_mode: any
+
+  # laurent 갈래로 안 갈아탐 — Flash-Next MTP 안 붙어 decode 손해, -ub 2048 먼저
+  - q: 스트릭스 헤일로용 포크로 서버 바꾸는 건 결국 보류했지? 언제 다시 보기로 했어
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260910-239aada9]
+    expect_mode: any
+
+  # Memory/ 는 공개 반출 때 통째로 제외
+  - q: 스튜디오 저장소 공개할 때 기억 폴더는 어떻게 처리하기로 했어
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260903-41d157e8]
+    expect_mode: any
+
+  # 비밀 검사 제외 낱말은 저장소 이름과 맞는 것만
+  - q: 유출 검사에서 빼 주는 낱말을 아무거나 못 넣게 막은 거 어떤 기준이야
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260918-79309526]
+    expect_mode: any
+
+  # Go 1.26 EvalSymlinks 는 Windows junction 을 안 풀어 Lstat+Readlink 로 따라감
+  - q: filepath.EvalSymlinks does not resolve Windows junctions
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20261001-d4fda68f]
+    expect_mode: any
+
+  # DataTool Unity 셋을 go:embed 로 품고 namespace 치환해 생성
+  - q: 생성기가 런타임 로더 cs 랑 asmdef 를 같이 뽑아내게 바꾼 이유
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260918-717321e4]
+    expect_mode: any
+
+  # 평가기가 --all 을 안 넘겨 뒤집힌 기억 둘 다 끌어오나를 못 잼
+  - q: 결정을 바꾼 뒤에 옛 기억과 새 기억을 검색이 같이 보여 주는지 골든셋으로 재고 싶어. 그런데 점수가 잘 나와도 믿기 어렵다고 했던 것 같거든. 왜 그런 거였어?
+    kind: extract
+    lang: ko
+    variant: longform
+    expect: [20260822-a714bb4a]
+    expect_mode: any
+
+  # 공백뿐인 묶음 이름이 접힌 뒤 빈 문자열이 되는 구멍
+  - q: 이름에 공백만 넣으면 줄이 깨지던 거, 탭 개행은 이미 처리돼 있었다며
+    kind: extract
+    lang: ko
+    variant: paraphrase
+    expect: [20260918-f9277da7]
+    expect_mode: any
+
+  # DataTool 설계 전 사용자 결정 다섯 — Crema · 표 UI 1안/2안 · MemoryPack
+  - q: MemoryPack
+    kind: extract
+    lang: en
+    variant: literal
+    expect: [20260918-d174ddd1]
+    expect_mode: any
+
+  # ---- 답 없음 ----
+  # 모바일 푸시 알림은 이 기억들과 무관
+  - q: 안드로이드 푸시 알림 FCM 토큰 갱신 주기 어떻게 잡았지
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 클라우드 배포 기록 없음
+  - q: How did we configure autoscaling for the AWS ECS game server cluster?
+    kind: abstain
+    lang: en
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # DB 마이그레이션 — SQLite 는 나오지만 Postgres 마이그레이션 얘기는 없음
+  - q: 포스트그레스 스키마 마이그레이션 롤백 절차
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 웹 프런트 상태 관리 — 무관
+  - q: 리액트에서 전역 상태를 Redux 대신 Zustand 로 가기로 했던 이유
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 미니PC·llama.cpp 낱말은 같지만 NVIDIA CUDA 실측은 없음
+  - q: 미니PC 에서 CUDA 백엔드로 돌렸을 때 tok/s 몇 나왔어
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 결제·인앱 구매는 기억에 없음
+  - q: 인앱 결제 영수증 서버 검증은 어떻게 하기로 했나
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 훅 낱말은 같지만 git pre-commit 훅 설정은 없음
+  - q: Which pre-commit hooks run gofmt and golangci-lint before each commit?
+    kind: abstain
+    lang: en
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # Unity 낱말은 같지만 멀티플레이 넷코드 결정은 없음
+  - q: 유니티 멀티플레이 넷코드는 Mirror 랑 Netcode for GameObjects 중 뭘로 정했어
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any
+
+  # 사운드 낱말은 비슷하지만 BGM 루프 지점 결정은 없음
+  - q: 배경음악 루프 지점 맞추는 규칙 정해 둔 거 있나
+    kind: abstain
+    lang: ko
+    variant: paraphrase
+    expect: []
+    expect_mode: any

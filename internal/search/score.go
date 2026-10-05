@@ -81,6 +81,9 @@ type Parts struct {
 	Trust float64 `json:"trust"`
 	// Diverse 는 MMR 이 깎은 몫이다. 1 이면 안 깎았다 (결정 44).
 	Diverse float64 `json:"diverse,omitempty"`
+	// Mix 는 뜻 후보 섞기(C2)가 매긴 순위 몫이다. 섞기를 켜면 score 가 이 값으로
+	// 바뀌어 위 칸들의 곱과 안 맞는다. 꺼져 있으면 0 이라 안 찍힌다.
+	Mix float64 `json:"mix,omitempty"`
 	// Why 는 어느 가산이 붙었는지 사람 말로 적은 것이다.
 	Why []string `json:"why,omitempty"`
 	// From 은 어느 랭킹의 몇 위에서 왔는지다.
@@ -101,6 +104,10 @@ func scoreOf(row index.SearchRow, rrf float64, rung int, shared rules) (float64,
 	if invalidated(row, shared.Now) {
 		trust *= invalidPenalty
 	}
+	// 낡은 모음 기억도 같은 자로 깎는다 (자동쌓기설계 3-5). 근거가 바뀐 뒤의 요약이다.
+	if row.ObsStale != "" {
+		trust *= invalidPenalty
+	}
 	if row.State == index.StateCold {
 		trust *= foldedPenalty
 	}
@@ -111,7 +118,9 @@ func scoreOf(row index.SearchRow, rrf float64, rung int, shared rules) (float64,
 func bonusOf(row index.SearchRow, shared rules) (float64, []string) {
 	total := 1.0
 	why := []string{}
-	total, why = addBonus(total, why, row.Pinned, pinnedBonus, "고정")
+	// 덮이거나 무효가 된 기억은 머리말에 pinned 가 남아 있어도 고정 가산을 안
+	// 준다 — 덮임이 고정보다 나중 판단이다 (A1 뒷정리 · 20260822-b3cb1d6a 꼴).
+	total, why = addBonus(total, why, row.Pinned && !invalidated(row, shared.Now), pinnedBonus, "고정")
 	total, why = addBonus(total, why, shared.typeSpec(row.Type).SearchBonus, kindBonus, row.Type)
 	total, why = addBonus(total, why, row.Severity == model.SeverityHigh, severityBonus, "high")
 	total, why = addBonus(total, why, shared.BoostScope != "" && row.Scope == shared.BoostScope, scopeBonus, "scope")

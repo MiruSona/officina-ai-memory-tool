@@ -22,6 +22,9 @@ type Reranker struct {
 	lookup  LookupIDs
 	once    sync.Once
 	session *Model
+	// lastText·lastVector 는 바로 앞 질의 한 줄과 그 벡터다.
+	lastText   string
+	lastVector []float32
 }
 
 // NewReranker 는 재정렬 자리를 만든다. 벡터 파일이 없으면 nil 이다 —
@@ -52,7 +55,14 @@ func (r *Reranker) Query(text string) []float32 {
 	if r.session == nil {
 		return nil
 	}
-	return r.session.Query(text)
+	// 사다리 칸마다 같은 질의를 다시 묻는다. 마지막 한 줄만 기억해 두면 모델을
+	// 한 질의에 한 번만 돌린다 — 같은 글이면 같은 벡터라 결과는 안 바뀐다.
+	if r.lastVector != nil && r.lastText == text {
+		return r.lastVector
+	}
+	made := r.session.Query(text)
+	r.lastText, r.lastVector = text, made
+	return made
 }
 
 // Docs 는 후보 문서의 단위 벡터다. 벡터가 없는 문서는 답에서 빠진다.
@@ -68,6 +78,15 @@ func (r *Reranker) Docs(docids []int64) map[int64][]float32 {
 		}
 	}
 	return out
+}
+
+// Nearest 는 기억 전체에서 뜻이 가까운 것을 limit 건 준다 (C2). 모델은 안
+// 싣는다 — 질의 벡터는 부르는 쪽이 Query 로 이미 만들었다.
+func (r *Reranker) Nearest(query []float32, limit int) []Near {
+	if r == nil {
+		return nil
+	}
+	return r.vectors.Nearest(query, limit)
 }
 
 // OpenVectors 는 저장소의 벡터 파일을 읽는다. 없거나 깨졌으면 nil 이다 —

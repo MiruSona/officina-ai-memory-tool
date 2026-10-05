@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
@@ -87,12 +88,57 @@ func gateOptions(repository *config.Repository, opened *store.Store, parsed *opt
 		Repo: &gateRepo{opened: opened}, Demoted: demotedOf(repository),
 		Near:           nearOf(vectorsFor(repository.Dir)),
 		AllowDuplicate: parsed.flags["new"], SupersedeOf: parsed.text("by"),
+		Lookup: lookupOf(opened),
 	}
+}
+
+// lookupOf 는 id 로 기억 파일 하나를 읽는 함수다. 파일 자리가 id 로 정해져 있어
+// 저장소를 훑지 않는다. 없거나 못 읽으면 nil 이다.
+func lookupOf(opened *store.Store) func(string) *model.Memory {
+	return func(id string) *model.Memory {
+		path := model.StorePath(id)
+		if path == "" {
+			return nil
+		}
+		file, err := opened.ReadMemory(path)
+		if err != nil || file == nil {
+			return nil
+		}
+		return file.Memory
+	}
+}
+
+// fillBasisHash 는 손으로 넣는 모음 기억(observation)에 basis_hash 를 계산해 넣는다
+// (카드와 같은 해시 함수). 해시가 없으면 근거가 고쳐져도 낡음을 못 잡는다.
+// 근거 하나라도 못 읽으면 비워 둔다 — 그 기억은 죽음·보류만 본다.
+func fillBasisHash(request *store.AddRequest, lookup func(string) *model.Memory) {
+	if request.Type != model.TypeObservation || request.BasisHash != "" {
+		return
+	}
+	ids := model.MemSources(request.Sources)
+	if len(ids) == 0 {
+		return
+	}
+	parts := make([]model.BasisPart, 0, len(ids))
+	for _, id := range ids {
+		found := lookup(id)
+		if found == nil {
+			return
+		}
+		parts = append(parts, model.PartOf(found))
+	}
+	request.BasisHash = model.BasisHash(parts)
 }
 
 // printVerdict 는 관문 결과를 사람에게 말한다. 거절이면 반드시 셋을 말한다 —
 // 무슨 규칙에 걸렸나 · 어느 기억 때문인가 · 다음에 뭘 하면 되나 (설계 3-1).
 func printVerdict(verdict quality.Verdict) {
+	printVerdictAs(verdict, false)
+}
+
+// printVerdictAs 는 printVerdict 이되 auto 면 자동 기억이 못 쓰는 다음 수(`--new`·
+// `--by`·`--by-new`)를 빼고 대신 맞는 한 줄을 찍는다 (A1 뒷정리).
+func printVerdictAs(verdict quality.Verdict, auto bool) {
 	out := os.Stdout
 	if !verdict.Rejected() {
 		out = os.Stderr
@@ -105,19 +151,34 @@ func printVerdict(verdict quality.Verdict) {
 			fmt.Fprintln(out, "  "+related)
 		}
 	}
-	printNextSteps(out, verdict)
+	printNextSteps(out, verdict, auto)
 }
 
-func printNextSteps(out *os.File, verdict quality.Verdict) {
+// humanOnlyStep 은 자동 기억에는 안 듣는 다음 수인지다. 자동 관문은 `--new` 로
+// 닮음을 못 넘고, 덮기(`--by`)는 사람 몫이다 (R5 · 자동쌓기설계 2-3).
+func humanOnlyStep(step string) bool {
+	return step == quality.NewTopicStep || strings.Contains(step, "--by-new") ||
+		strings.HasPrefix(step, "mem add … --by ")
+}
+
+func printNextSteps(out *os.File, verdict quality.Verdict, auto bool) {
 	steps := []string{}
 	seen := map[string]bool{}
+	dropped := false
 	for _, one := range verdict.Findings {
 		for _, next := range one.Next {
+			if auto && humanOnlyStep(next) {
+				dropped = true
+				continue
+			}
 			if !seen[next] {
 				seen[next] = true
 				steps = append(steps, next)
 			}
 		}
+	}
+	if dropped {
+		fmt.Fprintln(out, i18n.T(i18n.AddAutoNoNew))
 	}
 	if len(steps) == 0 {
 		return

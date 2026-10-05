@@ -13,7 +13,7 @@ import (
 )
 
 // initBools 는 값을 안 받는 init 깃발이다. --repo 만 값을 먹는다.
-var initBools = []string{"dry-run", "no-hook", "no-subagent-hook", "gemini", "undo", "solo"}
+var initBools = []string{"dry-run", "no-hook", "no-subagent-hook", "gemini", "undo", "solo", "retain"}
 var initValues = []string{"repo"}
 
 func init() {
@@ -39,6 +39,7 @@ func runInit(argv []string) int {
 		NoSubagentHook: parsed.flags["no-subagent-hook"],
 		Gemini:         parsed.flags["gemini"],
 		Solo:           parsed.flags["solo"],
+		Retain:         parsed.flags["retain"],
 	}
 	report, err := runInitOrUndo(options, parsed.flags["undo"])
 	if report != nil {

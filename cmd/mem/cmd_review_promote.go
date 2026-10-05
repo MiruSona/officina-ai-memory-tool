@@ -14,6 +14,7 @@ package main
 import (
 	"fmt"
 
+	"github.com/mirusona/officina-ai-memory-tool/internal/gc"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
@@ -50,6 +51,48 @@ func promoteReview(parsed *options, id string) int {
 	fmt.Println(i18n.T(i18n.ReviewPromoted, id))
 	noteLog(opened, store.LogPromoted, id)
 	return exitOK
+}
+
+// rejectReview 는 보류 기억을 버린다 — 지우지 않고 접는다(cold · 본문은 archive).
+// `gc --restore <id>` 로 되돌릴 수 있다. --promote 처럼 allow 규칙 밖이다 (결정 60).
+func rejectReview(parsed *options, id string) int {
+	if id == "" {
+		return fail(i18n.T(i18n.ReviewPromoteNeedID))
+	}
+	if !model.IsID(id) {
+		return fail(i18n.T(i18n.BadID, id))
+	}
+	repository, opened, err := openStore(parsed)
+	if err != nil {
+		return exitFor(err)
+	}
+	memory := findMemory(opened, id)
+	if memory == nil {
+		return fail(i18n.T(i18n.NoSuchMemory, id))
+	}
+	if !memory.Review {
+		return fail(i18n.T(i18n.ReviewRejectNot, id))
+	}
+	result, err := gc.Run(gc.Options{Store: opened, GC: repository.Config.GC, Fold: []string{id}})
+	if err != nil {
+		return fail(err.Error())
+	}
+	if code := manualFailed(result); code != exitOK {
+		return code
+	}
+	fmt.Println(i18n.T(i18n.ReviewRejectDone, id))
+	noteLog(opened, store.LogDiscarded, id)
+	return exitOK
+}
+
+// manualFailed 는 손으로 접기가 안 됐을 때 까닭을 찍는다 — 색인이 없거나, 락을
+// 못 잡았거나, 이미 접혀 있다.
+func manualFailed(result *gc.Result) int {
+	if len(result.Manual) == 1 && result.Manual[0].Done() {
+		return exitOK
+	}
+	printGC(result, "")
+	return exitCheck
 }
 
 // findMemory 는 id 로 기억 하나를 찾는다. 색인을 안 연다 — 승격은 드물게

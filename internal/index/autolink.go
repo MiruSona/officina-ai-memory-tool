@@ -319,7 +319,7 @@ func (d *DB) docidByID(tx *sql.Tx) (map[string]int64, error) {
 // 연다 — 20k 에서 파일 2만 개를 여는 값이 이웃 하나 값보다 크다.
 func (d *DB) LinkDocs() ([]link.Doc, error) {
 	rows, err := d.sql.Query(`SELECT id, type, title, summary, tags, scope, date(created_at, 'unixepoch')
-		FROM memories WHERE archived = '' ORDER BY id`)
+		FROM memories WHERE archived = '' AND type <> 'observation' ORDER BY id`)
 	if err != nil {
 		return nil, err
 	}

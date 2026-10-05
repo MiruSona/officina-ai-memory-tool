@@ -21,6 +21,7 @@ const (
 	InitStateOldBlock     Key = "init-state-old-block"
 	InitStateHooks        Key = "init-state-hooks"
 	InitStateMemHook      Key = "init-state-mem-hook"
+	InitStateMemPartial   Key = "init-state-mem-partial"
 	InitStateUnreadable   Key = "init-state-unreadable"
 	InitStateOddShape     Key = "init-state-odd-shape"
 	InitStateRaced        Key = "init-state-raced"
@@ -111,6 +112,7 @@ var installMessages = map[Key]string{
 	InitStateOldBlock:     "옛 mem 블록 있음",
 	InitStateHooks:        "훅 %d개 있음 (mem 아님)",
 	InitStateMemHook:      "mem 훅 있음",
+	InitStateMemPartial:   "mem 훅 %d개 있음 · 빠진 mem 훅 %d개",
 	InitStateUnreadable:   "JSON 을 못 읽음",
 	InitStateOddShape:     "hooks 가 아는 모양이 아님",
 	InitStateRaced:        "다른 프로그램이 방금 고침",
@@ -309,6 +311,7 @@ const InstallUsageDoc = `# mem 사용법 (AI 용)
   별칭(` + "`docs`→`doc`" + ` 같은 것)은 도구가 조용히 바꿔 준다.
 - ` + "`--scope`" + ` 는 **툴·부품 이름 통째 하나**다. 주제를 붙이지 않는다
   (` + "`unity-build`" + ` 는 되고 ` + "`unity-build-캐시`" + ` 는 아니다). 이것도 표준 목록을 본다.
+- ` + "`--keys`" + ` 는 선택이다 — **나중에 사람이 이것을 찾을 때 칠 법한, 제목·본문에 없는 다른 말** 0~6개 (` + "`--keys \"인덱스 재빌드,reindex\"`" + `).
 - ` + "`todo`" + ` 는 ` + "`--todo-status open|doing|done`" + ` — **안 주면 ` + "`open`" + ` 으로 들어간다.**
 - ` + "`issue`·`caution`" + ` 은 ` + "`--severity low|mid|high`" + ` 까지 필수다. ` + "`medium`" + ` 이라 써도 ` + "`mid`" + ` 로 바꿔 받는다.
 - **한 건에 결정 하나.** 결정 여러 개를 한 건에 넣으면 거절한다 (하나가 낡으면 나머지도 못 믿는다).

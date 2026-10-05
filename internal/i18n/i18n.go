@@ -226,6 +226,9 @@ var messages = map[Key]string{
   gc       오래된 기억을 접고 아카이브로 옮긴다
   lint     기억 문서의 품질을 검사한다
   review   사람이 판정할 것만 모아 보여준다
+  auto     자동으로 들어온 기억을 보고 한꺼번에 되돌린다
+  consolidate  여러 기억을 모음 기억 카드로 묶는다 (--plan · --apply)
+  judge    바깥 LLM 판정을 불러 본다 (llm.toml 이 있을 때 · 측정용)
   tags     태그 표준 목록을 보고 손본다 (mem tags --list)
   eval     골든셋으로 검색·문서 품질을 잰다
   status   저장소 자리·건수·품질·환경을 보여준다

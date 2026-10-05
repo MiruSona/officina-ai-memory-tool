@@ -135,6 +135,33 @@ type HookConfig struct {
 	SubagentSkip []string
 }
 
+// RetainConfig 는 자동 쌓기 손잡이다 (자동쌓기설계 2-5 `[retain]`). Encode 는 기본값과
+// 다를 때만 적는다 — `mem init --retain` 이 RetainBlock 을 붙인 저장소만 이 절을 갖는다.
+type RetainConfig struct {
+	// Nudge 가 꺼지면 Stop 훅이 붙어 있어도 침묵한다.
+	Nudge bool
+	// NudgeEdits·NudgeTurns 는 알림 문턱이다. 둘 중 하나만 넘어도 낸다.
+	NudgeEdits int
+	NudgeTurns int
+	// NudgeMax 는 세션당 알림 상한이다.
+	NudgeMax int
+	// PerSession·PerDay 는 자동 기억 개수 상한이다 (관문 R6).
+	PerSession int
+	PerDay     int
+	// QueueDays 는 PreCompact·SessionEnd 큐 표를 받아 줄 날 수다 (A2 몫).
+	QueueDays int
+}
+
+// 자동 쌓기 기본값. 2주 실사용 뒤 숫자로 다시 정한다 (자동쌓기설계 2-6).
+const (
+	DefaultNudgeEdits       = 5
+	DefaultNudgeTurns       = 8
+	DefaultNudgeMax         = 2
+	DefaultRetainPerSession = 5
+	DefaultRetainPerDay     = 20
+	DefaultRetainQueueDays  = 14
+)
+
 // PinConfig caps how many memories may stay pinned at once.
 type PinConfig struct {
 	Max int
@@ -168,6 +195,12 @@ type SearchConfig struct {
 	AbstainFloor float64
 	// SynWeight 는 동의어로 찾은 것의 랭킹 몫이다.
 	SynWeight float64
+	// KeysStrict 는 keys 칸으로만 맞은 기억을 엄격 칸(0·1·2·5)에 들일지다 (C1).
+	// 기본 false — keys 는 엄격 칸에서 점수만 얹고 후보를 새로 못 들인다
+	// (keys칸측정 · 모음기억설계 4-3 의 (나)).
+	KeysStrict bool
+	// ObsStrictFull 은 모음 기억(observation)을 칸 0·1 에서 온 것만 엄격 답으로 칠지다 (B1 · 자동쌓기설계 3-5). 기본 꺼짐.
+	ObsStrictFull bool
 }
 
 // 검색 손잡이의 기본값. 206건 골든셋 실측으로 골랐다 (설계 6-4·6-5).
@@ -237,7 +270,40 @@ type EmbedConfig struct {
 	Model     string
 	Floor     float64
 	RRFWeight float64
+	// Mix 는 뜻 후보 섞기(C2)를 켤지다. 켜면 의미 모드에서 기억 전체 벡터의
+	// 코사인 상위 MixTop 건을 낱말 후보와 따로 데려와 섞는다(두 몫 중 큰 쪽). 끄면
+	// C2 전과 건마다 같다. 낱말 모드(모델 없음)에서는 켜 있어도 아무 일도 안 한다.
+	Mix bool
+	// MixTop 은 뜻 후보 수, MixWeight 는 뜻 순위의 몫 무게(낱말 순위는 1),
+	// MixK 는 순위 몫 1/(k+순위) 의 완충값이다.
+	MixTop    int
+	MixWeight float64
+	MixK      float64
+	// MixFloor 와 MixRank 는 **뜻으로만 올라온 기억**을 답(strict, `[뜻]`)으로
+	// 올리는 바닥이다 — 코사인이 MixFloor 이상이고 뜻 순위가 MixRank 안이어야
+	// 한다. 못 넘으면 화면에 안 낸다. 답 없는 질문의 헛답을 이 둘이 막는다.
+	MixFloor float64
+	MixRank  int
+	// MixKeep 은 낱말 상위 몇 건이 섞은 뒤에도 제 자리보다 뒤로 안 가는지다
+	// (2차 판 · 자리 지킴). 0 이면 안 지킨다 — 그래도 「큰 쪽 하나」 규칙 덕에
+	// 낱말 j 위는 2j-1 위 안에 남는다.
+	MixKeep int
 }
+
+// 뜻 후보 섞기(C2) 기본값 — 2026-10-05 뜻후보섞기측정에서 골랐다.
+// 2차 판(큰 쪽 하나 섞기)은 오르지만 답 없는 질문의 헛답이 는다 (바닥 0.58 :
+// probe 15 → 18/29). 3차 판에서 바닥 0.60 으로 조여 다시 쟀으나 헛답이 16/29 로
+// 여전히 늘어 **기본은 끈다** (2026-10-05 사용자 결정 · 같은 문서 7~9절).
+// 켜려면 mem.toml [embed] mix = true — 그때 아래 값(바닥 0.58 · 뜻 순위 3)으로 돈다.
+const (
+	DefaultEmbedMix       = false
+	DefaultEmbedMixTop    = 20
+	DefaultEmbedMixWeight = 1.0
+	DefaultEmbedMixK      = 60.0
+	DefaultEmbedMixFloor  = 0.58
+	DefaultEmbedMixRank   = 3
+	DefaultEmbedMixKeep   = 0
+)
 
 // QualityConfig 는 문서 품질 장치의 문턱이다 (설계 3-2 · 품질규칙표).
 type QualityConfig struct {
@@ -332,6 +398,7 @@ type Config struct {
 	Quality   QualityConfig
 	Stopword  StopwordConfig
 	Hook      HookConfig
+	Retain    RetainConfig
 	// Synonym maps one query word onto the words to try instead when it found
 	// nothing. Query time only: the index is never touched (design 2-1 #22).
 	Synonym map[string][]string
@@ -364,7 +431,10 @@ func Default(name string) Config {
 			RerankTop: DefaultRerankTop, AbstainFloor: DefaultAbstainFloor,
 			SynWeight: DefaultSynWeight},
 		Embed: EmbedConfig{Enabled: false, Path: DefaultEmbedPath,
-			Floor: DefaultEmbedFloor, RRFWeight: DefaultEmbedRRFWeight},
+			Floor: DefaultEmbedFloor, RRFWeight: DefaultEmbedRRFWeight,
+			Mix: DefaultEmbedMix, MixTop: DefaultEmbedMixTop, MixWeight: DefaultEmbedMixWeight,
+			MixK: DefaultEmbedMixK, MixFloor: DefaultEmbedMixFloor, MixRank: DefaultEmbedMixRank,
+			MixKeep: DefaultEmbedMixKeep},
 		Quality: QualityConfig{DupReject: DefaultDupReject, DupWarn: DefaultDupWarn,
 			DupVectors:     DefaultDupVectors,
 			SimhashHamming: DefaultSimhashHamming, BodyMinLines: DefaultBodyMinLines,
@@ -377,6 +447,9 @@ func Default(name string) Config {
 		Hook: HookConfig{UserPrompt: false, MaxBytes: DefaultHookMaxBytes,
 			LinesPerSection: DefaultHookLinesPerSection, SubagentStart: true,
 			SubagentMaxBytes: DefaultSubagentMaxBytes, SubagentSkip: []string{}},
+		Retain: RetainConfig{Nudge: true, NudgeEdits: DefaultNudgeEdits, NudgeTurns: DefaultNudgeTurns,
+			NudgeMax: DefaultNudgeMax, PerSession: DefaultRetainPerSession, PerDay: DefaultRetainPerDay,
+			QueueDays: DefaultRetainQueueDays},
 		Synonym: DefaultSynonyms(),
 		// 대표말 표는 비어서 시작한다. 비면 정규화가 항등이고 아무것도 안
 		// 거절한다 - vocab 의 「배우는 중」과 같은 정신이다 (결정 25 · P12).
@@ -577,11 +650,20 @@ func Parse(text string) (Config, error) {
 	config.Search.RerankTop = file.intOr("search", "rerank_top", config.Search.RerankTop)
 	config.Search.AbstainFloor = file.floatOr("search", "abstain_floor", config.Search.AbstainFloor)
 	config.Search.SynWeight = file.floatOr("search", "syn_weight", config.Search.SynWeight)
+	config.Search.KeysStrict = file.boolOr("search", "keys_strict", config.Search.KeysStrict)
+	config.Search.ObsStrictFull = file.boolOr("search", "obs_strict_full", config.Search.ObsStrictFull)
 	config.Embed.Enabled = file.boolOr("embed", "enabled", config.Embed.Enabled)
 	config.Embed.Path = file.stringOr("embed", "path", config.Embed.Path)
 	config.Embed.Model = file.stringOr("embed", "model", config.Embed.Model)
 	config.Embed.Floor = file.floatOr("embed", "floor", config.Embed.Floor)
 	config.Embed.RRFWeight = file.floatOr("embed", "rrf_weight", config.Embed.RRFWeight)
+	config.Embed.Mix = file.boolOr("embed", "mix", config.Embed.Mix)
+	config.Embed.MixTop = file.intOr("embed", "mix_top", config.Embed.MixTop)
+	config.Embed.MixWeight = file.floatOr("embed", "mix_weight", config.Embed.MixWeight)
+	config.Embed.MixK = file.floatOr("embed", "mix_k", config.Embed.MixK)
+	config.Embed.MixFloor = file.floatOr("embed", "mix_floor", config.Embed.MixFloor)
+	config.Embed.MixRank = file.intOr("embed", "mix_rank", config.Embed.MixRank)
+	config.Embed.MixKeep = file.intOr("embed", "mix_keep", config.Embed.MixKeep)
 	config.Quality.DupReject = file.floatOr("quality", "dup_reject", config.Quality.DupReject)
 	config.Quality.DupWarn = file.floatOr("quality", "dup_warn", config.Quality.DupWarn)
 	config.Quality.DupVectors = file.boolOr("quality", "dup_vectors", config.Quality.DupVectors)
@@ -603,6 +685,13 @@ func Parse(text string) (Config, error) {
 	config.Hook.SubagentStart = file.boolOr("hook", "subagent_start", config.Hook.SubagentStart)
 	config.Hook.SubagentMaxBytes = file.intOr("hook", "subagent_max_bytes", config.Hook.SubagentMaxBytes)
 	config.Hook.SubagentSkip = file.listOr("hook", "subagent_skip", config.Hook.SubagentSkip)
+	config.Retain.Nudge = file.boolOr("retain", "nudge", config.Retain.Nudge)
+	config.Retain.NudgeEdits = file.intOr("retain", "nudge_edits", config.Retain.NudgeEdits)
+	config.Retain.NudgeTurns = file.intOr("retain", "nudge_turns", config.Retain.NudgeTurns)
+	config.Retain.NudgeMax = file.intOr("retain", "nudge_max", config.Retain.NudgeMax)
+	config.Retain.PerSession = file.intOr("retain", "per_session", config.Retain.PerSession)
+	config.Retain.PerDay = file.intOr("retain", "per_day", config.Retain.PerDay)
+	config.Retain.QueueDays = file.intOr("retain", "queue_days", config.Retain.QueueDays)
 	config.Synonym = mergeSynonyms(config.Synonym, file.mapOfLists("synonym"))
 	config.Canon = file.mapOf("canon")
 	config.Scope = file.mapOf("scope")
@@ -688,6 +777,10 @@ func Encode(config Config) []byte {
 	writeInt(&out, "rerank_top", config.Search.RerankTop)
 	writeFloat(&out, "abstain_floor", config.Search.AbstainFloor)
 	writeFloat(&out, "syn_weight", config.Search.SynWeight)
+	out.WriteString("# keys_strict 를 켜면 keys 칸으로만 맞은 기억도 엄격 칸 답이 된다. 기본 꺼짐 (C1).\n")
+	writeBool(&out, "keys_strict", config.Search.KeysStrict)
+	out.WriteString("# obs_strict_full 을 켜면 모음 기억은 칸 0·1 에서 맞았을 때만 엄격 답이다. 기본 꺼짐 (B1).\n")
+	writeBool(&out, "obs_strict_full", config.Search.ObsStrictFull)
 	out.WriteString("\n# 임베딩은 조건부다. 모델 파일이 없으면 조용히 낱말 검색만 한다.\n" +
 		"# path 는 낱말 임베딩 표(ko.bin) 자리다. 비면 Memory/model/ko.bin 을 본다.\n" +
 		"# 의미 검색 모델은 이 칸이 아니라 mem install 이 ~/.aimemory/models/ 에 깐다.\n[embed]\n")
@@ -697,6 +790,18 @@ func Encode(config Config) []byte {
 	out.WriteString("model = " + quote(config.Embed.Model) + "\n")
 	writeFloat(&out, "floor", config.Embed.Floor)
 	writeFloat(&out, "rrf_weight", config.Embed.RRFWeight)
+	out.WriteString("# mix 는 뜻 후보 섞기다. 의미 모드에서 뜻이 가까운 기억을 낱말 후보와 따로 데려와 섞는다.\n" +
+		"# 뜻으로만 올라온 답에는 [뜻] 이 붙는다. mix_floor·mix_rank 가 뜻 몫을 주는 바닥이다.\n" +
+		"# mix_keep 은 섞은 뒤에도 제 자리를 지키는 낱말 상위 건수다.\n" +
+		"# 기본은 끔이다 — 켜면 답이 더 잘 오르지만 답 없는 질문에도 헛답이 는다.\n" +
+		"# 끄면(false) 섞기 전과 결과가 같다. 모델이 없으면 켜 있어도 아무 일도 안 한다.\n")
+	writeBool(&out, "mix", config.Embed.Mix)
+	writeInt(&out, "mix_top", config.Embed.MixTop)
+	writeFloat(&out, "mix_weight", config.Embed.MixWeight)
+	writeFloat(&out, "mix_k", config.Embed.MixK)
+	writeFloat(&out, "mix_floor", config.Embed.MixFloor)
+	writeInt(&out, "mix_rank", config.Embed.MixRank)
+	writeInt(&out, "mix_keep", config.Embed.MixKeep)
 	out.WriteString("\n# 문서 품질 문턱. mem eval --quality 가 규칙을 강등하면 여기 적는다.\n[quality]\n")
 	writeFloat(&out, "dup_reject", config.Quality.DupReject)
 	writeFloat(&out, "dup_warn", config.Quality.DupWarn)
@@ -713,6 +818,11 @@ func Encode(config Config) []byte {
 	writeInt(&out, "cold_days", config.Quality.ColdDays)
 	writeFloat(&out, "precision_demote", config.Quality.PrecisionDemote)
 	writeFloat(&out, "precision_off", config.Quality.PrecisionOff)
+	// 기본값 그대로면 안 적는다 — init 이 빠진 키를 채우며 다시 쓸 때 `[retain]` 이
+	// 모든 저장소에 퍼지지 않고, 사람이 바꾼 값은 살아남는다.
+	if config.Retain != Default("").Retain {
+		out.WriteString("\n" + RetainBlock(config.Retain))
+	}
 	if config.Score.Importance != DefaultImportanceWeight {
 		out.WriteString("\n[score]\n")
 		writeFloat(&out, "importance", config.Score.Importance)
@@ -739,6 +849,23 @@ func Encode(config Config) []byte {
 		out.WriteString(quote(folder) + " = " + quote(config.Scope[folder]) + "\n")
 	}
 	return []byte(out.String())
+}
+
+// RetainBlock 은 `mem init --retain` 이 mem.toml 끝에 붙이는 `[retain]` 절이다.
+// Encode 도 기본값과 다를 때 같은 글을 쓴다.
+func RetainBlock(retain RetainConfig) string {
+	out := strings.Builder{}
+	out.WriteString("# 자동 쌓기. nudge = false 면 Stop 훅이 붙어 있어도 침묵한다.\n" +
+		"# 문턱은 nudge_edits(파일 고침 수) 또는 nudge_turns(사용자 턴 수) 하나만 넘어도 된다.\n")
+	out.WriteString("[retain]\n")
+	writeBool(&out, "nudge", retain.Nudge)
+	writeInt(&out, "nudge_edits", retain.NudgeEdits)
+	writeInt(&out, "nudge_turns", retain.NudgeTurns)
+	writeInt(&out, "nudge_max", retain.NudgeMax)
+	writeInt(&out, "per_session", retain.PerSession)
+	writeInt(&out, "per_day", retain.PerDay)
+	writeInt(&out, "queue_days", retain.QueueDays)
+	return out.String()
 }
 
 // sortedKeys keeps Encode's output stable so init writes the same bytes twice.

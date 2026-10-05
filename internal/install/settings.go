@@ -28,10 +28,17 @@ const (
 	// 사람이 시험 삼아 손으로 걸어 둔 줄을 --undo 가 걷을 수 있게 한다
 	// (서브에이전트훅설계 6-2).
 	subagentStopAction = "subagent-stop"
-	hookMatcher        = "startup|resume|clear|compact|fork"
-	settingsFile       = "settings.json"
-	backupSuffix       = ".mem-bak"
-	tempSuffix         = ".mem-tmp"
+	// 아래는 자동 쌓기 훅이다 (자동쌓기설계 2-2). `init --retain` 일 때만 붙는다.
+	stopKey          = "Stop"
+	preCompactKey    = "PreCompact"
+	sessionEndKey    = "SessionEnd"
+	stopAction       = "stop"
+	preCompactAction = "pre-compact"
+	sessionEndAction = "session-end"
+	hookMatcher      = "startup|resume|clear|compact|fork"
+	settingsFile     = "settings.json"
+	backupSuffix     = ".mem-bak"
+	tempSuffix       = ".mem-tmp"
 )
 
 // hookSpec 은 우리가 settings.json 에 붙이는 훅 한 줄이다.
@@ -43,6 +50,8 @@ type hookSpec struct {
 	matcher string
 	// gemini 는 Gemini CLI 에도 붙일지다. 그 CLI 에는 SubagentStart 가 없다.
 	gemini bool
+	// quiet 는 상태 글(statusMessage)을 안 다는 것이다. Stop 은 매 턴 돌아 글이 소음이다.
+	quiet bool
 }
 
 // hookSpecs 는 붙일 훅 표다. 줄을 더하면 install 도 undo 도 같이 늘어난다.
@@ -51,16 +60,29 @@ var hookSpecs = []hookSpec{
 	{event: subagentKey, action: subagentAction},
 }
 
+// retainSpecs 는 `init --retain` 이 더 붙이는 훅이다. Claude Code 에만 있다.
+// matcher 가 없어 모든 종류(manual·auto · 모든 끝난 까닭)에 걸린다.
+var retainSpecs = []hookSpec{
+	{event: stopKey, action: stopAction, quiet: true},
+	{event: preCompactKey, action: preCompactAction, quiet: true},
+	{event: sessionEndKey, action: sessionEndAction, quiet: true},
+}
+
 // hookEventKeys 는 우리가 모양을 따지고 --undo 가 훑는 이벤트 키다.
-var hookEventKeys = []string{sessionKey, subagentKey, subagentStopKey}
+var hookEventKeys = []string{sessionKey, subagentKey, subagentStopKey, stopKey, preCompactKey, sessionEndKey}
 
 // ourActions 는 우리 훅으로 알아보는 액션이다. 붙이는 표보다 하나 넓다.
-var ourActions = []string{hookAction, subagentAction, subagentStopAction}
+var ourActions = []string{hookAction, subagentAction, subagentStopAction,
+	stopAction, preCompactAction, sessionEndAction}
 
-// specsFor 는 이 도구·이 깃발에 실제로 붙일 훅만 고른다.
-func specsFor(gemini, noSubagent bool) []hookSpec {
+// specsFor 는 이 도구·이 깃발에 실제로 붙일 훅만 고른다. retain 은 Gemini 에는 안 붙는다.
+func specsFor(gemini, noSubagent, retain bool) []hookSpec {
+	all := hookSpecs
+	if retain && !gemini {
+		all = append(append([]hookSpec{}, hookSpecs...), retainSpecs...)
+	}
 	chosen := []hookSpec{}
-	for _, spec := range hookSpecs {
+	for _, spec := range all {
 		if gemini && !spec.gemini {
 			continue
 		}
@@ -110,7 +132,9 @@ func hookEntry(spec hookSpec, timeout int) *jsonObject {
 	inner.set(commandKey, ExeName)
 	inner.set(argsKey, []any{hookVerb, spec.action})
 	inner.set("timeout", json.Number(strconv.Itoa(timeout)))
-	inner.set("statusMessage", i18n.T(i18n.HookStatusMessage))
+	if !spec.quiet {
+		inner.set("statusMessage", i18n.T(i18n.HookStatusMessage))
+	}
 	group := newObject()
 	if spec.matcher != "" {
 		group.set("matcher", spec.matcher)
@@ -396,6 +420,10 @@ func ensureSettings(path string, timeout int, dryRun, withAllow bool, specs []ho
 		return step, nil
 	}
 	step.Now = settingsNow(existed, len(needed) > 0, hooks)
+	if present := len(specs) - len(needed); existed && len(needed) > 0 && present > 0 {
+		// 이미 mem 훅이 몇 개 있는데 「mem 아님」 이라고 찍으면 틀린 말이다 (리뷰 2026-10-05).
+		step.Now = i18n.T(i18n.InitStateMemPartial, present, len(needed))
+	}
 	step.Todo, step.Changed = settingsTodo(len(needed) > 0, hooks, len(missing)), true
 	if dryRun {
 		return step, nil
@@ -514,4 +542,42 @@ func raced(step Step, err error) (Step, error) {
 	}
 	step.Now, step.Todo, step.Changed, step.Manual = i18n.T(i18n.InitStateRaced), i18n.T(i18n.InitTodoManual), false, true
 	return step, nil
+}
+
+// retainEventKeys 는 `init --retain --undo` 가 훑는 이벤트다. 이 셋에 든 우리 훅만
+// 걷고, SessionStart·allow 규칙·규칙 블록은 그대로 둔다.
+var retainEventKeys = []string{stopKey, preCompactKey, sessionEndKey}
+
+// removeRetainSettings 는 자동 쌓기 훅만 뗀다. 알림을 끄는 다른 길은
+// mem.toml `[retain] nudge = false` 다 (자동쌓기설계 7절 끄기).
+func removeRetainSettings(path string, dryRun bool) (Step, error) {
+	step := Step{What: shortPath(path), Now: i18n.T(i18n.InitStateMissing), Todo: i18n.T(i18n.InitTodoKeep)}
+	root, before, existed, err := loadSettings(path)
+	if manual, ok := handOver(&step, path, err); ok {
+		return manual, nil
+	}
+	if err != nil || !existed {
+		return step, err
+	}
+	found := []string{}
+	for _, event := range retainEventKeys {
+		list := eventList(root, event)
+		for _, spec := range retainSpecs {
+			if spec.event == event && hasMemHook(list, spec.action) {
+				found = append(found, event)
+			}
+		}
+	}
+	if len(found) == 0 {
+		step.Now = i18n.T(i18n.InitStatePresent)
+		return step, nil
+	}
+	step.Now, step.Todo, step.Changed = i18n.T(i18n.InitStateMemHook), i18n.T(i18n.InitTodoRemove), true
+	if dryRun {
+		return step, nil
+	}
+	for _, event := range found {
+		setEventList(root, event, withoutMemHooks(eventList(root, event)))
+	}
+	return raced(step, settingsWriter(path, root, before))
 }

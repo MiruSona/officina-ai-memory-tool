@@ -10,10 +10,10 @@ import (
 	"testing"
 )
 
-// 명령이 다 붙어 있어야 한다 (설계 6-1 · version 은 뒤에 늘린 것이다).
+// 명령이 다 붙어 있어야 한다 (설계 6-1 · version · auto · consolidate · judge 는 뒤에 늘린 것이다).
 func TestSixteenCommandsAreRegistered(t *testing.T) {
 	want := []string{"install", "init", "add", "set", "search", "show", "hook", "index",
-		"migrate", "gc", "lint", "review", "tags", "eval", "status", "version"}
+		"migrate", "gc", "lint", "review", "tags", "eval", "status", "version", "auto", "consolidate", "judge"}
 	for _, name := range want {
 		if _, found := registry[name]; !found {
 			t.Errorf("%s 가 등록이 안 됐다", name)

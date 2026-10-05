@@ -7,7 +7,7 @@ package i18n
 func HelpTopics() []string {
 	return []string{
 		"install", "init", "add", "set", "search", "show", "hook",
-		"index", "migrate", "gc", "lint", "review", "tags", "eval", "status", "version", "help",
+		"index", "migrate", "gc", "lint", "review", "auto", "tags", "eval", "status", "version", "help",
 	}
 }
 
@@ -42,6 +42,7 @@ var commandHelp = map[string]string{
   --no-subagent-hook  SubagentStart 훅만 뺀다. SessionStart 는 그대로 붙인다
   --gemini       GEMINI.md 에도 규칙 세 줄을 붙인다
   --solo         혼자 쓰는 사람이다. 내장 auto memory 를 끄자고 권하기만 한다
+  --retain       자동 쌓기 훅(Stop·PreCompact·SessionEnd)도 붙이고 mem.toml 에 [retain] 칸을 단다
   --undo         init 이 붙인 것을 떼어낸다
 종료 코드 : 0 정상 · 1 사용법 잘못`,
 
@@ -58,7 +59,9 @@ var commandHelp = map[string]string{
                      목록을 늘리려면 mem tags --add <태그>
   --scope <범위>     표준 목록 안의 툴·부품 이름 통째 하나 (필수)
                      목록을 늘리려면 mem tags --add-scope <이름>
-  --sources a,b      근거. file: commit: url: mem: note: 로 시작한다
+  --keys a,b         사람이 이것을 찾을 때 칠 법한 **글에 없는** 다른 말 0~6개 (한 칸 2~30자)
+                     예 : 제목이 「색인 다시 만들기」면 --keys "인덱스 재빌드,reindex"
+  --sources a,b     근거. file: commit: url: mem: note: 로 시작한다
                      (decision·issue·caution·fact 는 하나 이상 필수)
                      **여러 개는 쉼표로 잇는다.** 공백으로 이으면 뒤가 사라진다
   --author <누가>    human:<아이디> · <도구>/<버전> · hook:<이름> (기본 mem/판)
@@ -77,6 +80,10 @@ var commandHelp = map[string]string{
   --stale-after <날짜> 이 날 지나면 다시 보자고 예약한다
   --link a,b         이어지는 기억 id
   --pin              접기·정리에서 뺀다
+  --origin <출처>    자동 기억이다 : stop (Stop 알림을 받은 AI) · card · retain:<모델> · consolidate:<모델>
+                     자동 관문(근거 문장·본문 값 대조·합치기 금지·상한·근거 파일)을 더 지나야 한다
+  --quotes "가||나"  근거 문장 1~3개 (15자 이상, 이 세션 대화에 그대로 있어야 한다). retain:* 은 필수
+  --session <8자>    어느 세션에서 나왔나. Stop 알림이 알려 준 값을 그대로 쓴다
   --check            미리보기. 관문만 돌리고 무슨 일이 있어도 저장하지 않는다
   --json             판정을 한 줄 JSON 으로 준다
   --jsonl            여러 건을 표준입력에서 한 줄에 하나씩 받는다 (관문에서 걸리면 전부 취소, 승격 bad 는 그 줄만 빠진다 · 종료 2·4)
@@ -100,7 +107,8 @@ var commandHelp = map[string]string{
   --pin / --unpin    고정을 켜고 끈다
   --done             todo_status 를 done 으로 바꾼다
   --summary --title --tags --scope --severity --importance --invalid-at
-  --links a,b        이어지는 기억 id 를 통째로 갈아 끼운다
+  --keys a,b         찾을 때 칠 다른 말을 통째로 갈아 끼운다 (0~6개). --keys "" 는 칸을 뗀다
+  --links a,b       이어지는 기억 id 를 통째로 갈아 끼운다
   --link <id>        이어지는 기억 id 를 하나 더한다 (있던 것은 그대로)
   --body <본문> / --stdin     본문을 통째로 갈아 끼운다
   --repo <폴더>      저장소를 직접 가리킨다
@@ -140,7 +148,11 @@ var commandHelp = map[string]string{
 	"hook": `mem hook — 훅 진입점. 훅 JSON 을 표준입력으로 받는다 (사람이 직접 칠 일은 없다)
 
 쓰는 법 : mem hook <이벤트> [--dry-run] [--json] [--budget <토큰>]
-이벤트는 둘이다 : session-start (세션 시작) · subagent-start (서브에이전트 시작).
+이벤트는 다섯이다 : session-start (세션 시작) · subagent-start (서브에이전트 시작)
+  · stop · pre-compact · session-end (자동 쌓기, mem init --retain 이 붙인다).
+  stop 은 이 세션에서 고친 것이 쌓였으면 「mem add 로 남겨라」 알림 몇 줄을 낸다 —
+  문턱은 mem.toml [retain] 이고, 한 세션에 nudge_max 번까지다. 모델은 안 부른다.
+  pre-compact · session-end 는 Memory/local/retain-queue/ 에 세션 표 하나만 쓴다.
   subagent-start 는 세션 블록과 같은 요약에, 시작·끝에 무엇을 하는지 적은 줄과
   쓸 수 있는 scope 목록을 맨 위에 얹는다. 상한은 [hook] subagent_max_bytes ·
   [budget] subagent 이고, [hook] subagent_skip 에 든 agent_type 은 건너뛴다.
@@ -216,7 +228,27 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
   --limit <수>    갈래마다 몇 줄까지 (기본 20)
   --promote <id>  자동으로 만들어진 기억(머리말 review: true)을 사람이 승격한다
                   **이 옵션만 auto 모드 allow 규칙 밖이라 승인 창이 뜬다**
+  --reject <id>   보류 기억을 버린다. 지우지 않고 접는다 (gc --restore <id> 로 되돌린다)
+                  --promote 처럼 allow 규칙 밖이다
   --json          한 줄 JSON
+  --repo <폴더>   저장소를 직접 가리킨다
+종료 코드 : 0 정상 · 1 사용법 잘못 · 3 저장소 없음`,
+
+	"auto": `mem auto — 자동으로 들어온 기억(머리말 origin 칸)을 보고 한꺼번에 되돌린다
+
+쓰는 법 : mem auto list|undo|redo [옵션]
+  list            자동 기억 목록 (보류된 것은 [보류] 가 붙는다)
+  undo            거름에 맞는 자동 기억을 보류로 돌린다. 파일은 안 지운다
+                  **미리보기가 기본**이고 --apply 를 줘야 고친다. 거름이 하나 이상 있어야 한다
+                  그 기억을 근거로 삼은 다른 기억이 있으면 같이 알려 준다
+  redo            undo 기록(Memory/local/auto-undo/)대로 되살린다. 역시 --apply 를 줘야 고친다
+  --origin <출처>   stop · card · retain · retain:<모델> … (retain 은 retain:* 전부)
+  --since <날짜>    기억 date 가 이 날 이후 (redo 에서는 undo 한 날 이후)
+  --until <날짜>    기억 date 가 이 날 이전
+  --session <8자>   그 세션에서 나온 것만
+  --apply         undo · redo 를 진짜로 한다
+  --dry-run       미리보기 (기본값이라 안 줘도 같다. --apply 보다 앞선다)
+  --json          list 를 JSON 으로 준다
   --repo <폴더>   저장소를 직접 가리킨다
 종료 코드 : 0 정상 · 1 사용법 잘못 · 3 저장소 없음`,
 

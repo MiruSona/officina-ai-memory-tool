@@ -22,6 +22,7 @@ type rawHead struct {
 	Title        string   `yaml:"title"`
 	Summary      string   `yaml:"summary"`
 	Tags         []string `yaml:"tags"`
+	Keys         []string `yaml:"keys"`
 	Scope        string   `yaml:"scope"`
 	Date         string   `yaml:"date"`
 	Author       string   `yaml:"author"`
@@ -36,6 +37,11 @@ type rawHead struct {
 	Severity     string   `yaml:"severity"`
 	Migrated     bool     `yaml:"migrated"`
 	Review       bool     `yaml:"review"`
+	Origin       string   `yaml:"origin"`
+	OriginSess   string   `yaml:"origin_session"`
+	BasisHash    string   `yaml:"basis_hash"`
+	Rev          int      `yaml:"rev"`
+	CardRule     string   `yaml:"rule"`
 	State        string   `yaml:"state"`
 	Archived     string   `yaml:"archived"`
 
@@ -78,12 +84,13 @@ func Parse(data []byte) (*Memory, error) {
 
 func (r rawHead) toMemory() *Memory {
 	memory := Memory{
-		ID: r.ID, Type: r.Type, Title: r.Title, Summary: r.Summary, Tags: r.Tags,
+		ID: r.ID, Type: r.Type, Title: r.Title, Summary: r.Summary, Tags: r.Tags, Keys: r.Keys,
 		Scope: r.Scope, Date: r.Date, Author: r.Author, Sources: r.Sources, Links: r.Links,
 		SupersededBy: r.SupersededBy, InvalidAt: r.InvalidAt, StaleAfter: r.StaleAfter,
 		Importance: r.Importance, Pinned: r.Pinned, TodoStatus: r.TodoStatus,
 		Severity: r.Severity, Migrated: r.Migrated, Review: r.Review,
-		State: r.State, Archived: r.Archived,
+		Origin: r.Origin, OriginSession: r.OriginSess, BasisHash: r.BasisHash, Rev: r.Rev,
+		CardRule: r.CardRule, State: r.State, Archived: r.Archived,
 		Spec: SpecV2,
 	}
 	if r.Source != "" {
@@ -119,6 +126,7 @@ func Encode(m *Memory) []byte {
 	putText(&head, "title", m.Title)
 	putText(&head, "summary", m.Summary)
 	putList(&head, "tags", m.Tags)
+	putList(&head, "keys", m.Keys)
 	putText(&head, "scope", m.Scope)
 	putDate(&head, "date", m.Date)
 	if m.IsLegacy() && m.LegacySource != "" {
@@ -152,6 +160,13 @@ func Encode(m *Memory) []byte {
 	if m.Review {
 		putRaw(&head, "review", "!!bool", "true")
 	}
+	putText(&head, "origin", m.Origin)
+	putText(&head, "origin_session", m.OriginSession)
+	putText(&head, "basis_hash", m.BasisHash)
+	if m.Rev != 0 {
+		putRaw(&head, "rev", "!!int", strconv.Itoa(m.Rev))
+	}
+	putText(&head, "rule", m.CardRule)
 	putText(&head, "state", m.State)
 	putText(&head, "archived", m.Archived)
 

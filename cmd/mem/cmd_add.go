@@ -15,6 +15,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/index"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
+	"github.com/mirusona/officina-ai-memory-tool/internal/retain"
 	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
@@ -24,7 +25,7 @@ import (
 var addBools = []string{"stdin", "pin", "check", "jsonl", "new", "json", "hold"}
 var addValues = []string{"type", "scope", "summary", "tags", "body", "status", "todo-status",
 	"severity", "title", "author", "sources", "importance", "links", "link", "by",
-	"stale-after", "invalid-at", "source", "date", "repo"}
+	"stale-after", "invalid-at", "source", "date", "repo", "origin", "quotes", "session", "keys"}
 
 // defaultAuthor 는 `--author` 를 안 줬을 때 쓰는 값이다. `mem` 이 스스로 찍는
 // 도구 표기다 — add 를 부르는 것이 훅인지 사람인지 여기서는 알 수 없고, 사람
@@ -43,6 +44,10 @@ func runAdd(argv []string) int {
 	parsed, err := parseOptions(argv, addBools, addValues)
 	if err != nil {
 		return fail(err.Error())
+	}
+	origin, code := checkOriginOptions(parsed)
+	if code != exitOK {
+		return code
 	}
 	if parsed.flags["jsonl"] {
 		return runAddJSONL(parsed)
@@ -70,7 +75,18 @@ func runAdd(argv []string) int {
 	if defaultTodoStatus(&request, vocabOf(repository)) {
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddStatusDefault, request.Status))
 	}
-	verdict := quality.Gate(memoryOf(request), gateOptions(repository, opened, parsed))
+	gate := gateOptions(repository, opened, parsed)
+	fillBasisHash(&request, gate.Lookup)
+	if origin != "" {
+		if count := ambiguousSession(parsed, retain.LoadState(repository.Dir), time.Now()); count > 0 {
+			return fail(i18n.T(i18n.AddSessionNeeded, int(sessionWindow/time.Minute), count))
+		}
+		// 자동 기억은 `--new` 로 중복 관문을 못 민다 — R4 가 그 판정을 봐야 한다.
+		gate.AllowDuplicate = false
+		return runAddAuto(parsed, repository, opened, request,
+			quality.Gate(memoryOf(request), gate), origin)
+	}
+	verdict := quality.Gate(memoryOf(request), gate)
 	if parsed.flags["json"] {
 		if parsed.flags["check"] || verdict.Rejected() {
 			return printVerdictJSON(verdict)
@@ -107,12 +123,17 @@ func applyVerdict(request store.AddRequest, verdict quality.Verdict) store.AddRe
 // reportCheck 는 --check 화면이다. 통과면 넣어도 된다고 말한다.
 // 무슨 일이 있어도 저장하지 않는다 — 그 말을 화면에도 늘 적는다.
 func reportCheck(verdict quality.Verdict) int {
+	return reportCheckAs(verdict, false)
+}
+
+// reportCheckAs 는 reportCheck 이되 auto 면 자동 기억이 못 쓰는 다음 수를 뺀다.
+func reportCheckAs(verdict quality.Verdict, auto bool) int {
 	if len(verdict.Findings) == 0 {
 		fmt.Println(i18n.T(i18n.GateCheckClean))
 		fmt.Println(i18n.T(i18n.GateCheckOnly))
 		return exitOK
 	}
-	printVerdict(verdict)
+	printVerdictAs(verdict, auto)
 	fmt.Println(i18n.T(i18n.GateCheckOnly))
 	return verdict.ExitCode()
 }
@@ -349,7 +370,7 @@ func reportStored(parsed *options, opened *store.Store, request store.AddRequest
 // noteAdded 는 들어간 add 를 log.md 에 적고, 보류면 한 줄 알린다.
 func noteAdded(parsed *options, opened *store.Store, request store.AddRequest, id string) {
 	noteLog(opened, store.LogAdded, fmt.Sprintf("%s `%s` (%s)%s%s", id, request.Title, request.Author,
-		forcedMark(parsed), heldMark(request)))
+		forcedMark(parsed), heldMark(request)+originMark(request)))
 	if request.Review {
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddHeldNote, id))
 	}
@@ -403,6 +424,14 @@ func forcedMark(parsed *options) string {
 // holdMark 는 `--hold` 로 들어와 사람 승격을 기다리는 기억이라는 표시다.
 // log.md 만 보고도 어느 기억이 멈춰 있는지 알 수 있어야 한다 (결정 6).
 const holdMark = " --hold"
+
+// originMark 는 자동 기억 표시다. log.md 만 보고도 origin 별 건수를 셀 수 있다.
+func originMark(request store.AddRequest) string {
+	if request.Origin == "" {
+		return ""
+	}
+	return " --origin " + request.Origin
+}
 
 func heldMark(request store.AddRequest) string {
 	if request.Review {
@@ -631,6 +660,14 @@ func decodeJSONL(text string, repository *config.Repository, opened *store.Store
 		// JSONL 길은 `--by` 를 안 받는다. 줄에 적힌 supersedes 는 id 검사도,
 		// 옛 기억 덮임 표시도 없이 들어오니 비운다 (리뷰 2026-09-23).
 		request.Supersedes = ""
+		// 자동 기억 칸도 같은 까닭으로 비운다. 줄에 origin 을 적어 자동 관문(R1~R8)을
+		// 건너뛰는 길을 막는다 — 자동 기억은 `--origin` 길로만, 카드는 consolidate 로만 든다.
+		request.Origin = ""
+		request.OriginSession = ""
+		request.BasisHash = ""
+		request.Rev = 0
+		request.CardRule = ""
+		fillBasisHash(&request, shared.Lookup)
 		given := request.Severity
 		fillDefaults(&request)
 		if request.Severity != given {
@@ -703,7 +740,7 @@ func requestOf(parsed *options, body string) store.AddRequest {
 	}
 	return store.AddRequest{
 		Op: store.OpAdd, Type: parsed.text("type"), Date: date,
-		Summary: parsed.text("summary"), Tags: parsed.list("tags"),
+		Summary: parsed.text("summary"), Tags: parsed.list("tags"), Keys: parsed.list("keys"),
 		Source: parsed.text("source"), Scope: parsed.text("scope"), Title: parsed.text("title"),
 		Status: todoStatusOf(parsed), Severity: severityOf(parsed.text("severity")),
 		Pinned: parsed.flags["pin"], Importance: importance,
@@ -731,7 +768,7 @@ func linksOf(parsed *options) []string {
 func memoryOf(request store.AddRequest) *model.Memory {
 	memory := &model.Memory{
 		ID: model.NewID(request.Body, time.Now()), Type: request.Type, Date: request.Date,
-		Summary: request.Summary, Tags: request.Tags,
+		Summary: request.Summary, Tags: request.Tags, Keys: request.Keys,
 		Scope: request.Scope, Title: request.Title, Pinned: request.Pinned,
 		Importance: request.Importance, Severity: request.Severity,
 		InvalidAt: request.InvalidAt, Links: request.Links, Body: request.Body,

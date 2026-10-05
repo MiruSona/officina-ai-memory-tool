@@ -107,6 +107,7 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 | `tags` | 태그·scope 표준 목록을 손본다 (`--add` · `--add-scope` · `--alias` · `--rename` · `--check`) | **`--suggest`** (동의어·대표말 후보 제안 · 아무것도 안 고친다) |
 | `eval` | 골든셋으로 **검색 품질**과 **문서 품질**(`--quality`)을 잰다. `--tune-dup` · `--golden` · `--repo` | **골든셋이 없으면 종료 코드 3** |
 | `status` | 저장소 자리·건수·색인 건강. `--quality` · `--db` · `--doctor` · `--log` | **`--embed`** (지금 어느 모드인지 · 벡터 몇 건인지) |
+| `judge` | 바깥 LLM 판정(SemIf)을 직접 불러 본다. `config` · `support` (아래 K 절) | K 에서 새로 |
 | `help` | 한글 도움말. `mem help <명령>` 은 `mem <명령> --help` 와 같다 | — |
 
 옵션은 `mem help <명령>` 으로 본다. 메시지는 전부 한글이다.
@@ -116,6 +117,65 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 
 > 도움말 글(`mem help install` · `mem help status`)에 **`install` 의 새 옵션 넷과 `status --embed` 가 아직 안 적혀 있다.**
 > 옵션은 코드에 다 있고 동작한다. 도움말 글 고치기는 다음 판 몫이다.
+
+---
+
+## 자동 쌓기 A1 (2026-10-05)
+
+일이 끝날 즈음 `Stop` 훅이 AI 에게 「남길 것 정리해 `mem add`」를 알리고, AI 가 넣은 기억은 **자동 관문**을 거쳐 보류 없이 바로 쓰인다.
+틀린 것이 들어오면 **출처(`origin`)로 골라 한꺼번에 보류로 되돌린다.** 훅과 관문은 모델을 안 부른다 (LLM 0).
+설계는 `Docs/Design/2026-10-05-자동쌓기와모음기억설계.md` 2절, 켜는 절차와 2주 뒤 볼 숫자는 `Docs/Todo/2026-10-05-자동쌓기A1후속.md`.
+
+| 명령 · 칸 | 하는 일 |
+| --- | --- |
+| `mem init --retain` | `Stop`·`PreCompact`·`SessionEnd` 훅을 더하고 `mem.toml` 에 `[retain]` 칸을 단다. **안 주면 예전과 같다.** `--retain --undo` 는 이 훅 셋만 걷는다 |
+| `mem hook stop` | 파일 고침 5번 또는 사람 말 8번을 넘기면 알림 글(6줄 이하)을 낸다. 세션당 2번까지 · `stop_hook_active` 면 침묵 |
+| `mem hook pre-compact` · `session-end` | `Memory/local/retain-queue/` 에 세션 표 하나만 쓴다 (뒤에 올 A2 몫) |
+| `mem add --origin <출처> --session <8자> --quotes "가\|\|나"` | 자동 관문(R1·R2·R4~R8)을 탄다. 근거 문장이 대화에 그대로 있나 · 숫자·경로가 대화·저장소에 있나 · 닮은 기억과 합치기 금지(`--new` 무시) · 개수 상한 · 종류·scope · 비밀. 거절은 `log.md` 에 남는다 |
+| 머리말 `origin` · `origin_session` | 자동 기억에만 붙는 칸. `stop` · `card` · `retain:<모델>` · `consolidate:<모델>` |
+| `mem auto list` | 자동 기억 목록 (`--origin` · `--since` · `--until` · `--session` · `--json`) |
+| `mem auto undo` | 거름에 맞는 자동 기억을 **보류로** 돌린다. 파일은 안 지운다. **미리보기가 기본**, `--apply` 로 고친다 |
+| `mem auto redo --apply` | undo 기록대로 되살린다 |
+| `mem review --reject <id>` | 보류 기억을 버린다 — 지우지 않고 접는다 (`gc --restore` 로 되돌림) |
+
+R3(바깥 LLM 근거 판정)은 아래 K 절의 `llm.toml` 이 있을 때만 돈다. 없으면 A1 그대로 건너뛴다.
+
+## 바깥 LLM 판정 K (2026-10-05)
+
+`add --origin` 의 R3 가 **근거 문장이 요약을 정말 뒷받침하나**를 바깥 LLM(OpenAI 호환 서버)에 글자 하나로 묻는다 — 지지(A) · 반대(B) · 무관(C), 「지지」만 통과.
+SemIf 방식이다: 생각 끔 · `max_tokens 1` · 첫 토큰 위 20개 확률에서 글자만 읽는다. 글을 안 만들게 하니 지어낼 자리가 없다.
+
+- **기계 설정 `~/.aimemory/llm.toml` 이 없으면 아무것도 안 바뀐다** (기본 꺼짐). `mem` 은 서버를 띄우지 않는다.
+- 서버가 안 닿거나 · 시간을 넘기거나 · 확률을 안 주면 **R3 만 경고 한 줄로 건너뛰고** 저장은 그대로 한다. 재시도는 없다.
+- 규칙 관문에 이미 걸린 후보 · 비밀 꼴이 든 글은 서버에 안 보낸다.
+- 판정은 `Memory/local/judge/<해시>.json` 에 남기고 **같은 입력은 다시 묻지 않는다** (같은 입력도 확률이 흔들려서다).
+- `mem judge config` 로 설정을 보고, `mem judge support --evidence … --claim …` · `--file <쌍.jsonl>` 로 직접 재 본다.
+
+```toml
+# ~/.aimemory/llm.toml — 이 기계만 (git 밖)
+url = "http://127.0.0.1:8080"   # 서버 뿌리 · /v1 · /v1/chat/completions 셋 다 된다
+key = ""                        # 있으면 Bearer 로 보낸다
+judge_profile = "flashnext"     # 요청의 model 칸 · 판정 기록에 적는 이름
+generate_profile = "flashnext"  # B2·A2 몫 (아직 안 쓴다)
+timeout_ms = 5000               # 한 요청 제한 시간 (1~60000)
+```
+
+## 모음 기억 B1 (2026-10-05)
+
+흩어진 기억 여럿을 한 장으로 묶은 **모음 기억(`observation`, 카드)** 을 만든다. 모델은 안 부른다.
+묶음은 규칙 셋으로 찾는다: 덮음 사슬(2건 이상) · 링크 무리(같은 scope, 3~12건) · 뜻 무리(같은 scope·같은 계열, 코사인 0.75 이상, 3~8건, 벡터가 있을 때만).
+카드 본문은 코드가 원본 요약을 번호 줄로 이어 붙이고, 줄마다 `[mem:id]` 를 단다.
+
+| 명령 · 칸 | 하는 일 |
+| --- | --- |
+| `mem consolidate --plan` | 묶음과 「새로 · 다시 · 그대로」 를 보여 준다. 아무것도 안 쓴다 (기본) |
+| `mem consolidate --apply` | 카드를 쓴다 (`origin: card`, 보류 없이). `--rule chain\|link\|meaning` · `--scope` · `--max` · `--floor` |
+| `mem auto undo --origin card --apply` | 카드를 한꺼번에 보류로 되돌린다 |
+| 검색 | 카드 아래에 근거 `↳ id 제목` 최대 3줄 + `… 외 N건`. 근거가 바뀌면 `[낡음]` 과 신뢰 ×0.5 |
+| 머리말 `basis_hash` · `rev` | 카드를 쓸 때 근거의 지문과 판 번호 |
+
+**카드는 손으로만 만든다** — 측정에서 multisession 이 안 올라 늘 써 두는 흐름은 두지 않았다 (`Docs/Research/2026-10-05-모음기억B1측정.md`). 쓴 카드는 검색에 뜬다.
+카드가 0장이면 검색은 B1 전과 똑같다. `--llm` (B2) 은 자리만 있다.
 
 ---
 
@@ -142,6 +202,9 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 합격선 G1~G6(자를 옮겨 점수를 벌지 않는다) · 시간 감쇠 표 · `gc --fold` · 골든셋 v2 80건 ·
 불변조건 I1~I8 과 v0.2 가 값을 치르고 고친 자국 전부 (→ `Docs/Guide/지키는장치.md`).
 2026-10-05 부터 공식 판정 골든셋은 **v3 81건**(`testdata/golden/goldenset-v3.yaml`)이다. v2 80건은 옛 측정과 견주려고 나란히 잰다 (→ `Docs/Guide/측정절차.md` 4절).
+같은 날 의심 정답 셋을 고친 **v4** 와, 손잡이 고르기에 안 쓰는 **처음 보는 질문 셋** 둘(`fresh-2026-10-05.yaml` 은 이제 개발용 · `fresh-b-2026-10-05.yaml` 은 C2 2차 최종 판정용, 지문을 시험이 얼려 둠)을 더했다.
+
+**뜻 후보 섞기 (C2 · 2026-10-05 · 기본 끔)** — 의미 모드에서 뜻이 가까운 기억을 따로 데려와 낱말 후보와 섞는다. 낱말로는 안 걸리고 뜻으로만 올라온 답에는 **`[뜻]`** 이 붙고(`--json` 은 `"meaning": true`) 정답으로 센다. 2차 판은 두 몫을 더하지 않고 **큰 쪽 하나**만 써서 낱말 상위 답이 안 밀린다(낱말 j 위 → 2j−1 위 안). 처음 보는 질문 셋 fresh-B 에서 r@5 25 → 27 · 밀림 0 이다. 그러나 답 없는 질문의 헛답이 는다 — 바닥 0.58 에서 probe strict 답 15 → 18/29, 0.60 으로 조여도 16/29 · fresh-B 답 없음 abstain 2 → 0/9. 그래서 **2026-10-05 사용자 결정으로 기본 끔**이다. 켜려면 `mem.toml [embed] mix = true` (바닥 0.58 · 뜻 순위 3 으로 돈다). 뜻 답 전용 관문이 다음 몫이다 (→ `Docs/Research/2026-10-05-뜻후보섞기측정.md` 7~9절).
 
 ---
 
@@ -205,6 +268,8 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 | `decision` | 뒤집을 수 있는 선택 | `--sources`. **한 건에 결정 하나** |
 | `howto` | 하는 법 | 번호 목록 2단계 이상 |
 | `fact` | 환경 사실 — 결정도 문제도 아닌 그냥 사실 (예: 집 회선은 KT 500M) | `--sources`. severity·todo-status 는 안 붙는다. 360일 지나면 낡음 후보 |
+
+여덟째 종류 `observation`(모음 기억)은 사람이 `mem add` 로 쓰지 않고 `mem consolidate` 가 만든다 (위 B1 절).
 
 **결정이 뒤집혔으면 고치지 않고 새로 쓴다** — 새 기억을 넣고 `mem set <옛id> --by <새id>`.
 덮을 새 기억이 아직 없으면 `mem set <옛id> --by-new` 로 검토 큐에 올린다.
@@ -281,6 +346,7 @@ AI 는 세션 시작에 훅이 밀어 넣는 요약만 읽으면 된다. 여기 
 | 언제 | 무엇 |
 | --- | --- |
 | 넣을 때 | `mem add --type <종류> --title "제목" --summary "한 줄" --tags a,b --scope <범위> --sources file:… --body "자세히"` |
+| 다른 말로도 찾히게 | `--keys a,b` — 글에 없는 같은 뜻 말·영한 짝을 0~6개 단다 (선택, C1). `mem set <id> --keys …` 로 갈아 끼운다 |
 | 찾을 때 | `mem search 낱말 낱말` · 본문은 `mem show <id>` |
 | 고칠 때 | 본문·요약은 파일을 고치고 `mem index`. 결정이 뒤집혔으면 `mem set <옛id> --by <새id>` |
 | 목록을 늘릴 때 | `mem tags --add <태그>` · `mem tags --add-scope <이름>` · 지금 뭐가 밖인지는 `mem tags --check` |

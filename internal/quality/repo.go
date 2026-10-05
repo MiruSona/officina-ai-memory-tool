@@ -98,8 +98,11 @@ func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
 		}
 	}
 	staleBasis(memories, opt, add)
-	checkLinkMissing(memories, opt, add)
-	notationDrift(memories, opt, add)
+	obsStale(memories, add)
+	// 모음 기억은 원본 글을 옮겨 적은 것이라 「같은 주제 이웃」·「표기 갈림」 셈에서 뺀다.
+	plain := withoutObservations(memories)
+	checkLinkMissing(plain, opt, add)
+	notationDrift(plain, opt, add)
 }
 
 // coldAndOrphan 은 조회 기록이 있을 때만 도는 둘이다 (C09·C10).
@@ -144,7 +147,12 @@ func findDuplicates(memories []*model.Memory, opt RepoOptions) duplicateResult {
 		}
 	})
 	table := newSimilarFor(opt.Options)
-	for _, doc := range docs {
+	for at, doc := range docs {
+		// 모음 기억은 원본을 이어 붙인 글이라 원본과 닮은 것이 당연하다 (B1).
+		// 중복 표에 안 넣고, 저도 중복 판정을 안 받는다.
+		if memories[at].Type == model.TypeObservation {
+			continue
+		}
 		table.Add(doc)
 	}
 	// (리뷰 B · V3) 중복(C01~C03)과 모순 짝(C13)을 **한 걸음에** 본다. 둘로
@@ -155,6 +163,9 @@ func findDuplicates(memories []*model.Memory, opt RepoOptions) duplicateResult {
 	InParallel(len(memories), func(from, to int) {
 		session := table.Session()
 		for at := from; at < to; at++ {
+			if memories[at].Type == model.TypeObservation {
+				continue
+			}
 			found[at] = DuplicateFindings(docs[at], session, memories[at], opt.Options)
 			clash[at] = clashingIDs(docs[at], session)
 		}

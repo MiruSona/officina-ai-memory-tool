@@ -63,6 +63,27 @@ func checkField(m *model.Memory, opt Options) []Finding {
 		add(RuleAuthorShape, fmt.Sprintf("author `%s` 가 `human:<아이디>` · `<도구>/<버전>` · `hook:<이름>` 셋 중 하나가 아니다", m.Author))
 	}
 	found = append(found, checkDates(m, opt)...)
+	found = append(found, checkKeys(m, opt)...)
+	return found
+}
+
+// checkKeys 는 keys 칸을 본다 (C1 · 모음기억설계 4-3). 꼴이 틀리면 거절(F21),
+// 제목·요약·본문에 이미 든 말이면 경고(F22)다 — 그 말은 이미 색인에 있어서
+// keys 로 다시 적어도 찾는 길이 안 는다.
+func checkKeys(m *model.Memory, opt Options) []Finding {
+	found := []Finding{}
+	for _, problem := range model.KeyProblems(m.Keys) {
+		found = append(found, opt.finding(RuleKeysShape, m, problem.Error(),
+			"mem add … --keys \"다른말1,다른말2\" (6개까지 · 한 칸 2~30자)"))
+	}
+	text := strings.ToLower(m.Title + "\n" + m.Summary + "\n" + m.Body)
+	for _, key := range m.Keys {
+		if strings.Contains(text, strings.ToLower(key)) {
+			found = append(found, opt.finding(RuleKeysEcho, m,
+				fmt.Sprintf("keys 「%s」 는 제목·요약·본문에 이미 있다 — 검색에 보탬이 없다", key),
+				"사람이 칠 법한, 글에 없는 다른 말로 바꾼다"))
+		}
+	}
 	return found
 }
 

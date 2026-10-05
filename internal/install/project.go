@@ -34,17 +34,20 @@ func Init(options Options) (*Report, error) {
 		func() (Step, error) { return ensureUsageDoc(root, options.DryRun) },
 		func() (Step, error) { return ensureGitFiles(root, options.DryRun) },
 	}
+	if options.Retain {
+		steps = append(steps, func() (Step, error) { return ensureRetainConfig(root, options.DryRun) })
+	}
 	if !options.NoHook {
 		steps = append(steps, func() (Step, error) {
 			return ensureSettings(ClaudeSettingsPath(root), claudeTimeout, options.DryRun, true,
-				specsFor(false, options.NoSubagentHook))
+				specsFor(false, options.NoSubagentHook, options.Retain))
 		})
 	}
 	if options.Gemini {
 		steps = append(steps, func() (Step, error) {
 			// Gemini CLI 에는 auto 모드 allow 규칙도 SubagentStart 도 없다.
 			return ensureSettings(GeminiSettingsPath(root), geminiTimeout, options.DryRun, false,
-				specsFor(true, options.NoSubagentHook))
+				specsFor(true, options.NoSubagentHook, false))
 		})
 	}
 	steps = append(steps, func() (Step, error) { return ensureRules(rulesPath(root), options.DryRun) })
@@ -67,6 +70,16 @@ func Undo(options Options) (*Report, error) {
 		return nil, err
 	}
 	report := &Report{}
+	if options.Retain {
+		// `--retain --undo` 는 자동 쌓기 훅 셋만 뗀다. 나머지 mem 설치는 그대로다.
+		step, err := removeRetainSettings(ClaudeSettingsPath(root), options.DryRun)
+		report.add(step)
+		if err != nil {
+			return report, err
+		}
+		addFooter(report, options.DryRun, undoneLine(report.Changed()))
+		return report, nil
+	}
 	steps := []func() (Step, error){
 		func() (Step, error) { return removeSettings(ClaudeSettingsPath(root), options.DryRun) },
 	}
@@ -174,6 +187,44 @@ func ensureConfig(root string, dryRun bool) (Step, error) {
 	}
 	fillSynonymSeeds(&loaded)
 	return step, os.WriteFile(path, config.Encode(loaded), 0o644)
+}
+
+// retainHeader 는 mem.toml 에 [retain] 절이 이미 있는지 볼 때 찾는 줄이다.
+const retainHeader = "[retain]"
+
+// ensureRetainConfig 는 mem.toml 끝에 [retain] 절을 붙인다. 값은 기본값이라 없어도
+// 똑같이 돌지만, 사람이 끄고 켤 손잡이를 파일에서 보게 한다. 이미 있으면 그대로다.
+func ensureRetainConfig(root string, dryRun bool) (Step, error) {
+	path := filepath.Join(root, config.DirName, config.FileName)
+	step := Step{What: config.DirName + "/" + config.FileName + " " + retainHeader}
+	text, err := os.ReadFile(path)
+	if err != nil && !os.IsNotExist(err) {
+		step.Now, step.Todo = i18n.T(i18n.InitStateBadConfig), i18n.T(i18n.InitTodoManual)
+		return step, nil
+	}
+	if hasRetainHeader(string(text)) {
+		step.Now, step.Todo = i18n.T(i18n.InitStatePresent), i18n.T(i18n.InitTodoKeep)
+		return step, nil
+	}
+	step.Now, step.Todo, step.Changed = i18n.T(i18n.InitStateMissing), i18n.T(i18n.InitTodoCreate), true
+	if dryRun {
+		return step, nil
+	}
+	if len(text) == 0 {
+		text = config.Encode(config.Default(filepath.Base(root)))
+	}
+	block := config.RetainBlock(config.Default("").Retain)
+	joined := strings.TrimRight(string(text), "\r\n") + "\n\n" + block
+	return step, os.WriteFile(path, []byte(joined), 0o644)
+}
+
+func hasRetainHeader(text string) bool {
+	for _, line := range strings.Split(text, "\n") {
+		if strings.TrimSpace(line) == retainHeader {
+			return true
+		}
+	}
+	return false
 }
 
 // fillSynonymSeeds 는 이미 있는 mem.toml 에 빠진 씨앗만 더한다. 사람이 적은

@@ -20,8 +20,12 @@ func TestStrictIsAList(t *testing.T) {
 			t.Fatalf("%d번 칸 strict 판정이 %v 다", rung, Strict(rung))
 		}
 	}
-	if Strict(-1) || Strict(rungCount) {
+	if Strict(-1) || Strict(RungMeaning+1) {
 		t.Fatal("칸 밖 번호가 strict 로 샜다")
+	}
+	// 사다리 밖 자리 RungMeaning(뜻으로만 올라온 답)은 strict 로 센다 (C2 · 2026-10-05).
+	if !Strict(RungMeaning) {
+		t.Fatal("뜻 칸이 strict 가 아니다")
 	}
 	// 안 세는 칸은 셋 다 신뢰계수가 0.85 이하다 — 세는 칸이 늘 위에 온다.
 	for rung := 0; rung < rungCount; rung++ {

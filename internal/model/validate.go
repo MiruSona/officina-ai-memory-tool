@@ -25,7 +25,13 @@ const (
 	// bodyErrorLines 는 설계 2-3 이 거절로 정한 본문 줄 수다. 120줄 경고는
 	// 등급을 나눌 수 있는 lint 쪽에 둔다.
 	bodyErrorLines = 300
+	// keys 한 칸 길이 (모음기억설계 4-3).
+	keyMinRunes = 2
+	keyMaxRunes = 30
 )
+
+// KeyMax 는 기억 하나가 가질 수 있는 keys 수다. 합치기(appendTo)도 이 수로 자른다.
+const KeyMax = 6
 
 // BodyMaxLines 는 승격·색인이 거절하는 본문 줄 수다. `[quality] body_max` 가
 // 이 값을 넘으면 add 가 통과시킨 것을 승격이 버린다 — 두 검사가 같은 자를
@@ -47,6 +53,10 @@ var (
 	// sources 접두별 꼴 (규칙 F17).
 	sourceCommitPattern = regexp.MustCompile(`^commit:[0-9a-f]{7,40}$`)
 	sourceURLPattern    = regexp.MustCompile(`^url:https?://\S+$`)
+
+	// origin 꼴 (자동쌓기설계 2-4). 프로필 이름만 적고 주소는 못 적게 좁혔다.
+	originPattern        = regexp.MustCompile(`^(stop|card|(retain|consolidate):[A-Za-z0-9][A-Za-z0-9._-]{0,31})$`)
+	originSessionPattern = regexp.MustCompile(`^[A-Za-z0-9-]{8}$`)
 )
 
 // IsDate 는 달력에 있는 YYYY-MM-DD 인지다. 모양만 보면 `2026-13-45` 가 통과하고,
@@ -181,6 +191,7 @@ func valueProblems(m *Memory, spec int, table TypeTable) []error {
 		problems = append(problems, errors.New(i18n.T(i18n.BadBodyLines, lines, bodyErrorLines)))
 	}
 	problems = append(problems, tagProblems(m.Tags, spec)...)
+	problems = append(problems, KeyProblems(m.Keys)...)
 	if spec < SpecV2 {
 		return problems
 	}
@@ -192,6 +203,18 @@ func v2Problems(m *Memory) []error {
 	problems := []error{}
 	if m.Author != "" && !IsAuthor(m.Author) {
 		problems = append(problems, errors.New(i18n.T(i18n.BadAuthor, m.Author)))
+	}
+	if m.Origin != "" && !IsOrigin(m.Origin) {
+		problems = append(problems, errors.New(i18n.T(i18n.BadOrigin, m.Origin)))
+	}
+	if m.OriginSession != "" && !originSessionPattern.MatchString(m.OriginSession) {
+		problems = append(problems, errors.New(i18n.T(i18n.BadOrigin, m.OriginSession)))
+	}
+	if m.BasisHash != "" && !IsBasisHash(m.BasisHash) {
+		problems = append(problems, errors.New(i18n.T(i18n.BadBasisHash, m.BasisHash)))
+	}
+	if m.Rev < 0 {
+		problems = append(problems, errors.New(i18n.T(i18n.BadBasisHash, "rev")))
 	}
 	if title := utf8.RuneCountInString(m.Title); m.Title != "" && (title < titleMinRunes || title > titleMaxRunes) {
 		problems = append(problems, errors.New(i18n.T(i18n.BadTitleLength, title)))
@@ -253,6 +276,23 @@ func tagProblems(tags []string, spec int) []error {
 	return problems
 }
 
+// KeyProblems 는 keys 칸 꼴을 본다 — 6개까지, 한 칸 2~30자, 줄바꿈·쉼표 없음
+// (모음기억설계 4-3). 쉼표는 `--keys` 가 칸을 가르는 표라 값 안에 못 둔다.
+func KeyProblems(keys []string) []error {
+	problems := []error{}
+	if len(keys) > KeyMax {
+		problems = append(problems, errors.New(i18n.T(i18n.BadKeyCount, KeyMax, len(keys))))
+	}
+	for _, key := range keys {
+		runes := utf8.RuneCountInString(key)
+		if runes < keyMinRunes || runes > keyMaxRunes || strings.ContainsAny(key, ",\n\r") ||
+			strings.TrimSpace(key) != key {
+			problems = append(problems, errors.New(i18n.T(i18n.BadKey, keyMinRunes, keyMaxRunes, key)))
+		}
+	}
+	return problems
+}
+
 func perTypeProblems(m *Memory, spec int, kind TypeSpec) []error {
 	problems := []error{}
 	if kind.TodoStatus && m.TodoStatus == "" {
@@ -284,6 +324,11 @@ func todoStatusKey(spec int) string {
 		return "todo_status"
 	}
 	return "status"
+}
+
+// IsOrigin 은 자동 기억의 출처 표시로 쓸 수 있는 값인지다.
+func IsOrigin(value string) bool {
+	return originPattern.MatchString(value)
 }
 
 // IsScope 는 scope 로 쓸 수 있는 이름인지다. 기억 머리말 검사와 vocab.toml 의

@@ -46,6 +46,10 @@ func staleBasis(memories []*model.Memory, opt RepoOptions,
 		if isDead(m, opt) || model.IsFutureDate(m.StaleAfter, opt.Now) {
 			continue
 		}
+		// 모음 기억은 C15 가 맡는다 — 사슬 카드는 옛 구성원이 원래 죽어 있다.
+		if m.Type == model.TypeObservation {
+			continue
+		}
 		found := deadBasisOf(m, dead)
 		if len(found) == 0 {
 			continue

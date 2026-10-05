@@ -165,9 +165,25 @@ func (h *rungHelper) termExprs(item Term) []askShape {
 	if found, made := h.exprs[item.Text]; made {
 		return found
 	}
-	found := termExprs(h, item)
+	found := keysShapes(h, termExprs(h, item))
 	h.exprs[item.Text] = found
 	return found
+}
+
+// keysShapes 는 `keys_strict = true`(가)일 때만 관문이 keys 표도 보게 쌍둥이 꼴을
+// 붙인다. 기본(나)에서는 keys 로만 맞은 낱말을 「맞춘 낱말」 로 안 센다 — 그래야
+// keys 가 엄격 칸 자격을 새로 못 만든다 (C1).
+func keysShapes(h *rungHelper, shapes []askShape) []askShape {
+	if !h.keysStrict || !h.keysOn() {
+		return shapes
+	}
+	out := append([]askShape{}, shapes...)
+	for _, shape := range shapes {
+		if twin, ok := keysTwin[shape.table]; ok {
+			out = appendShape(out, twin, shape.expr)
+		}
+	}
+	return out
 }
 
 func termExprs(helper *rungHelper, item Term) []askShape {

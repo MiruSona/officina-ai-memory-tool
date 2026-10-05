@@ -14,6 +14,9 @@ const (
 	TypeDecision = "decision"
 	TypeHowto    = "howto"
 	TypeFact     = "fact"
+	// TypeObservation 은 모음 기억이다 — 여러 기억을 근거 id 와 함께 한 문서로
+	// 모은 것 (자동쌓기설계 3-2). B1 은 코드가 원본의 제목·요약을 조립한다.
+	TypeObservation = "observation"
 )
 
 // Types 는 기본표의 차례 그대로다. 저장소 표를 든 자리는 이것 대신
@@ -111,8 +114,11 @@ type Memory struct {
 	Title   string   `yaml:"title,omitempty" json:"title,omitempty"`
 	Summary string   `yaml:"summary" json:"summary"`
 	Tags    []string `yaml:"tags" json:"tags"`
-	Scope   string   `yaml:"scope" json:"scope"`
-	Date    string   `yaml:"date" json:"date"`
+	// Keys 는 사람이 이 기억을 찾을 때 칠 법한 「다른 낱말」이다 (0~6개, 2~30자).
+	// 제목·본문에 없는 말을 적는다. 검색은 태그 무게로 보되 점수만 얹는다 (C1).
+	Keys  []string `yaml:"keys,omitempty" json:"keys,omitempty"`
+	Scope string   `yaml:"scope" json:"scope"`
+	Date  string   `yaml:"date" json:"date"`
 	// Author 는 누가 썼나다. `human:<아이디>` / `<도구>/<버전>` / `hook:<이름>` /
 	// `import:<저장소>`. AI 가 쓴 기억과 사람이 확인한 기억을 가르는 것이
 	// 오염 사고의 유일한 방어선이다 (설계 결정 3).
@@ -138,6 +144,18 @@ type Memory struct {
 	// Review 는 자동으로 만들어져 아직 사람이 승격 안 한 기억이다 (결정 6).
 	// 검색·훅에 안 뜨고, `mem review --promote` 로 사람이 뗀다.
 	Review bool `yaml:"review,omitempty" json:"review,omitempty"`
+	// Origin 은 자동으로 들어온 기억의 출처다 (`stop` · `retain:<프로필>` …).
+	// 비면 손으로 넣은 기억이다. 되돌리기·측정이 이 칸으로 고른다 (자동쌓기설계 2-4).
+	Origin string `yaml:"origin,omitempty" json:"origin,omitempty"`
+	// OriginSession 은 그 기억이 나온 세션 id 앞 8자다.
+	OriginSession string `yaml:"origin_session,omitempty" json:"origin_session,omitempty"`
+	// BasisHash 는 모음 기억을 쓸 때 근거들의 해시 앞 8자다. 근거가 죽지 않고
+	// 고쳐졌을 때를 잡는다 (자동쌓기설계 3-2 · 3-4). Rev 는 다시 쓴 횟수다.
+	BasisHash string `yaml:"basis_hash,omitempty" json:"basis_hash,omitempty"`
+	Rev       int    `yaml:"rev,omitempty" json:"rev,omitempty"`
+	// CardRule 은 카드를 만든 묶음 규칙(chain · link · meaning)이다. consolidate 가
+	// 다음 판에 같은 규칙 카드부터 짝을 맞춘다. 옛 카드는 비어 있다.
+	CardRule string `yaml:"rule,omitempty" json:"rule,omitempty"`
 	// State 와 Archived 는 gc 가 본문을 접을 때 쓴다. 사람이 쓰면 안 된다.
 	State    string `yaml:"state,omitempty" json:"state,omitempty"`
 	Archived string `yaml:"archived,omitempty" json:"archived,omitempty"`

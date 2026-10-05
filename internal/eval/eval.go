@@ -63,7 +63,10 @@ type CaseResult struct {
 	WideRank int `json:"wide_rank"`
 	// LegacyRank 는 v0.1 자(0·1번 칸까지)로 잰 자리다. 자를 옮겼으므로 옛
 	// 값도 나란히 찍는다 (설계 결정 29).
-	LegacyRank   int     `json:"legacy_rank"`
+	LegacyRank int `json:"legacy_rank"`
+	// ObsRank 는 새 자(B1 · 자동쌓기설계 3-7)다. 원본이 나왔거나, 그 원본을 근거로
+	// 가진 모음 기억이 나온 자리다. 모음 기억이 없는 저장소에서는 Rank 와 같다.
+	ObsRank      int     `json:"obs_rank"`
 	Rung         int     `json:"rung"`
 	PushedOut    bool    `json:"pushed_out,omitempty"`
 	WrongAnswer  bool    `json:"wrong_answer,omitempty"`
@@ -165,8 +168,9 @@ func runCase(options Options, item Case) (CaseResult, error) {
 		ExpectMode: mode, Hard: item.Hard,
 		Unreachable: item.Unreachable, Expect: item.Expect, Got: strict, Rung: rung,
 		All:          allIDs(result),
-		Rank:         displayRank(result, item.Expect, mode, search.Strict),
-		LegacyRank:   displayRank(result, item.Expect, mode, legacy),
+		Rank:         displayRank(result, item.Expect, mode, strictHit),
+		LegacyRank:   displayRank(result, item.Expect, mode, legacyHit),
+		ObsRank:      obsRank(result, item.Expect, mode),
 		WideRank:     rankOfMode(allIDs(result), item.Expect, mode),
 		Milliseconds: float64(result.Elapsed.Microseconds()) / 1000,
 		Tokens:       budget.Estimate(search.Markdown(result, 0)),
@@ -197,13 +201,18 @@ func allIDs(result *search.Result) []string {
 // legacy 는 v0.1 자(0·1번 칸까지)다. **자를 옮겼으므로 옛 값도 나란히 찍는다.**
 func legacy(rung int) bool { return rung <= search.RungAnd }
 
+// strictHit·legacyHit 는 두 자를 답 하나에 댄다. strict 는 모음 기억 손잡이
+// (`[search] obs_strict_full`)까지 본다 — 모음 기억이 없으면 search.Strict 와 같다.
+func strictHit(hit search.Hit) bool { return hit.IsStrict() }
+func legacyHit(hit search.Hit) bool { return legacy(hit.Rung) }
+
 // strictIDs 는 strict 칸(0·1·2·5)에서 온 답만 남긴다. 넓혀서 찾은 것은
 // 「찾았다」 로 안 센다. 자는 search.Strict 하나다 (설계 결정 29 · 4-1a).
 func strictIDs(result *search.Result) ([]string, int) {
 	out := []string{}
 	deepest := 0
 	for _, hit := range result.Hits {
-		if !search.Strict(hit.Rung) {
+		if !hit.IsStrict() {
 			continue
 		}
 		out = append(out, hit.ID)
@@ -245,15 +254,47 @@ func rawOf(options Options, item Case) search.Options {
 // 칸 답만 골라 번호를 다시 매겨서, 완화 칸 답이 위에 낀 질의는 `--limit 5` 로
 // 친 사람에게 안 보이는 답이 recall@5 에 들었다 (리뷰B #16).
 // 완화 칸에서 온 답은 자리로 세지 않는다 (설계 9-3 사용자 확정).
-func displayRank(result *search.Result, expect []string, mode string, ruler func(int) bool) int {
+func displayRank(result *search.Result, expect []string, mode string, ruler func(search.Hit) bool) int {
 	shown := []string{}
 	for _, hit := range result.Hits {
-		if !ruler(hit.Rung) {
+		if !ruler(hit) {
 			continue
 		}
 		shown = append(shown, hit.ID)
 	}
 	return rankOfMode(shown, expect, mode)
+}
+
+// obsRank 는 새 자다. strict 답 줄마다 그 답 id 와, 모음 기억이면 그 근거 id 까지
+// 「이 줄에서 보인 것」 으로 친다. 근거 줄은 화면에서 그 답 바로 아래 들여 쓰여
+// 따로 자리를 안 먹는다.
+func obsRank(result *search.Result, expect []string, mode string) int {
+	place := 0
+	met := map[string]bool{}
+	for _, hit := range result.Hits {
+		if !hit.IsStrict() {
+			continue
+		}
+		place++
+		for _, id := range append([]string{hit.ID}, hit.BasisIDs()...) {
+			if contains(expect, id) {
+				met[id] = true
+			}
+		}
+		if (mode != ExpectAll && len(met) > 0) || (mode == ExpectAll && allMet(expect, met)) {
+			return place
+		}
+	}
+	return 0
+}
+
+func allMet(expect []string, met map[string]bool) bool {
+	for _, want := range expect {
+		if !met[want] {
+			return false
+		}
+	}
+	return len(expect) > 0
 }
 
 // rankOfMode 는 정답이 몇 번째 줄에서 채워졌는지다.

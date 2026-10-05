@@ -31,8 +31,10 @@ const (
 // v0.1 이 만든 index.db 를 v0.2 가 그대로 읽어 조용히 틀린 답을 낸다 (설계 6-4).
 // v0.4 에서 4 로 올렸다 — FTS5 열이 3 → 4 로 늘어 옛 색인은 열 자리가 어긋난다.
 // v0.4 에서 5 로 올렸다 — 역참조 질의(UsedBy)가 쓰는 인덱스 둘이 늘었다.
+// C1 에서 6 으로 올렸다 — keys 칸을 담는 keys_ko·keys_en·keys_norm 이 늘었다.
+// B1 에서 7 로 올렸다 — 모음 기억의 basis_hash 와 낡음 까닭(obs_stale) 열이 늘었다.
 // 파생물이라 판이 다르면 통째로 다시 만든다.
-const SchemaVersion = 5
+const SchemaVersion = 7
 
 // Tokenizer 는 색인이 어떤 방식으로 만들어졌는지다. 이 값이나 stems 판이 다르면
 // 디스크의 조각을 못 읽으므로 전체를 다시 만든다 (설계 6-2).
@@ -112,7 +114,11 @@ CREATE TABLE memories (
   n_body        INTEGER NOT NULL DEFAULT 0,
   mtime         INTEGER NOT NULL DEFAULT 0,
   size          INTEGER NOT NULL DEFAULT 0,
-  sha           TEXT NOT NULL DEFAULT ''
+  sha           TEXT NOT NULL DEFAULT '',
+  -- basis_hash 는 모음 기억(observation)이 쓸 때 잰 근거 해시다. obs_stale 은 색인이
+  -- 잰 낡음 까닭이다 (비면 안 낡음). 다른 종류는 둘 다 빈 글이다 (B1).
+  basis_hash    TEXT NOT NULL DEFAULT '',
+  obs_stale     TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX ix_mem_type   ON memories(type, updated_at DESC);
 CREATE INDEX ix_mem_scope  ON memories(scope, updated_at DESC);
@@ -137,6 +143,12 @@ CREATE VIRTUAL TABLE fts_en USING fts5(title_e, meta_e, summary_e, body_e, token
 -- 20k 에서 DB 의 3할을 먹는다. 원문이 필요하면 md 에서 그때 읽는다 (설계 3절).
 -- detail 은 기본값(full)이다. contentless 에 detail=column 을 붙이면 bm25() 가 0 이다.
 CREATE VIRTUAL TABLE fts_norm USING fts5(title_n, meta_n, summary_n, body_n, tokenize='unicode61', content='', contentless_delete=1);
+-- keys_* 는 keys 칸(사람이 칠 다른 낱말 · C1)만 담는다. 열 이름을 위 셋과 같게 둬서
+-- 같은 질의식을 그대로 던진다. keys 는 제목 열에만 들고, 행은 keys 가 있는 기억만 있다.
+-- 큰 표에 열을 늘리지 않은 것은 keys 가 빈 기억의 bm25 를 한 자리도 안 바꾸려고다.
+CREATE VIRTUAL TABLE keys_ko USING fts5(title_s, meta_s, summary_s, body_s, tokenize='unicode61', content='', contentless_delete=1);
+CREATE VIRTUAL TABLE keys_en USING fts5(title_e, meta_e, summary_e, body_e, tokenize='unicode61', content='', contentless_delete=1);
+CREATE VIRTUAL TABLE keys_norm USING fts5(title_n, meta_n, summary_n, body_n, tokenize='unicode61', content='', contentless_delete=1);
 CREATE VIRTUAL TABLE vocab_ko USING fts5vocab(fts_ko, 'row');
 CREATE TABLE tagmap (mem_id TEXT NOT NULL, tag TEXT NOT NULL, PRIMARY KEY(mem_id, tag));
 CREATE INDEX ix_tag ON tagmap(tag);
@@ -351,7 +363,7 @@ func (d *DB) hasTable(name string) bool {
 
 // hasOurTables 는 이 판이 만드는 표가 다 있는지다.
 func (d *DB) hasOurTables() bool {
-	for _, name := range []string{"vocab_ko", "tagmap", "fts_norm"} {
+	for _, name := range []string{"vocab_ko", "tagmap", "fts_norm", "keys_ko"} {
 		if !d.hasTable(name) {
 			return false
 		}

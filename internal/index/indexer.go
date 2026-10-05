@@ -218,6 +218,10 @@ func runLocked(options Options, result *Result) error {
 	}
 	// 이웃 링크는 색인이 다 선 뒤에야 후보를 볼 수 있다 (결정 42).
 	current.autoLink()
+	// 모음 기억의 낡음은 근거 행이 다 선 뒤에 잰다 (B1). 없으면 질의 한 번이다.
+	if err := database.refreshObservations(); err != nil {
+		return err
+	}
 	if err := current.finish(options.GC); err != nil {
 		return err
 	}
@@ -329,6 +333,10 @@ func promoteLocked(options Options, names []string, outcome *PromoteResult) erro
 		return err
 	}
 	if err := current.indexChanged(); err != nil {
+		return err
+	}
+	// 근거를 덮거나 되돌린 add·set 바로 뒤 검색에도 [낡음] 이 보여야 한다 (B1).
+	if err := database.refreshObservations(); err != nil {
 		return err
 	}
 	// 검색의 1-hop 는 파생 표가 있어야 읽는다. 표는 다음 index 가 채운다.

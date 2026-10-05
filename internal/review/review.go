@@ -13,6 +13,7 @@ import (
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
+	"github.com/mirusona/officina-ai-memory-tool/internal/index"
 	"github.com/mirusona/officina-ai-memory-tool/internal/lint"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
@@ -59,6 +60,7 @@ var ruleKind = map[string]string{
 	quality.RuleSupersedeMissing:     KindConflict,
 	quality.RuleStaleSourceChanged:   KindStale,
 	quality.RuleUnfixedMarker:        KindStale,
+	quality.RuleObsStale:             KindStale,
 	quality.RuleCold:                 KindCold,
 	quality.RuleOrphan:               KindCold,
 	// v0.3 에서 는 규칙들. 표에 없으면 큐에 한 건도 안 뜬다 (2D·2B 넘김).
@@ -263,7 +265,8 @@ func (r *Report) fillHeld(memories []*model.Memory, options Options) {
 	}
 	list := []Item{}
 	for _, m := range memories {
-		if !m.Review {
+		// `review --reject` 로 버린 보류 기억은 접혀(cold) 있다. 다시 안 보인다.
+		if !m.Review || m.State == index.StateCold {
 			continue
 		}
 		r.Counts[KindHeld]++

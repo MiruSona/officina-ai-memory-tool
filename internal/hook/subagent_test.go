@@ -65,7 +65,11 @@ func TestEventKindFoldsNames(t *testing.T) {
 			t.Errorf("%s 를 서브에이전트 시작으로 안 봤다", name)
 		}
 	}
-	for _, name := range []string{"SubagentStop", "subagent-stop", "PreToolUse", "", "Stop"} {
+	// Stop 은 자동 쌓기 알림으로 아는 이벤트가 됐다 (자동쌓기설계 2-2). SubagentStop 은 여전히 모른다.
+	if eventKind("Stop") != EventStop || eventKind("pre-compact") != EventPreCompact || eventKind("SessionEnd") != EventSessionEnd {
+		t.Error("자동 쌓기 이벤트 셋을 못 알아봤다")
+	}
+	for _, name := range []string{"SubagentStop", "subagent-stop", "PreToolUse", ""} {
 		if eventKind(name) != EventUnknown {
 			t.Errorf("%q 를 아는 이벤트로 봤다", name)
 		}

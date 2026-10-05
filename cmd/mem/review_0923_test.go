@@ -9,6 +9,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 )
 
@@ -94,13 +95,21 @@ func TestNextStepsPutNewTopicFirst(t *testing.T) {
 		{Rule: quality.RuleDecisionGate, Level: quality.GradeReject,
 			Next: []string{quality.NewTopicStep, "mem add … --by 20260923-aaaaaaaa   (그 결정을 이 기억이 뒤집을 때만 덮는다)"}},
 	}}
-	out, _ := captureBoth(t, func() int { printNextSteps(os.Stdout, verdict); return 0 })
+	out, _ := captureBoth(t, func() int { printNextSteps(os.Stdout, verdict, false); return 0 })
 	lines := strings.Split(strings.TrimSpace(out), "\n")
 	if len(lines) != 4 {
 		t.Fatalf("머리 한 줄 + 다음 수 세 줄이어야 한다 : %q", lines)
 	}
 	if strings.TrimSpace(lines[1]) != strings.TrimSpace(quality.NewTopicStep) {
 		t.Fatalf("첫 다음 수가 --new 가 아니다 : %q", lines)
+	}
+	// A1 뒷정리 — 자동 기억 화면에는 --new · --by · --by-new 가 안 나오고 대신 한 줄이 나온다.
+	auto, _ := captureBoth(t, func() int { printNextSteps(os.Stdout, verdict, true); return 0 })
+	if strings.Contains(auto, quality.NewTopicStep) || strings.Contains(auto, "--by-new") || strings.Contains(auto, "mem add … --by ") {
+		t.Fatalf("자동 기억 화면에 못 쓰는 다음 수가 나왔다 : %q", auto)
+	}
+	if !strings.Contains(auto, i18n.T(i18n.AddAutoNoNew)) {
+		t.Fatalf("대신할 안내 줄이 없다 : %q", auto)
 	}
 }
 

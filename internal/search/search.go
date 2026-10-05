@@ -179,6 +179,13 @@ type Hit struct {
 	// Group 은 같은 주제로 묶인 답의 번호다. 0 이면 묶음이 없다 (결정 44).
 	Group int   `json:"group,omitempty"`
 	Parts Parts `json:"parts,omitempty"`
+	// Meaning 은 낱말 근거 없이 **뜻으로만** 올라온 답이다 (C2 · `[뜻]` 칸).
+	Meaning bool `json:"meaning,omitempty"`
+	// Stale 은 모음 기억의 낡음 까닭이다 (B1 · `[낡음]`). Basis 는 그 근거 id·제목이다.
+	Stale string           `json:"stale,omitempty"`
+	Basis []index.BasisRef `json:"basis,omitempty"`
+	// ObsLoose 는 `[search] obs_strict_full` 때문에 strict 로 안 센 모음 기억이다.
+	ObsLoose bool `json:"obs_loose,omitempty"`
 }
 
 // Why 는 0건일 때 반드시 말해야 하는 네 가지다 (불변조건 9 · 설계 6-9).
@@ -219,12 +226,15 @@ const (
 
 // Result 는 답 한 벌이다.
 type Result struct {
-	Query   string        `json:"query"`
-	Hits    []Hit         `json:"hits"`
-	Total   int           `json:"total"`
-	Ms      int64         `json:"ms"`
-	Why     *Why          `json:"why,omitempty"`
-	Rungs   map[int]int   `json:"rungs,omitempty"`
+	Query string      `json:"query"`
+	Hits  []Hit       `json:"hits"`
+	Total int         `json:"total"`
+	Ms    int64       `json:"ms"`
+	Why   *Why        `json:"why,omitempty"`
+	Rungs map[int]int `json:"rungs,omitempty"`
+	// loose 는 칸으로는 strict 인데 IsStrict 가 거짓인 답(obs_strict_full 의 모음 기억)
+	// 수다. 「넓혀서 찾음」 줄이 칸이 아니라 IsStrict 로 세게 한다.
+	loose   map[int]int
 	Elapsed time.Duration `json:"-"`
 	// Stopped 는 AND 에서 뺀 흔한 낱말이다.
 	Stopped []string `json:"stopped,omitempty"`
@@ -350,7 +360,8 @@ func climb(options Options, query *Query, narrow index.Filter) (climbed, error) 
 	helpers := make([]*rungHelper, len(options.Sources))
 	for at, from := range options.Sources {
 		helpers[at] = &rungHelper{db: from.DB, synonym: options.Synonym,
-			synWeight: options.synWeight(), norms: normMapOf(query)}
+			synWeight: options.synWeight(), norms: normMapOf(query),
+			keysStrict: options.Search.KeysStrict}
 	}
 	for level := 0; level < rungCount; level++ {
 		if len(found) >= limit {
@@ -397,7 +408,7 @@ type climbed struct {
 // rungHits 는 저장소 하나에서 한 칸을 돌려 점수까지 매긴다.
 func rungHits(from Source, helper *rungHelper, level int, query *Query, options Options,
 	narrow index.Filter, now time.Time) ([]Hit, error) {
-	ranks := buildRung(level, query, helper)
+	ranks := withKeys(level, buildRung(level, query, helper), helper)
 	if len(ranks) == 0 {
 		return nil, nil
 	}
@@ -494,14 +505,28 @@ func finish(result *Result, hits []Hit, options Options, query *Query, narrow in
 	}
 	hits = diversify(hits, options.Raw)
 	hits = hopBonus(hits, edges, options.cap(), options.Raw)
+	// 뜻 후보 섞기 (C2) — 화면 차례가 다 정해진 뒤, 자르기 앞이다. 꺼졌으면
+	// hits 를 그대로 돌려준다.
+	hits, mixed := mixMeaning(hits, options, query, narrow)
+	if mixed {
+		result.Mode = ModeMeaning
+	}
+	markObservations(hits, options)
 	result.Total = len(hits)
 	for _, hit := range hits {
 		result.Rungs[hit.Rung]++
-		if !Strict(hit.Rung) {
+		if !hit.IsStrict() {
 			result.Relaxed = true
+			if Strict(hit.Rung) {
+				if result.loose == nil {
+					result.loose = map[int]int{}
+				}
+				result.loose[hit.Rung]++
+			}
 		}
 	}
 	result.Hits = cut(hits, limitOf(options))
+	fillBasis(result.Hits, options.Sources)
 	result.Groups = groupHits(result.Hits)
 	if len(result.Hits) == 0 {
 		result.Hits = []Hit{}
@@ -581,7 +606,7 @@ func explainEmpty(options Options, query *Query, narrow index.Filter) *Why {
 	for _, term := range query.Terms {
 		count := 0
 		for _, from := range options.Sources {
-			count += countTerm(from.DB, term)
+			count += countTerm(from.DB, term, narrow.IncludeHeld)
 		}
 		if count == 0 {
 			why.Missing = append(why.Missing, term.Text)
@@ -706,10 +731,17 @@ func wholeCount(options Options) (int, string) {
 	return total, last
 }
 
-func countTerm(database *index.DB, term Term) int {
+// countTerm 은 0건 설명 ① 「"낱말" 은 N건 있다」 의 N 이다. 보류 기억은
+// `--include-held` 일 때만 센다 — 아니면 검색에 못 뜨는 기억을 「있다」 고
+// 말하게 된다 (`auto undo` 로 되돌린 기억이 샌 자리 · A1 뒷정리).
+func countTerm(database *index.DB, term Term, includeHeld bool) int {
+	count := database.LiveWordCount
+	if includeHeld {
+		count = database.WordCount
+	}
 	total := 0
-	total += database.WordCount("fts_ko", joinTerms([]Term{term}, false, plainOf, token.RunKO, token.RunKO1))
-	total += database.WordCount("fts_en", joinTerms([]Term{term}, false, plainOf, token.RunEN))
+	total += count("fts_ko", joinTerms([]Term{term}, false, plainOf, token.RunKO, token.RunKO1))
+	total += count("fts_en", joinTerms([]Term{term}, false, plainOf, token.RunEN))
 	return total
 }
 
@@ -813,7 +845,7 @@ func hitOf(row index.SearchRow, now time.Time) Hit {
 		Title: row.Title, Summary: row.Summary, Scope: row.Scope, Tags: strings.Fields(row.Tags),
 		TodoStatus: row.TodoStatus, Severity: row.Severity, Author: row.Author, Pinned: row.Pinned,
 		InvalidAt: dateOf(row.InvalidAt), SupersededBy: row.SupersededBy,
-		Invalid: invalidated(row, now),
+		Invalid: invalidated(row, now), Stale: staleOf(row),
 	}
 }
 

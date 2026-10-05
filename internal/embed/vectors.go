@@ -170,6 +170,50 @@ func (v *Vectors) Near(id string, limit int) []string {
 	return out
 }
 
+// Near 는 뜻 후보 한 건이다 — 기억 id 와 질의와의 코사인.
+type Near struct {
+	ID  string
+	Cos float64
+}
+
+// Nearest 는 질의 벡터와 코사인이 높은 기억을 limit 건까지 준다 (뜻 후보 섞기 C2).
+// **전부 잰다.** 384차원 × 830건이 1ms 아래고, 2만 건이라도 곱셈 770만 번이라
+// 10ms 언저리다 — LSH 로 좁히면 놓치는 것이 더 많다(Near 주석과 같은 까닭).
+// 동점은 id 오름이라 결과가 결정적이다.
+func (v *Vectors) Nearest(query []float32, limit int) []Near {
+	if v == nil || len(query) == 0 || limit <= 0 {
+		return nil
+	}
+	scored := make([]Near, 0, len(v.order))
+	for _, id := range v.order {
+		scored = append(scored, Near{ID: id, Cos: dotTo(query, v.byID[id])})
+	}
+	sort.Slice(scored, func(a, b int) bool {
+		if scored[a].Cos != scored[b].Cos {
+			return scored[a].Cos > scored[b].Cos
+		}
+		return scored[a].ID < scored[b].ID
+	})
+	if len(scored) > limit {
+		scored = scored[:limit]
+	}
+	return scored
+}
+
+// dotTo 는 단위 벡터 둘의 내적이다. 차원이 다르면 짧은 쪽까지만 센다 —
+// 모델을 바꿔 차원이 달라졌어도 죽지 않는다 (search.dot32 와 같은 규칙).
+func dotTo(left, right []float32) float64 {
+	total := 0.0
+	size := len(left)
+	if len(right) < size {
+		size = len(right)
+	}
+	for at := 0; at < size; at++ {
+		total += float64(left[at]) * float64(right[at])
+	}
+	return total
+}
+
 type scoredID struct {
 	id    string
 	value float64

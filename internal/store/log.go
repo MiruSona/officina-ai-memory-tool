@@ -33,6 +33,12 @@ const (
 	LogRenamed  = "태그바꿈"
 	// LogPromoted 는 사람이 자동 생성 기억을 승격한 것이다 (결정 6).
 	LogPromoted = "승격"
+	// 아래 셋은 자동 쌓기 되돌리기다 (자동쌓기설계 2-4).
+	LogAutoUndo  = "자동되돌림"
+	LogAutoRedo  = "되살림"
+	LogDiscarded = "버림"
+	// LogCard 는 `mem consolidate --apply` 가 모음 기억 카드를 쓴 것이다 (B1).
+	LogCard = "모음카드"
 )
 
 // AppendLog 는 오늘 날짜 절 밑에 한 줄을 덧붙인다. 날짜 절이 없으면 만든다.

@@ -26,6 +26,8 @@ func LabelOf(rung int) string {
 		return i18n.T(i18n.RungLabel5)
 	case RungLike:
 		return i18n.T(i18n.RungLabel6)
+	case RungMeaning:
+		return i18n.T(i18n.RungLabelMeaning)
 	}
 	return ""
 }
@@ -46,9 +48,19 @@ func Markdown(result *Result, limit int) string {
 			clipped, _ := budget.Clip(i18n.T(i18n.SearchBudgetTiny, limit)+"\n"+text, limit)
 			return clipped
 		}
-		rows = rows[:len(rows)-1]
+		rows = dropLastAnswer(rows)
 		dropped++
 	}
+}
+
+// dropLastAnswer 는 맨 아래 답 하나를 그 근거 줄(↳)과 한 덩이로 뺀다. 근거 줄만
+// 잘려 카드 줄이 홀로 남거나, 근거 줄까지 「뺀 답」 으로 세면 안 된다 (리뷰 2026-10-05).
+func dropLastAnswer(rows []string) []string {
+	end := len(rows) - 1
+	for end > 0 && strings.HasPrefix(rows[end], basisPrefix) {
+		end--
+	}
+	return rows[:end]
 }
 
 func assemble(result *Result, rows []string, dropped, limit int) string {
@@ -58,7 +70,7 @@ func assemble(result *Result, rows []string, dropped, limit int) string {
 
 func build(result *Result, rows []string, dropped, limit, tokens int) string {
 	out := strings.Builder{}
-	out.WriteString(headerOf(result, len(rows), tokens) + "\n\n")
+	out.WriteString(headerOf(result, answerRows(rows), tokens) + "\n\n")
 	for _, note := range noteLines(result) {
 		out.WriteString(note + "\n")
 	}
@@ -144,13 +156,21 @@ func noteLines(result *Result) []string {
 
 func relaxedLine(result *Result) string {
 	exact, wide, parts := 0, 0, []string{}
-	for rung := 0; rung < rungCount; rung++ {
+	// RungMeaning 은 사다리 밖 자리지만 strict 답이라 「정확히」 쪽에 센다.
+	for rung := 0; rung <= RungMeaning; rung++ {
 		count := result.Rungs[rung]
 		if count == 0 {
 			continue
 		}
+		// 칸은 strict 여도 hit.IsStrict() 가 거짓인 답(obs_strict_full 의 모음 기억)은
+		// 넓힌 쪽에 센다 — 칸 번호로만 세면 「넓힘 0」 인데 넓혀서 찾음 줄이 뜬다.
 		if Strict(rung) {
-			exact += count
+			loose := result.loose[rung]
+			exact += count - loose
+			if loose > 0 {
+				wide += loose
+				parts = append(parts, strings.Trim(LabelOf(rung), "[]")+" "+strconv.Itoa(loose))
+			}
 			continue
 		}
 		wide += count
@@ -290,8 +310,43 @@ func tableRows(hits []Hit) []string {
 		if hit.Invalid {
 			tail = " " + i18n.T(i18n.InvalidMark) + tail
 		}
+		if hit.Stale != "" {
+			tail = " " + i18n.T(i18n.StaleMark) + tail
+		}
 		rows = append(rows, "| "+strconv.Itoa(place+1)+" | "+hit.ID+" | "+kindOf(hit)+" | "+
 			shortDate(hit.Date)+" | "+mark+shorten(hit.Summary)+groupMark(hit)+tail+" |")
+		rows = append(rows, basisRows(hit)...)
+	}
+	return rows
+}
+
+// basisPrefix 는 근거 줄의 앞머리다. 머리말의 「상위 N건」 은 이 줄을 안 센다.
+const basisPrefix = "|  | ↳"
+
+// answerRows 는 근거 줄을 뺀 답 줄 수다.
+func answerRows(rows []string) int {
+	count := 0
+	for _, row := range rows {
+		if !strings.HasPrefix(row, basisPrefix) {
+			count++
+		}
+	}
+	return count
+}
+
+// basisRows 는 모음 기억 답 아래 들여 쓴 근거 줄이다 (자동쌓기설계 3-5). 번호 칸을
+// 비워 순위로 안 읽히게 한다. 많아야 basisShown 줄이고 나머지는 「… 외 N건」 이다.
+func basisRows(hit Hit) []string {
+	if len(hit.Basis) == 0 {
+		return nil
+	}
+	rows := []string{}
+	for at, one := range hit.Basis {
+		if at == basisShown {
+			rows = append(rows, basisPrefix+" | | | "+i18n.T(i18n.BasisMore, len(hit.Basis)-basisShown)+" |")
+			break
+		}
+		rows = append(rows, basisPrefix+" "+one.ID+" | | | "+shorten(one.Title)+" |")
 	}
 	return rows
 }
@@ -316,6 +371,9 @@ func Explain(result *Result) string {
 		lines = append(lines, i18n.T(i18n.ExplainRRF, hit.Parts.RRF, strings.Join(hit.Parts.From, " / ")))
 		lines = append(lines, i18n.T(i18n.ExplainBonus, hit.Parts.Bonus, strings.Join(hit.Parts.Why, " · ")))
 		lines = append(lines, i18n.T(i18n.ExplainDecay, hit.Parts.Decay, hit.Parts.Trust))
+		if hit.Parts.Mix > 0 {
+			lines = append(lines, i18n.T(i18n.ExplainMix, hit.Parts.Mix))
+		}
 		lines = append(lines, i18n.T(i18n.ExplainRung, hit.Rung, LabelOf(hit.Rung)))
 	}
 	return strings.Join(lines, "\n")

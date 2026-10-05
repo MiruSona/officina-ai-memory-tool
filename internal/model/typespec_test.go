@@ -51,6 +51,7 @@ func TestValidateWithTable(t *testing.T) {
 }
 
 // 회귀 못박기 — 기본표 7종의 값이 v0.4 가 코드에 박아 두었던 것 그대로다.
+// B1 이 여덟째 observation 을 뒤에 붙였다 (자동쌓기설계 1-2 「기억 종류 7 → 8」).
 // 이 표가 바뀌면 이미 저장된 기억의 등급·감쇠·gc 가 통째로 달라진다.
 func TestDefaultTypesFrozen(t *testing.T) {
 	want := map[string]TypeSpec{
@@ -70,17 +71,19 @@ func TestDefaultTypesFrozen(t *testing.T) {
 			HalfLife: HalfLifeDecision, Evidence: true, GCKeep: true, StaleDays: 1440},
 		TypeFact: {Name: TypeFact, Label: "환경 사실", Sources: SourcesRequired, Body: BodyFree,
 			HalfLife: HalfLifeNone, Hook: HookFact, OneThing: true, GCKeep: true, StaleDays: 360},
+		TypeObservation: {Name: TypeObservation, Label: "모음", Sources: SourcesRequired, Body: BodyNumbered,
+			HalfLife: HalfLifeNone, GCKeep: true},
 	}
 	table := DefaultTypes()
 	if len(table) != len(want) {
-		t.Fatalf("기본표가 %d종이다 (7종이어야 한다)", len(table))
+		t.Fatalf("기본표가 %d종이다 (8종이어야 한다)", len(table))
 	}
 	for _, spec := range table {
 		if spec != want[spec.Name] {
 			t.Errorf("%s 의 취급이 달라졌다 :\n지금 %+v\n원래 %+v", spec.Name, spec, want[spec.Name])
 		}
 	}
-	if got := strings.Join(table.Names(), " "); got != "todo history issue caution decision howto fact" {
+	if got := strings.Join(table.Names(), " "); got != "todo history issue caution decision howto fact observation" {
 		t.Fatalf("종류 차례가 달라졌다 : %s", got)
 	}
 }

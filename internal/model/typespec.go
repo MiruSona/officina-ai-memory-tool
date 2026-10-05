@@ -170,5 +170,9 @@ func DefaultTypes() TypeTable {
 			HalfLife: HalfLifeDecision, Evidence: true, GCKeep: true, StaleDays: 1440},
 		{Name: TypeFact, Label: "환경 사실", Sources: SourcesRequired, Body: BodyFree,
 			HalfLife: HalfLifeNone, Hook: HookFact, OneThing: true, GCKeep: true, StaleDays: 360},
+		// 모음 기억 (자동쌓기설계 3-2). 근거 id 가 곧 몸이라 sources 필수 · 번호 줄 본문.
+		// 훅 「요지」 절은 B1 측정 뒤로 미뤘다 — 그래서 Hook 이 비어 훅에 안 실린다.
+		{Name: TypeObservation, Label: "모음", Sources: SourcesRequired, Body: BodyNumbered,
+			HalfLife: HalfLifeNone, GCKeep: true},
 	}
 }

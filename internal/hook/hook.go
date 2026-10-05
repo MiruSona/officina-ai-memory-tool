@@ -34,6 +34,10 @@ const (
 	EventUnknown Event = iota
 	EventSession
 	EventSubagentStart
+	// 아래 셋은 자동 쌓기 훅이다 (자동쌓기설계 2-2). 블록을 안 만들고 runRetain 으로 간다.
+	EventStop
+	EventPreCompact
+	EventSessionEnd
 )
 
 // debugEnv 는 stderr 알림을 켠다. 켜든 말든 stdout 은 깨끗해야 한다.
@@ -61,6 +65,9 @@ type Input struct {
 	// `Explore` …). mem.toml 의 subagent_skip 이 이 값을 본다.
 	AgentType string `json:"agent_type"`
 	AgentID   string `json:"agent_id"`
+	// 아래 둘은 Stop 훅 입력이다. 대화 기록 경로는 알림 문턱을 셀 때만 읽는다.
+	TranscriptPath string `json:"transcript_path"`
+	StopHookActive bool   `json:"stop_hook_active"`
 	// sawJSON 은 stdin 으로 훅 JSON 이 실제로 들어왔다는 표다. 들어왔는데
 	// `cwd` 가 비면 **어느 저장소인지 모르는 것**이고, 그때 지금 폴더로
 	// 떨어지면 전혀 다른 저장소를 열어 색인까지 다시 만든다 (스트레스 V14).
@@ -115,6 +122,9 @@ func Run(argv []string, stdin io.Reader, stdout io.Writer) (code int) {
 		}
 		return 0
 	}
+	if kind == EventStop || kind == EventPreCompact || kind == EventSessionEnd {
+		return runRetain(input, flags, kind, stdout, started)
+	}
 	text, stats := build(input, flags.budget, kind)
 	stats.MS = time.Since(started).Milliseconds()
 	if flags.json {
@@ -136,8 +146,15 @@ func Run(argv []string, stdin io.Reader, stdout io.Writer) (code int) {
 // eventNameOf 는 출력 JSON 에 적을 이벤트 이름이다. Claude 가 이 이름으로
 // 어느 훅이 낸 값인지 가른다.
 func eventNameOf(kind Event) string {
-	if kind == EventSubagentStart {
+	switch kind {
+	case EventSubagentStart:
 		return SubagentEventName
+	case EventStop:
+		return StopEventName
+	case EventPreCompact:
+		return PreCompactEventName
+	case EventSessionEnd:
+		return SessionEndEventName
 	}
 	return EventName
 }
@@ -226,6 +243,12 @@ func eventKind(event string) Event {
 		return EventSession
 	case "subagentstart":
 		return EventSubagentStart
+	case "stop":
+		return EventStop
+	case "precompact":
+		return EventPreCompact
+	case "sessionend":
+		return EventSessionEnd
 	}
 	return EventUnknown
 }

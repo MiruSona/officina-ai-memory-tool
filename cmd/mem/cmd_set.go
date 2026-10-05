@@ -18,7 +18,7 @@ import (
 
 var setBools = []string{"stdin", "pin", "unpin", "done", "by-new"}
 var setValues = []string{"summary", "scope", "title", "severity", "status", "todo-status",
-	"invalid-at", "by", "stale-after", "tags", "links", "link", "body", "importance", "repo"}
+	"invalid-at", "by", "stale-after", "tags", "links", "link", "body", "importance", "repo", "keys"}
 
 func init() {
 	register(command{name: "set", run: runSet, bools: setBools, values: setValues})
@@ -227,6 +227,14 @@ func changesOf(parsed *options, id string) (map[string]any, error) {
 			return nil, err
 		}
 		set["tags"] = toAny(tags)
+	}
+	// `--keys` 는 통째 교체다. 빈 값(`--keys ""`)은 칸을 뗀다.
+	if parsed.has("keys") {
+		keys := parsed.list("keys")
+		if problems := model.KeyProblems(keys); len(problems) > 0 {
+			return nil, problems[0]
+		}
+		set["keys"] = toAny(keys)
 	}
 	// `--links` 는 통째 교체, `--link` 는 한 개 더하기다. 더하기는 지금 파일을
 	// 읽어야 해서 여기서 안 하고 addLink 가 한다.

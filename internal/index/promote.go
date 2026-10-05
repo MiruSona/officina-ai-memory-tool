@@ -1,8 +1,6 @@
 package index
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"io/fs"
 	"sort"
@@ -330,6 +328,11 @@ func (r *runner) applyAdd(name string, request *store.AddRequest) error {
 		// 파일로 둔다. 글자까지 같은 완전중복만 위에서 걸렀다.
 		return r.createNew(name, request)
 	}
+	if request.Origin != "" {
+		// 자동 기억은 남의 기억 뒤에 붙지 않는다 — 붙으면 파일 단위로 되돌릴 수
+		// 없다 (자동쌓기설계 R4). 근사중복은 add 관문이 이미 거절했다.
+		return r.createNew(name, request)
+	}
 	twin, err := r.findTwin(request)
 	if err != nil {
 		return err
@@ -422,6 +425,11 @@ func (r *runner) scanSecret(request *store.AddRequest) error {
 			return blocked(errors.New(i18n.T(i18n.SecretFoundIn, "sources", found.Rule)))
 		}
 	}
+	for _, key := range request.Keys {
+		if found := r.scanner.ScanLine(key); found != nil {
+			return blocked(errors.New(i18n.T(i18n.SecretFoundIn, "keys", found.Rule)))
+		}
+	}
 	return nil
 }
 
@@ -483,12 +491,31 @@ func (r *runner) appendTo(name string, twin *candidate, request *store.AddReques
 		return r.createNew(name, request)
 	}
 	file.Memory.Body = merged
+	file.Memory.Keys = mergeKeys(file.Memory.Keys, request.Keys)
 	if err := r.store.WriteMemory(file.Memory); err != nil {
 		return retryable(err)
 	}
 	r.result.Appended++
 	r.record(name, OutcomeAppended, twin.ID)
 	return nil
+}
+
+// mergeKeys 는 합쳐지는 기억의 keys 를 뒤에 붙인다. 같은 말은 한 번만, 6개에서
+// 자른다 — 넘치는 것을 버리지 않으면 합친 파일이 검사에 걸려 색인에서 빠진다.
+func mergeKeys(have, more []string) []string {
+	seen := map[string]bool{}
+	out := []string{}
+	for _, key := range append(append([]string{}, have...), more...) {
+		if seen[key] || len(out) == model.KeyMax {
+			continue
+		}
+		seen[key] = true
+		out = append(out, key)
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 // createNew 는 md 파일을 만든다. id 가 큐 파일 이름에서 나오므로 같은 항목을
@@ -500,11 +527,13 @@ func (r *runner) createNew(name string, request *store.AddRequest) error {
 	}
 	memory := model.Memory{
 		ID: r.freeID(name, request.Body, date), Type: request.Type, Date: date,
-		Summary: request.Summary, Tags: request.Tags, Scope: request.Scope,
+		Summary: request.Summary, Tags: request.Tags, Keys: request.Keys, Scope: request.Scope,
 		Title: request.Title, Pinned: request.Pinned, Severity: request.Severity,
 		Importance: request.Importance, InvalidAt: request.InvalidAt, Links: request.Links,
 		Body: request.Body, Sources: request.Sources, StaleAfter: request.StaleAfter,
 		TodoStatus: request.Status, Author: request.Author, Review: request.Review,
+		Origin: request.Origin, OriginSession: request.OriginSession,
+		BasisHash: request.BasisHash, Rev: request.Rev, CardRule: request.CardRule,
 		Spec: model.SpecV2,
 	}
 	// 옛 규격으로 들어온 큐 파일(author 없이 source 만)은 그대로 옛 규격으로
@@ -667,6 +696,12 @@ func patchFields(memory *model.Memory, set map[string]any) error {
 			memory.Summary = asText(value)
 		case "tags":
 			memory.Tags = asList(value)
+		case "keys":
+			// 빈 목록은 칸을 뗀다 (`set --keys ""`).
+			memory.Keys = asList(value)
+			if len(memory.Keys) == 0 {
+				memory.Keys = nil
+			}
 		case "scope":
 			memory.Scope = asText(value)
 		case "severity":
@@ -675,6 +710,12 @@ func patchFields(memory *model.Memory, set map[string]any) error {
 			memory.Title = asText(value)
 		case "importance":
 			memory.Importance = asInt(value)
+		case "basis_hash":
+			memory.BasisHash = asText(value)
+		case "rev":
+			memory.Rev = asInt(value)
+		case "rule":
+			memory.CardRule = asText(value)
 		default:
 			return errors.New(i18n.T(i18n.NotPatchable, key))
 		}
@@ -755,10 +796,9 @@ func (r *runner) today() string {
 	return r.now.Format(model.DayLayout)
 }
 
-func bodyHash(body string) string {
-	sum := sha256.Sum256([]byte(body))
-	return hex.EncodeToString(sum[:])
-}
+// bodyHash 는 model.BodyHash 와 같은 값이다. 모음 기억의 근거 해시가 이 칸을
+// 그대로 읽으므로 두 셈이 갈라지면 안 된다.
+func bodyHash(body string) string { return model.BodyHash(body) }
 
 // jaccard 는 제목 둘을 글자 바이그램 집합으로 견준다. 한글은 띄어쓰기가
 // 낱말 경계가 아니라 이 방식이 맞다.

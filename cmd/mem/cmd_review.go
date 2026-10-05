@@ -15,7 +15,7 @@ import (
 )
 
 var reviewBools = []string{"json"}
-var reviewValues = []string{"kind", "limit", "repo", "promote"}
+var reviewValues = []string{"kind", "limit", "repo", "promote", "reject"}
 
 func init() {
 	register(command{name: "review", run: runReview, bools: reviewBools, values: reviewValues})
@@ -30,8 +30,14 @@ func runReview(argv []string) int {
 	}
 	// 승격은 큐를 만들기 전에 갈라진다. 화면을 찍는 명령과 기억을 고치는
 	// 명령을 섞지 않는다 (결정 6 · cmd_review_promote.go).
+	if parsed.has("promote") && parsed.has("reject") {
+		return fail(i18n.T(i18n.ReviewRejectBoth))
+	}
 	if parsed.has("promote") {
 		return promoteReview(parsed, parsed.text("promote"))
+	}
+	if parsed.has("reject") {
+		return rejectReview(parsed, parsed.text("reject"))
 	}
 	kinds := parsed.list("kind")
 	for _, kind := range kinds {

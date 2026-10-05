@@ -20,6 +20,9 @@ const (
 	RungSplit    = 5
 	RungLike     = 6
 	rungCount    = 7
+	// RungMeaning 은 사다리 칸이 아니다. 뜻 후보 섞기(C2)가 **뜻으로만** 데려온
+	// 기억이 앉는 자리다. 사다리는 0~6 만 밟는다. strict 로 센다 (결정 29 고쳐 씀).
+	RungMeaning = 7
 )
 
 // TrustOf 는 칸마다 곱하는 신뢰 계수다. 정확히 맞은 것이 언제나 위에 온다 (설계 6-6).
@@ -50,6 +53,11 @@ var strictRungs = [rungCount]bool{
 // 이 하나만 본다 (설계 4-1a). 예전의 `StrictRung` 상수는 칸 번호가 이어져
 // 있다고 가정해서 5번 칸을 못 담았다.
 func Strict(rung int) bool {
+	// 뜻으로만 올라온 답도 바닥(mix_floor·mix_rank)을 넘어 들어왔으므로 「찾았다」로
+	// 센다 (C2 · 사용자 결정 2026-10-05).
+	if rung == RungMeaning {
+		return true
+	}
 	if rung < 0 || rung >= rungCount {
 		return false
 	}
@@ -99,6 +107,46 @@ type ranking struct {
 	table  string
 	expr   string
 	weight float64
+	// boost 는 「이미 후보인 문서에 점수만 얹는다」 는 표시다. keys 랭킹이 엄격
+	// 칸에서 이 꼴로 돈다 — 결정 44 의 1홉과 같은 자리다 (C1 (나)).
+	boost bool
+}
+
+// weightKeys 는 keys 랭킹 몫의 배율이다. 태그(weightTag)와 같은 자리로 둔다
+// (모음기억설계 4-3 「태그 정도 무게」).
+const weightKeys = weightTag
+
+// keysTwin 은 큰 표 이름에서 같은 열을 가진 keys 표 이름으로 간다.
+var keysTwin = map[string]string{"fts_ko": "keys_ko", "fts_en": "keys_en", "fts_norm": "keys_norm"}
+
+// withKeys 는 칸의 FTS 랭킹마다 keys 표 쌍둥이를 하나씩 붙인다 (C1). keys 를 단
+// 기억이 없는 저장소는 아무것도 안 붙인다 — 그때 결과가 C1 전과 같다.
+// 엄격 칸에서는 기본으로 점수만 얹고(boost) 후보를 새로 들이지 않는다.
+// `[search] keys_strict = true` 면 keys 도 다른 열과 똑같이 후보를 들인다 (가).
+func withKeys(level int, ranks []ranking, helper *rungHelper) []ranking {
+	if len(ranks) == 0 || !helper.keysOn() {
+		return ranks
+	}
+	boost := !helper.keysStrict && Strict(level)
+	out := append([]ranking{}, ranks...)
+	for _, item := range ranks {
+		twin, ok := keysTwin[item.table]
+		if !ok {
+			continue
+		}
+		out = append(out, ranking{name: "K:" + item.name, table: twin, expr: item.expr,
+			weight: item.weight * weightKeys, boost: boost})
+	}
+	return out
+}
+
+// keysOn 은 이 저장소에 keys 를 단 기억이 하나라도 있는지다. 한 질의에 한 번만 묻는다.
+func (h *rungHelper) keysOn() bool {
+	if !h.keysAsked {
+		h.keysAsked = true
+		h.hasKeys = h.db.HasKeys()
+	}
+	return h.hasKeys
 }
 
 // rungResult 는 한 칸이 낸 후보와 왜 그렇게 됐는지다.
@@ -164,6 +212,10 @@ type rungHelper struct {
 	// embedded 는 임베딩 신호가 실제로 돌았는지다. 모드 표시가 이것만 본다
 	// (결정 16) — 켜 놓고 모델이 없으면 낱말 모드라고 적어야 한다.
 	embedded bool
+	// keysStrict 는 `[search] keys_strict` 다. hasKeys 는 keys 행이 있는지의 답이다.
+	keysStrict bool
+	keysAsked  bool
+	hasKeys    bool
 }
 
 // splitsOf 는 붙여 쓴 낱말의 쪼개기 후보다. 같은 낱말은 한 번만 묻는다.
@@ -552,14 +604,26 @@ func hasKind(kinds []string, kind string) bool {
 // 옛 must/keepAll 은 아무도 세우지 않던 죽은 코드라 지웠다 (리뷰B #11).
 func runRung(helper *rungHelper, ranks []ranking, softener float64) (*rungResult, error) {
 	out := rungResult{scores: map[int64]float64{}, from: map[int64][]string{}, ranks: ranks}
-	for _, item := range ranks {
-		found, err := helper.rankOf(item)
-		if err != nil {
-			return nil, err
-		}
-		for place, hit := range found {
-			out.scores[hit.Docid] += item.weight / (softener + float64(place+1))
-			out.from[hit.Docid] = append(out.from[hit.Docid], item.name+"("+placeText(place+1)+")")
+	// 들이는 랭킹을 먼저 다 던지고, 얹기만 하는 랭킹(boost)은 그 뒤에 던진다.
+	// 차례가 섞이면 boost 가 앞 랭킹이 아직 안 들인 문서를 못 보고 놓친다.
+	for _, pass := range []bool{false, true} {
+		for _, item := range ranks {
+			if item.boost != pass {
+				continue
+			}
+			found, err := helper.rankOf(item)
+			if err != nil {
+				return nil, err
+			}
+			for place, hit := range found {
+				if item.boost {
+					if _, admitted := out.scores[hit.Docid]; !admitted {
+						continue
+					}
+				}
+				out.scores[hit.Docid] += item.weight / (softener + float64(place+1))
+				out.from[hit.Docid] = append(out.from[hit.Docid], item.name+"("+placeText(place+1)+")")
+			}
 		}
 	}
 	return &out, nil
@@ -594,6 +658,8 @@ func runRanking(database *index.DB, item ranking) ([]index.Ranked, error) {
 		return database.MatchNorm(item.expr, rankDepth)
 	case "fts_en":
 		return database.MatchEN(item.expr, rankDepth)
+	case "keys_ko", "keys_en", "keys_norm":
+		return database.MatchKeys(item.table, item.expr, rankDepth)
 	case "tag":
 		return database.TagScopeRank(strings.Split(item.expr, "\n"), rankDepth)
 	}
