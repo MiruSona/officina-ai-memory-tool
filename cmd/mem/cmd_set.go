@@ -438,5 +438,44 @@ func currentLinks(parsed *options, opened *store.Store, id string) ([]string, er
 	if err != nil {
 		return nil, fmt.Errorf("%s", i18n.T(i18n.MemoryNotFound, id))
 	}
+	if queued, ok := queuedLinks(opened, id); ok {
+		return queued, nil
+	}
 	return file.Memory.Links, nil
+}
+
+// queuedLinks 는 아직 색인 안 된 큐에서 그 기억의 links 를 마지막으로 바꾼 값이다.
+// 이걸 안 보면 index 전에 친 `--links` 가 뒤의 `--link` 에 덮여 사라진다 (A7).
+func queuedLinks(opened *store.Store, id string) ([]string, bool) {
+	names, err := opened.ListInbox()
+	if err != nil {
+		return nil, false
+	}
+	var last []string
+	found := false
+	for _, name := range names {
+		item, err := opened.ReadInbox(name)
+		if err != nil || item.Patch == nil || item.Patch.ID != id {
+			continue
+		}
+		raw, ok := item.Patch.Set["links"].([]any)
+		if !ok {
+			continue
+		}
+		last = idsOf(raw)
+		found = true
+	}
+	return last, found
+}
+
+// idsOf 는 큐 JSON 의 links 를 id 목록으로 되돌린다. id 꼴이 아닌 것은 버린다 —
+// 손으로 고친 큐의 엉뚱한 글이 새 patch 로 다시 실리면 안 된다.
+func idsOf(values []any) []string {
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		if text, ok := value.(string); ok && model.IsID(text) {
+			out = append(out, text)
+		}
+	}
+	return out
 }

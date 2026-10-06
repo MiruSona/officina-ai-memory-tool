@@ -64,6 +64,8 @@ type Doc struct {
 	SummaryFP uint64
 	// units 는 문장·표 줄 단위 조각이다 (설계 결정 30 의 1단).
 	units []unit
+	// flat 은 units 의 지문을 한 줄로 편 것이다. 짝 조각 겹침 수를 한 번에 센다 (R1 ③).
+	flat unitFlat
 	// summaryW·bodyW 는 조각 차례에 맞춘 IDF 무게다. 표에 넣기 전에는 비어
 	// 있고, 그때는 무게 없는 자카드를 쓴다 (결정 34).
 	summaryW     []float32
@@ -80,6 +82,7 @@ func NewDoc(m *model.Memory) *Doc {
 		summary: grams(summary), body: grams(body), tags: lowerTagSet(m.Tags), bodyNorm: body,
 		units: unitsOf(m.Title + "\n" + m.Summary + "\n" + m.Body)}
 	doc.tagBits = tagBitsOf(doc.tags)
+	doc.flat = flatOf(doc.units)
 	// 지문은 요약과 본문을 같이 뜬다 — 후보 좁히기라 넓게 잡는 편이 안전하다.
 	doc.Fingerprint = simhash.Of(summary + " " + body)
 	doc.SummaryFP = simhash.Of(summary)

@@ -16,6 +16,13 @@ import (
 func TestStopConcurrentKeepsEverySession(t *testing.T) {
 	dir := t.TempDir()
 	const workers, rounds = 8, 5
+	// 200ms 훅 예산은 8명이 한 잠금에 줄 서면 기계가 바쁠 때 쉽게 넘는다 (실측 :
+	// 부하 중 100판에 56판이 「너무 자주 못 잡음」, 세션 잃음은 0판). 여기서 보려는
+	// 것은 잠금이 셈을 지키는가이지 예산이 아니라서 기다림만 늘린다. 짧게 포기하는
+	// 것은 TestUpdateStateGivesUpQuickly 가 본다.
+	saved := lockWait
+	lockWait = 2 * time.Second
+	defer func() { lockWait = saved }()
 	now := time.Now()
 	failed := 0
 	lock := sync.Mutex{}
@@ -38,7 +45,7 @@ func TestStopConcurrentKeepsEverySession(t *testing.T) {
 	}
 	group.Wait()
 	state := LoadState(dir)
-	// 잠금을 못 잡은 판(200ms 넘게 기다림)은 조용히 건너뛰니 그만큼은 빠져도 된다.
+	// 잠금을 못 잡은 판(lockWait 넘게 기다림)은 조용히 건너뛰니 그만큼은 빠져도 된다.
 	if len(state.Sessions)+failed != workers*rounds {
 		t.Fatalf("세션 줄을 잃었다 : 남은 %d + 건너뜀 %d != %d", len(state.Sessions), failed, workers*rounds)
 	}

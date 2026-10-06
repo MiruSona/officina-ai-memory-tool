@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
+	"github.com/mirusona/officina-ai-memory-tool/internal/link"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 )
 
@@ -107,7 +108,15 @@ func checkRepoSerial(memories []*model.Memory, opt RepoOptions) RepoReport {
 	return report
 }
 
+// repoRules 는 이웃 후보도 그 자리에서 세는 한 갈래 저장소 규칙이다. 견줄 기준 전용이다.
+func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
+	r.repoRulesWith(memories, opt, func() map[string][]link.Candidate {
+		return suggestLinks(withoutObservations(memories))
+	})
+}
+
 // 저장소 규칙과 중복 판정을 겹쳐 돌려도 결과(건 · 차례)가 한 갈래 판과 같아야 한다.
+// 이 시험은 고루틴 판 = 한 갈래 판만 지킨다. 옛 판과 같은지는 alignflat_test·spot_test 가 지킨다.
 func TestCheckRepoOverlapMatchesSerial(t *testing.T) {
 	_, seed := loadForTune(t)
 	memories := blowUp(seed, 2000)

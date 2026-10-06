@@ -114,8 +114,8 @@ func runConsolidate(argv []string) int {
 // autoLinksOf 는 색인의 auto_links 다. 색인이 없거나 못 열면 비운다 — 사람이 적은
 // links 만으로도 ② 는 돈다.
 func autoLinksOf(repository *config.Repository, parsed *options) [][2]string {
-	database := openReady(repository, parsed)
-	if database == nil {
+	database, err := openReady(repository, parsed)
+	if err != nil || database == nil {
 		return nil
 	}
 	defer database.Close()

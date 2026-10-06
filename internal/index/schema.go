@@ -243,7 +243,8 @@ func IsUnusable(err error) bool {
 func IsCheckFailure(err error) bool {
 	tooNew := &TooNewError{}
 	broken := &BrokenError{}
-	return errors.As(err, &tooNew) || errors.As(err, &broken)
+	stale := &StaleError{}
+	return errors.As(err, &tooNew) || errors.As(err, &broken) || errors.As(err, &stale)
 }
 
 // isCorrupt 는 파일 자체를 못 쓴다는 SQLite 메시지를 알아본다.
@@ -294,6 +295,60 @@ func OpenRebuilding(dir string) (*DB, bool, error) {
 	database, err = openOnce(dir)
 	return database, err == nil, err
 }
+
+// OpenAsIs 는 Open 과 같은데 판이 달라도 다시 만들지 않는다. `--no-index` 처럼
+// 색인을 건드리지 않겠다고 약속한 읽기가 쓴다. 판이 다르면 StaleError 다.
+// 빈 파일(판 0)은 UnusableError 다. 판 어긋남·빈 파일은 PRAGMA 전에 읽기만 해서 갈라
+// 한 바이트도 안 쓴다. 판이 맞으면 Open 과 같은 PRAGMA 가 머리말 셈값을 고친다.
+func OpenAsIs(dir string) (*DB, error) {
+	if err := peekVersion(dir); err != nil {
+		return nil, err
+	}
+	database, err := openOnce(dir)
+	if errors.Is(err, errOldSchema) {
+		return nil, &StaleError{Path: DBPath(dir)}
+	}
+	return database, err
+}
+
+// peekVersion 은 PRAGMA 를 하나도 안 걸고 판만 읽는다. 이 exe 의 판이면 nil 이다.
+// auto_vacuum PRAGMA 하나만 걸어도 머리말이 바뀌어서 여는 것보다 먼저 본다.
+func peekVersion(dir string) error {
+	handle, err := sql.Open("sqlite", DBPath(dir))
+	if err != nil {
+		return err
+	}
+	defer handle.Close()
+	version := 0
+	if err := handle.QueryRow("PRAGMA user_version").Scan(&version); err != nil {
+		if isCorrupt(err) {
+			return &BrokenError{Path: DBPath(dir)}
+		}
+		return err
+	}
+	peek := DB{sql: handle}
+	switch {
+	case version == 0:
+		return &UnusableError{Path: DBPath(dir)}
+	case version > SchemaVersion && peek.hasOurTables():
+		return &TooNewError{Known: SchemaVersion, Found: version}
+	case version != SchemaVersion:
+		return &StaleError{Path: DBPath(dir)}
+	}
+	return nil
+}
+
+// StaleError 는 색인 판이 이 exe 와 달라 다시 만들어야 읽을 수 있다는 뜻이다.
+type StaleError struct {
+	Path string
+}
+
+func (e *StaleError) Error() string {
+	return i18n.T(i18n.IndexStaleNoIndex, e.Path)
+}
+
+// ExitCode 는 검사 실패 코드다 (TooNewError 와 같은 판 어긋남).
+func (e *StaleError) ExitCode() int { return 2 }
 
 // errOldSchema 는 「우리보다 낮거나 모르는 판이라 다시 만들어야 한다」는 표시다.
 var errOldSchema = errors.New("old schema")

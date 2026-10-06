@@ -260,7 +260,18 @@ func exemptCases() []exemptCase {
 			m.Severity = model.SeverityHigh
 		}},
 		{Name: "links로지목됨", Change: func(m *model.Memory) {}, Extra: pointer(idAt(9), idAt(0))},
+		// 모음 카드의 근거는 접으면 카드가 [낡음] 이 된다 (2026-10-06 재현).
+		{Name: "모음근거", Change: func(m *model.Memory) {}, Extra: card(idAt(9), idAt(0))},
 	}
+}
+
+// card 는 target 을 `mem:` 근거로 삼은 모음 기억(observation)이다.
+func card(id, target string) *model.Memory {
+	memory := oldMemory(id, 5)
+	memory.Type = model.TypeObservation
+	memory.Sources = []string{model.SourceMem + target}
+	memory.Body = "1. 정리 시험용 근거를 하나로 묶었다 [mem:" + target + "]"
+	return memory
 }
 
 // pointer 는 다른 기억을 links 로 가리키는 새 기억이다.
@@ -291,6 +302,48 @@ func TestExemptions(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+// TestDeadCardBasisNotExempt 는 죽은 카드(덮임·보류·기한 지남)의 근거는 면제가
+// 풀리는지 본다. 산 카드만 근거를 붙든다 (리뷰 10-06 #4).
+func TestDeadCardBasisNotExempt(t *testing.T) {
+	cases := map[string]func(m *model.Memory){
+		"덮임": func(m *model.Memory) {
+			m.SupersededBy, m.InvalidAt = idAt(8), now.AddDate(0, 0, -1).Format("2006-01-02")
+		},
+		"보류":   func(m *model.Memory) { m.Review = true },
+		"기한지남": func(m *model.Memory) { m.InvalidAt = now.AddDate(0, 0, -1).Format("2006-01-02") },
+	}
+	for name, kill := range cases {
+		t.Run(name, func(t *testing.T) {
+			dead := card(idAt(9), idAt(0))
+			kill(dead)
+			opened := newStore(t, oldMemory(idAt(0), 200), oldMemory(idAt(1), 200), dead)
+			result := runGC(t, opened, testConfig(), now, true)
+			for _, moved := range result.Items {
+				if moved.ID == idAt(0) {
+					return
+				}
+			}
+			t.Fatalf("죽은 카드의 근거가 아직 면제다 : %+v", result.Items)
+		})
+	}
+}
+
+// TestFutureInvalidCardKeepsBasis 는 무효 날짜가 아직 안 온 카드는 살아 있다고 보는지 본다.
+func TestFutureInvalidCardKeepsBasis(t *testing.T) {
+	alive := card(idAt(9), idAt(0))
+	alive.InvalidAt = now.AddDate(0, 0, 10).Format("2006-01-02")
+	opened := newStore(t, oldMemory(idAt(0), 200), oldMemory(idAt(1), 200), alive)
+	result := runGC(t, opened, testConfig(), now, true)
+	if len(result.Items) == 0 {
+		t.Fatal("아무것도 안 걸렸다. 시험이 헛돌고 있다")
+	}
+	for _, moved := range result.Items {
+		if moved.ID == idAt(0) {
+			t.Fatal("무효 날짜 전인 카드의 근거를 접으려 든다")
+		}
 	}
 }
 

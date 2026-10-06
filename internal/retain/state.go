@@ -156,10 +156,13 @@ func (s State) RecentSessions(now time.Time, within time.Duration) int {
 // 포기한다. 훅 한 판은 수 ms 라 lockStale 보다 오래된 잠금은 죽은 프로세스가 남긴
 // 고아로 보고 넘겨 잡는다.
 const (
-	lockWait  = 200 * time.Millisecond
 	lockStep  = 10 * time.Millisecond
 	lockStale = 5 * time.Second
 )
+
+// lockWait 는 시험이 바꿀 수 있게 변수로 둔다 — 겹침 시험은 기계가 바쁠 때도 잠금
+// 자체를 보도록 기다림을 늘린다. lockStale 보다 짧아야 한다.
+var lockWait = 200 * time.Millisecond
 
 // ErrStateBusy 는 다른 프로세스가 상태 파일을 쥐고 있어 잠금을 못 잡았다는 뜻이다.
 // 훅은 이것을 받으면 조용히 이번 판을 건너뛴다.

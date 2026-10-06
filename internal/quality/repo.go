@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/mirusona/officina-ai-memory-tool/internal/link"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 )
 
@@ -49,14 +50,19 @@ func CheckRepo(memories []*model.Memory, opt RepoOptions) RepoReport {
 	// 넘긴다. 합치는 차례는 예전 그대로(규칙 → 중복)라 답이 같다.
 	duplicates := make(chan duplicateResult, 1)
 	go func() { duplicates <- findDuplicates(memories, opt) }()
-	report.repoRules(memories, opt)
+	// 이웃 후보 셈(한 갈래 약 5초)도 처음부터 옆에서 돌리고, 붙이는 자리·차례는 그대로 둔다.
+	links := make(chan map[string][]link.Candidate, 1)
+	go func() { links <- suggestLinks(withoutObservations(memories)) }()
+	report.repoRulesWith(memories, opt, func() map[string][]link.Candidate { return <-links })
 	// 받는 쪽은 저장소 규칙이 끝난 **뒤에** 기다린다 — 그 전엔 ByID 를 안 만진다.
 	report.addDuplicates(memories, opt, <-duplicates)
 	return report
 }
 
-// repoRules 는 중복 판정을 뺀 저장소 규칙이다. 한 갈래로 돌고 report 만 채운다.
-func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
+// repoRulesWith 는 중복 판정을 뺀 저장소 규칙이다. 한 갈래로 돌고 report 만 채운다.
+// 이웃 후보(D04)는 links 로 받는다. 받는 때는 붙이기 직전이다.
+func (r *RepoReport) repoRulesWith(memories []*model.Memory, opt RepoOptions,
+	links func() map[string][]link.Candidate) {
 	add := func(m *model.Memory, rule, reason string, related ...string) {
 		one := opt.finding(rule, m, reason, nextFor(rule, m, related)...)
 		one.Related = related
@@ -68,6 +74,7 @@ func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
 
 	newerByTag := newestPerTag(memories)
 	pointed := pointedIDs(memories)
+	sameSpot := bySpot(memories)
 	for _, m := range memories {
 		if word := unfixedWord(m); word != "" && hasNewer(m, newerByTag) {
 			add(m, RuleUnfixedMarker, fmt.Sprintf("「%s」 라고 적힌 채로 남았는데 같은 태그에 더 새 기억이 있다", word))
@@ -76,7 +83,7 @@ func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
 			add(m, RuleStaleAfterPassed, fmt.Sprintf("다시 볼 날(%s)이 지났다", m.StaleAfter))
 		}
 		// 이미 덮이거나 무효인 기억은 자기가 물러난 쪽이라 모순 상대를 안 센다.
-		if rivals := LiveDecisionRivals(m, memories, opt.Now, opt.typeSpec(m)); Live(m, opt.Now) && len(rivals) > 0 {
+		if rivals := LiveDecisionRivals(m, sameSpot[spotOf(m)], opt.Now, opt.typeSpec(m)); Live(m, opt.Now) && len(rivals) > 0 {
 			add(m, RuleDecisionConflictLive, fmt.Sprintf("같은 자리에 살아 있는 결정이 %d건 더 있다. 어느 쪽이 지금 맞는지 표시가 없다", len(rivals)), idsOf(rivals)...)
 			if newer := newestRival(m, rivals); newer != "" && m.SupersededBy == "" {
 				add(m, RuleSupersedeMissing, fmt.Sprintf("더 새 결정 `%s` 이 있는데 이 기억에 superseded_by 가 없다", newer), newer)
@@ -102,8 +109,25 @@ func (r *RepoReport) repoRules(memories []*model.Memory, opt RepoOptions) {
 	obsStale(memories, add)
 	// 모음 기억은 원본 글을 옮겨 적은 것이라 「같은 주제 이웃」·「표기 갈림」 셈에서 뺀다.
 	plain := withoutObservations(memories)
-	checkLinkMissing(plain, opt, add)
+	reportLinkMissing(plain, links(), add)
 	notationDrift(plain, opt, add)
+}
+
+// rivalSpot 은 결정 경쟁(C05)이 견주는 자리다. LiveDecisionRivals 는 종류·scope 가 다르면 안 본다.
+type rivalSpot struct{ kind, scope string }
+
+func spotOf(m *model.Memory) rivalSpot { return rivalSpot{m.Type, m.Scope} }
+
+// bySpot 은 기억을 자리별로 원래 차례대로 묶는다. 자리 묶음을 넘겨도 경쟁 목록은 같다
+// — 20k 에서 기억마다 전부를 훑던 자리가 lint 의 한 갈래 4초였다 (R1).
+func bySpot(memories []*model.Memory) map[rivalSpot][]*model.Memory {
+	out := map[rivalSpot][]*model.Memory{}
+	for _, m := range memories {
+		if m != nil {
+			out[spotOf(m)] = append(out[spotOf(m)], m)
+		}
+	}
+	return out
 }
 
 // coldAndOrphan 은 조회 기록이 있을 때만 도는 둘이다 (C09·C10).

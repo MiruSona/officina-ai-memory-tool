@@ -30,6 +30,8 @@ type opened struct {
 	settings   config.Config
 	projectDir string
 	closers    []func()
+	// err 는 열다가 멈춰야 하는 오류다 (`--no-index` 판 어긋남).
+	err error
 }
 
 // dirOf 는 골든셋 같은 딸린 파일이 있는 저장소 폴더다.
@@ -99,6 +101,10 @@ func openSources(parsed *options) (*opened, error) {
 	// 질의 쪽 정규화도 색인 쪽과 같은 표를 타야 한다 (결정 21).
 	wireNormalize(project)
 	out.add(project, parsed)
+	if out.err != nil {
+		out.close()
+		return nil, out.err
+	}
 	// 빈 파일을 SQLite 는 「멀쩡한 빈 DB」 로 연다. 그러면 기억이 400건
 	// 있는데도 0건이라고 답한다 — 거짓 0건이 제일 나쁘다 (스트레스시험 D4).
 	if project != nil && out.emptyIndex() && store.New(project).HasMemory() {
@@ -125,7 +131,11 @@ func (o *opened) add(repository *config.Repository, parsed *options) {
 		return
 	}
 	o.projectDir = repository.Dir
-	database := openReady(repository, parsed)
+	database, err := openReady(repository, parsed)
+	if err != nil {
+		o.err = err
+		return
+	}
 	if database == nil {
 		return
 	}
@@ -134,17 +144,20 @@ func (o *opened) add(repository *config.Repository, parsed *options) {
 }
 
 // openReady 는 읽을 색인을 연다. 따라잡을 것이 없으면 처음 연 핸들을 그대로
-// 쓰고, 있으면 닫고 따라잡은 다음 다시 연다.
-func openReady(repository *config.Repository, parsed *options) *index.DB {
+// 쓰고, 있으면 닫고 따라잡은 다음 다시 연다. 오류는 판 어긋남(종료 2)뿐이다.
+func openReady(repository *config.Repository, parsed *options) (*index.DB, error) {
 	// mem.toml 의 필드 가중을 색인 쪽에 알린다. 여기서 안 알리면 파일에 적은
 	// 값이 죽고 기본 16/6/1 만 돈다 (파도 B).
 	index.SetFieldWeights(repository.Config.Search.FieldWeights)
-	database := openIndex(repository.Dir)
 	if parsed.flags["no-index"] {
-		return database
+		return openAsIs(repository.Dir)
+	}
+	database, err := openIndex(repository.Dir)
+	if err != nil {
+		return nil, err
 	}
 	if database != nil && !needCatchUp(repository, database) {
-		return database
+		return database, nil
 	}
 	if database != nil {
 		database.Close()
@@ -153,17 +166,35 @@ func openReady(repository *config.Repository, parsed *options) *index.DB {
 	return openIndex(repository.Dir)
 }
 
-// openIndex 는 색인이 있으면 연다. 없거나 못 열면 nil 이다 — 읽기 명령이
-// 색인 때문에 멈추면 안 된다.
-func openIndex(dir string) *index.DB {
+// openAsIs 는 `--no-index` 의 열기다. 판이 달라도 지우고 다시 만들지 않는다 —
+// 색인을 안 건드리겠다고 했으니 판 어긋남은 오류로 돌려준다.
+func openAsIs(dir string) (*index.DB, error) {
 	if !index.Exists(dir) {
-		return nil
+		return nil, nil
 	}
-	database, err := index.Open(dir)
-	if err != nil {
-		return nil
+	return keepMismatch(index.OpenAsIs(dir))
+}
+
+// openIndex 는 색인이 있으면 연다. 없거나 못 열면 nil 이다 — 읽기 명령이
+// 색인 때문에 멈추면 안 된다. 다만 exe 보다 새 판이면 오류다 (낡은 exe · 종료 2).
+func openIndex(dir string) (*index.DB, error) {
+	if !index.Exists(dir) {
+		return nil, nil
 	}
-	return database
+	return keepMismatch(index.Open(dir))
+}
+
+// keepMismatch 는 판 어긋남(새 판·옛 판)만 오류로 남기고 나머지 못 연 것은 nil 로 접는다.
+// 깨진 색인은 그대로 「색인 없음·깨짐」(종료 5) 길로 간다.
+func keepMismatch(database *index.DB, err error) (*index.DB, error) {
+	if err == nil {
+		return database, nil
+	}
+	tooNew, stale := &index.TooNewError{}, &index.StaleError{}
+	if errors.As(err, &tooNew) || errors.As(err, &stale) {
+		return nil, err
+	}
+	return nil, nil
 }
 
 // needCatchUp 은 읽기 전에 따라잡아야 하는지다. 큐가 비었고 store/ 폴더

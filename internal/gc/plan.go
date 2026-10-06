@@ -31,6 +31,8 @@ type Item struct {
 // 그래서 "남이 나를 가리키면 안 접는다" 가 원래 뜻 그대로다.
 // invalid_at 이 지난 기억은 종류와 상관없이 접는다 — 이미 뒤집힌
 // 결정의 본문을 통째로 들고 있어 봐야 아무도 안 본다.
+// 산 모음 카드(안 덮임·보류 아님·무효 날짜 전)의 `mem:` 근거도 안 접는다 —
+// 본문 해시가 바뀌어 카드가 [낡음] 이 된다 (10-06).
 // 종류 두 자리(면제 종류·열린 할 일)만 표에서 짓고 나머지 조건은 그대로다.
 func exemptSQL(table model.TypeTable) string {
 	return `pinned = 0
@@ -42,6 +44,10 @@ func exemptSQL(table model.TypeTable) string {
 	AND (last_hit_at IS NULL OR last_hit_at < ?)
 	AND id NOT IN (SELECT dst FROM links WHERE dst <> src)
 	AND id NOT IN (SELECT superseded_by FROM memories WHERE superseded_by IS NOT NULL)
+	AND id NOT IN (SELECT TRIM(s.value) FROM sources s JOIN memories o ON o.id = s.mem_id
+		WHERE s.kind = 'mem' AND o.type = '` + model.TypeObservation + `'
+		AND o.superseded_by IS NULL AND o.review = 0
+		AND (o.invalid_at IS NULL OR o.invalid_at >= ?))
 	AND importance < 5
 	AND NOT (type = 'caution' AND severity = 'high')
 	AND id NOT IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (
@@ -107,9 +113,9 @@ func candidates(db *sql.DB, step string, settings config.GCConfig, now time.Time
 		days, where = settings.WarmDays, "state = ? AND "
 		args = []any{index.StateHot}
 	}
-	// ? 가 나오는 차례 그대로다 : 나이 · invalid_at · 마지막 조회 · 상한.
+	// ? 가 나오는 차례 그대로다 : 나이 · invalid_at · 마지막 조회 · 카드 invalid_at · 상한.
 	args = append(args, now.AddDate(0, 0, -days).Unix(), now.Unix(),
-		now.AddDate(0, 0, -settings.HitDays).Unix(), limit)
+		now.AddDate(0, 0, -settings.HitDays).Unix(), now.Unix(), limit)
 	query := `SELECT id, type, path, created_at, state FROM memories WHERE ` + where +
 		`created_at < ? AND ` + exemptSQL(table) + ` ORDER BY created_at ASC LIMIT ?`
 	rows, err := db.Query(query, args...)

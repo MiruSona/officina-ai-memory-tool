@@ -167,6 +167,8 @@ func alignMax(left, right *Doc) (float64, string, string) {
 // 낮은 자여야 한다 — 그보다 위는 값이 한 자리도 안 바뀐다.
 func alignOf(left, right *Doc, cut, need float64) alignInfo {
 	found := alignInfo{}
+	counter := pairCounter{left: left, right: right}
+	defer counter.release()
 	for at := range left.units {
 		one := &left.units[at]
 		for other := range right.units {
@@ -186,8 +188,7 @@ func alignOf(left, right *Doc, cut, need float64) alignInfo {
 			if bits.OnesCount64(one.fp^two.fp) > alignPrefilter {
 				continue
 			}
-			score := gramSimAtLeast(one.grams, one.weight, one.total,
-				two.grams, two.weight, two.total, need)
+			score := counter.score(one, two, at, other, need)
 			if score >= cut {
 				found.Pairs++
 				strict, loose := factsClashUnits(one, two)

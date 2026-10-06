@@ -21,20 +21,26 @@ import (
 // 흔한 태그다.
 const linkMissingMin = 2
 
-// checkLinkMissing 은 links 가 비었는데 이을 만한 이웃이 뚜렷한 기억을 찾는다.
-// 자동 링크(결정 42)와 **같은 셈법**을 쓴다 — 둘이 어긋나면 lint 가 도구
-// 자신이 방금 안 이은 것을 나무라게 된다.
-func checkLinkMissing(memories []*model.Memory, opt RepoOptions,
-	add func(*model.Memory, string, string, ...string)) {
+// suggestLinks 는 이웃 후보 셈만 한다. 자동 링크(결정 42)와 **같은 셈법**이다.
+// 기억을 읽기만 해서 다른 규칙과 겹쳐 돌릴 수 있다 (R1).
+func suggestLinks(memories []*model.Memory) map[string][]link.Candidate {
 	if len(memories) < 2 {
-		return
+		return nil
 	}
 	docs := make([]link.Doc, len(memories))
 	for at, one := range memories {
 		docs[at] = linkDocOf(one)
 	}
 	// 짝을 다 도는 대신 한 번에 낸다 — 20k 에서 4억 쌍이 된다 (link.SuggestAll).
-	all := link.SuggestAll(docs, link.MaxLinks)
+	return link.SuggestAll(docs, link.MaxLinks)
+}
+
+// reportLinkMissing 은 links 가 비었는데 이을 만한 이웃이 뚜렷한 기억을 기억 차례대로 붙인다.
+func reportLinkMissing(memories []*model.Memory, all map[string][]link.Candidate,
+	add func(*model.Memory, string, string, ...string)) {
+	if len(memories) < 2 {
+		return
+	}
 	for _, one := range memories {
 		if len(one.Links) > 0 {
 			continue

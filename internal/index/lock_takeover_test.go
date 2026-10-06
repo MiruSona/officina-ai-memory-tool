@@ -23,11 +23,14 @@ func singleThread(t *testing.T) {
 	t.Cleanup(func() { runtime.GOMAXPROCS(old) })
 }
 
-// 죽은 락을 열여섯이 동시에 치워도 잡는 사람은 하나여야 한다.
+// 죽은 락을 열여섯이 동시에 치워도 잡는 사람은 둘 이상이면 안 된다.
 // (옛 판은 산 락을 잠깐 rename 으로 치워, 그 틈에 둘이 잡았다)
+// 0명은 부하에서 재시도 예산(약 91ms)이 다 떨어진 판이라 라운드의 5% 까지 봐준다 (리뷰 10-06).
 func TestStaleLockRaceHasOneWinnerUnderLoad(t *testing.T) {
 	singleThread(t)
-	for round := 0; round < 60; round++ {
+	const rounds = 60
+	empty := 0
+	for round := 0; round < rounds; round++ {
 		dir := t.TempDir()
 		if err := os.WriteFile(lockPath(dir), []byte(deadLockLine(t)), 0o644); err != nil {
 			t.Fatal(err)
@@ -55,9 +58,15 @@ func TestStaleLockRaceHasOneWinnerUnderLoad(t *testing.T) {
 		for _, release := range holds {
 			release()
 		}
-		if len(holds) != 1 {
-			t.Fatalf("라운드 %d — 죽은 락을 잡은 사람이 하나가 아니다 : %d", round, len(holds))
+		if len(holds) > 1 {
+			t.Fatalf("라운드 %d — 죽은 락을 둘 이상이 잡았다 : %d", round, len(holds))
 		}
+		if len(holds) == 0 {
+			empty++
+		}
+	}
+	if empty > rounds*5/100 {
+		t.Fatalf("아무도 못 잡은 라운드가 %d/%d 다 (5%% 넘음)", empty, rounds)
 	}
 }
 

@@ -26,6 +26,8 @@ const (
 	SetSelfSupersede Key = "set-self-supersede"
 	// 목록을 자를 때 붙이는 꼬리다. review 의 「같이 볼 것」 줄과 같은 자를 쓴다.
 	ListMore Key = "list-more"
+	// `--no-index` 라 판이 다른 색인을 다시 못 만들 때다.
+	IndexStaleNoIndex Key = "index-stale-no-index"
 )
 
 // show 의 「나를 근거로 삼은 기억」 절.
@@ -178,6 +180,9 @@ var commandV2Messages = map[Key]string{
 	StatusDoctorHead:  "환경 점검",
 	StatusLogEmpty:    "기록이 없다 (Memory/log.md).",
 	StatusBadSince:    "`--since` 는 YYYY-MM-DD 꼴이어야 한다 : %s",
+
+	IndexStaleNoIndex: "색인 판이 이 mem 과 다르다 : %s\n`--no-index` 라 다시 만들지 않고 멈췄다. " +
+		"`--no-index` 를 빼고 다시 치거나 `mem index --full` 로 먼저 다시 만든다. 기억 파일(md)은 그대로다.",
 }
 
 func init() {
