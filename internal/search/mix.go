@@ -51,6 +51,7 @@ var (
 	mixWtE    = envFloat("MEM_MIX_WEIGHT", -1)
 	mixKE     = envFloat("MEM_MIX_K", -1)
 	mixKeepE  = envInt("MEM_MIX_KEEP", -1)
+	mixGapE   = envFloat("MEM_MIX_GAP", -1)
 )
 
 // mixOn 은 섞기를 켤지다. 뒷문 MEM_MIX=0/1 이 mem.toml 보다 세다.
@@ -126,11 +127,26 @@ func (o *Options) mixKeep() int {
 	return o.Embed.MixKeep
 }
 
+// mixGap 은 뜻으로만 온 답의 도드라짐 문턱이다. 0 은 「관문 끔」이라 기본값
+// 갈음을 안 한다 — 음수만 0 으로 본다 (mixKeep 과 같은 꼴). 1 을 넘는 값은
+// config.Validate 가 알리고 여기서는 그대로 쓴다.
+func (o *Options) mixGap() float64 {
+	if mixGapE >= 0 {
+		return mixGapE
+	}
+	if o.Embed.MixGap < 0 {
+		return 0
+	}
+	return o.Embed.MixGap
+}
+
 // meaningPick 은 뜻 순위 한 줄이다 — 좁히기를 지난 기억만, 코사인 차례로.
+// stand 는 도드라짐(cos − 좁히기 전 Nearest 코사인 가운데값)이다.
 type meaningPick struct {
 	row   index.SearchRow
 	place int
 	cos   float64
+	stand float64
 }
 
 // mixMeaning 은 화면 차례(hits)에 뜻 순위를 섞은 새 차례를 준다. 둘째 답은
@@ -187,15 +203,36 @@ func meaningPicks(scanner Scanner, wanted []float32, options Options, narrow ind
 	for _, row := range rows {
 		byID[row.ID] = row
 	}
+	middle := middleCos(near)
 	out := []meaningPick{}
 	for _, item := range near {
 		row, found := byID[item.ID]
 		if !found {
 			continue
 		}
-		out = append(out, meaningPick{row: row, place: len(out) + 1, cos: item.Cos})
+		out = append(out, meaningPick{row: row, place: len(out) + 1, cos: item.Cos, stand: item.Cos - middle})
 	}
 	return out, nil
+}
+
+// middleCos 는 Nearest 코사인의 가운데값이다. 좁히기 **전** 전체로 재야
+// --type 같은 거르개에 따라 같은 질문의 문턱이 안 흔들린다. 평균이 아닌 까닭은
+// 카드·원본처럼 거의 같은 기억 쌍이 평균을 끌어올리기 때문이다 (설계 2-2).
+// 짝수 개면 가운데 둘의 평균, 1개면 그 값, 0개면 0 이다.
+func middleCos(near []embed.Near) float64 {
+	if len(near) == 0 {
+		return 0
+	}
+	values := make([]float64, len(near))
+	for at, item := range near {
+		values[at] = item.Cos
+	}
+	sort.Float64s(values)
+	half := len(values) / 2
+	if len(values)%2 == 1 {
+		return values[half]
+	}
+	return (values[half-1] + values[half]) / 2
 }
 
 // fuse 는 화면 차례와 뜻 순위를 섞는다. 몫은 낱말 1/(k+j) 와 뜻 w/(k+p) 중 큰
@@ -203,7 +240,7 @@ func meaningPicks(scanner Scanner, wanted []float32, options Options, narrow ind
 // 온 기억이면 아예 안 들어온다. 같은 몫이면 낱말 쪽이 앞이다.
 func fuse(hits []Hit, picks []meaningPick, options Options) []Hit {
 	softener, weight := options.mixK(), options.mixWeight()
-	floor, ceiling := options.mixFloor(), options.mixRank()
+	floor, ceiling, gap := options.mixFloor(), options.mixRank(), options.mixGap()
 	meaningOf := make(map[string]meaningPick, len(picks))
 	for _, pick := range picks {
 		meaningOf[pick.row.ID] = pick
@@ -215,7 +252,7 @@ func fuse(hits []Hit, picks []meaningPick, options Options) []Hit {
 		seen[hit.ID] = true
 		value := 1 / (softener + float64(at+1))
 		if pick, found := meaningOf[hit.ID]; found {
-			hit.Parts.From = append(hit.Parts.From, meaningTag(pick))
+			hit.Parts.From = append(hit.Parts.From, meaningTag(pick, gap))
 			if counts(pick) {
 				value = math.Max(value, weight/(softener+float64(pick.place)))
 			}
@@ -226,7 +263,9 @@ func fuse(hits []Hit, picks []meaningPick, options Options) []Hit {
 	}
 	now := time.Now()
 	for _, pick := range picks {
-		if seen[pick.row.ID] || !counts(pick) {
+		// 도드라짐 관문은 뜻으로만 온 답에만 건다 — 낱말 답의 뜻 몫(위 고리)은 그대로다.
+		// gap 0 은 관문 끔이다. 가운데값 아래(도드라짐 음수) 후보도 끄면 옛 판처럼 받는다.
+		if seen[pick.row.ID] || !counts(pick) || (gap > 0 && pick.stand < gap) {
 			continue
 		}
 		hit := hitOf(pick.row, now)
@@ -240,7 +279,7 @@ func fuse(hits []Hit, picks []meaningPick, options Options) []Hit {
 		}
 		hit.Score *= trust
 		hit.Parts = Parts{RRF: hit.Score / trust, Bonus: 1, Decay: 1, Trust: trust, Mix: hit.Score,
-			From: []string{meaningTag(pick)}}
+			From: []string{meaningTag(pick, gap)}}
 		merged = append(merged, fused{hit: hit, value: hit.Score, word: len(hits) + pick.place})
 	}
 	sort.SliceStable(merged, func(a, b int) bool {
@@ -287,7 +326,12 @@ func keepPlaces(merged []fused, keep int) []Hit {
 	return out
 }
 
-// meaningTag 는 --explain 의 「어느 랭킹 몇 위」 조각이다.
-func meaningTag(pick meaningPick) string {
-	return "뜻(" + placeText(pick.place) + " · " + strconv.FormatFloat(pick.cos, 'f', 3, 64) + ")"
+// meaningTag 는 --explain 의 「어느 랭킹 몇 위」 조각이다. 도드라짐 관문이
+// 켜졌을 때(gap > 0)만 꼬리에 도드라짐을 붙인다 — 끄면 도입 전과 글자까지 같다.
+func meaningTag(pick meaningPick, gap float64) string {
+	tail := ""
+	if gap > 0 {
+		tail = " · 도드라짐 " + strconv.FormatFloat(pick.stand, 'f', 3, 64)
+	}
+	return "뜻(" + placeText(pick.place) + " · " + strconv.FormatFloat(pick.cos, 'f', 3, 64) + tail + ")"
 }

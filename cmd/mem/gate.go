@@ -17,6 +17,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
+	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
 // gateRepo 는 관문이 견줄 「이미 있는 기억」 을 저장소 파일에서 준다.
@@ -88,8 +89,19 @@ func gateOptions(repository *config.Repository, opened *store.Store, parsed *opt
 		Repo: &gateRepo{opened: opened}, Demoted: demotedOf(repository),
 		Near:           nearOf(vectorsFor(repository.Dir)),
 		AllowDuplicate: parsed.flags["new"], SupersedeOf: parsed.text("by"),
-		Lookup: lookupOf(opened),
+		Lookup: lookupOf(opened), Canon: canonOf(repository),
 	}
+}
+
+// canonOf 는 mem.toml [canon] 대표말 표다. B08 이 norm·canon 대조에 쓴다.
+// 설정을 읽을 때 이미 검사하므로 여기서 틀리는 일은 드물다 — 틀리면 알리고 표 없이 간다.
+func canonOf(repository *config.Repository) *token.Canon {
+	canon, err := repository.Config.CanonTable()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		return nil
+	}
+	return canon
 }
 
 // lookupOf 는 id 로 기억 파일 하나를 읽는 함수다. 파일 자리가 id 로 정해져 있어

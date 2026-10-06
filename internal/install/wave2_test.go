@@ -211,7 +211,8 @@ func TestRulesBlockIsReplaced(t *testing.T) {
 func TestDoctorSeesHookAndAllow(t *testing.T) {
 	root := newProject(t)
 	before := Doctor(root)
-	if len(before) != len(hookSpecs)+7 {
+	// +8 : 자동 쌓기 훅 한 줄(retainCheck, 10-07)이 더해졌다.
+	if len(before) != len(hookSpecs)+8 {
 		t.Fatalf("점검 수가 틀리다 : %d", len(before))
 	}
 	for at := range hookSpecs {

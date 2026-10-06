@@ -13,6 +13,7 @@ package main
 
 import (
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -66,7 +67,7 @@ func qualityRows(repository *config.Repository, opened *store.Store, memories []
 	total := float64(len(memories))
 	vocab := vocabOf(repository)
 	sourced, links, offList, tagCount, recent, defect := 0, 0, 0, 0, 0, 0
-	options := quality.Options{Config: repository.Config, Vocab: vocab, Now: time.Now()}
+	options := quality.Options{Config: repository.Config, Vocab: vocab, Now: time.Now(), Canon: canonOf(repository)}
 	since := time.Now().AddDate(0, 0, -30)
 	// (리뷰 B · V7) 기억마다의 규칙 검사는 **한 번만** 한다. 옛 판은 최근 것에
 	// 한 번, 경고 셈에 또 한 번 돌려 20k 에서 그 한 가지가 10초였다.
@@ -319,6 +320,23 @@ func humanBytes(size int64) string {
 	return fmt.Sprintf("%dB", size)
 }
 
+// llmDoctorNote 는 doctor 의 llm 한 줄 설명이다. 키 값은 안 찍고 있음/없음만,
+// 주소는 scheme://host 만 찍는다 — user:pass@ · 경로 · ?key= 가 화면에 새지 않게.
+func llmDoctorNote(settings config.LLMConfig) string {
+	if !settings.Enabled() {
+		return i18n.T(i18n.DoctorLLMOff, tildePath(settings.Path))
+	}
+	key := i18n.T(i18n.DoctorLLMNoKey)
+	if settings.Key != "" {
+		key = i18n.T(i18n.DoctorLLMKey)
+	}
+	parsed, err := url.Parse(settings.URL)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
+		return i18n.T(i18n.DoctorLLMOn, i18n.T(i18n.DoctorLLMBadURL), key)
+	}
+	return i18n.T(i18n.DoctorLLMOn, parsed.Scheme+"://"+parsed.Host, key)
+}
+
 // runStatusDoctor 는 환경 점검이다. 아무것도 안 고친다.
 func runStatusDoctor(repository *config.Repository) int {
 	fmt.Println(i18n.T(i18n.StatusDoctorHead))
@@ -336,6 +354,8 @@ func runStatusDoctor(repository *config.Repository) int {
 		}
 		fmt.Printf(statusDoctorRowFormat+"\n", mark(check.OK), check.What, note)
 	}
+	// llm 판정은 고를 수 있는 기능이라 늘 OK 다. 실패 수에 안 넣는다.
+	fmt.Printf(statusDoctorRowFormat+"\n", mark(true), i18n.T(i18n.DoctorLLM), " — "+llmDoctorNote(loadLLM()))
 	// 보안 차단은 품질 실패와 숫자를 가른다 (설계 6-1 종료 4).
 	if unsafe {
 		return exitSecurity

@@ -51,7 +51,8 @@ func runReview(argv []string) int {
 	}
 	options := review.Options{Store: opened, Config: repository.Config,
 		Vocab: vocabOf(repository), Now: time.Now(), Kinds: kinds, Limit: limitOf(parsed),
-		Near: nearOf(vectorsFor(repository.Dir)), Demoted: demotedOf(repository)}
+		Near: nearOf(vectorsFor(repository.Dir)), Demoted: demotedOf(repository),
+		Canon: canonOf(repository)}
 	review.Prepare(&options)
 	report, err := review.Run(options)
 	if err != nil {

@@ -106,7 +106,7 @@ var retainMessages = map[Key]string{
 	AddSessionNeeded:  "최근 %d분 안에 돈 세션이 %d개다. 어느 세션 기록과 대조할지 `--session <앞 8자>` 로 준다.",
 	AutoRedoCold:      "  %s 는 버린 기억(cold)이라 건너뛴다. 되살리려면 `mem gc --restore %s` 뒤 다시 본다.",
 
-	AutoUsage:        "쓰는 법 : mem auto list|undo|redo [옵션]. `mem help auto` 를 본다.",
+	AutoUsage:        "쓰는 법 : mem auto list|undo|redo [옵션] | mem auto report [--sample N] [--seed S]. `mem help auto` 를 본다.",
 	AutoNoFilter:     "undo 는 거름(--origin · --since · --until · --session) 하나 이상이 있어야 한다.",
 	AutoBadDate:      "날짜를 못 읽었다 : %q — 2026-10-05 꼴이다. 기억 날짜(date)로 거른다.",
 	AutoListEmpty:    "자동 기억이 없다.",

@@ -54,12 +54,14 @@ type statusData struct {
 	InPath     bool               `json:"in_path"`
 	HookOn     bool               `json:"hook"`
 	MissingKey int                `json:"missing_keys"`
-	Patterns   int                `json:"secret_patterns"`
-	BadPattern int                `json:"bad_patterns"`
-	Synonyms   int                `json:"synonyms"`
-	Stopwords  int                `json:"stopwords"`
-	Usage      map[string]int     `json:"usage"`
-	Healthy    bool               `json:"healthy"`
+	// MissingSection 은 키 없는 절 머리([canon] 등)가 빠진 수다. 찍는 수는 MissingKey 와 합이다.
+	MissingSection int            `json:"missing_sections"`
+	Patterns       int            `json:"secret_patterns"`
+	BadPattern     int            `json:"bad_patterns"`
+	Synonyms       int            `json:"synonyms"`
+	Stopwords      int            `json:"stopwords"`
+	Usage          map[string]int `json:"usage"`
+	Healthy        bool           `json:"healthy"`
 }
 
 func runStatus(argv []string) int {
@@ -238,6 +240,7 @@ func addSettings(data *statusData, repository *config.Repository) {
 		return
 	}
 	data.MissingKey = len(config.MissingKeys(string(text)))
+	data.MissingSection = len(config.MissingSections(string(text)))
 }
 
 // healthy 는 색인·설치·설정 줄에 문제가 없는지다. 하나라도 걸리면 종료 코드
@@ -258,7 +261,7 @@ func healthy(data *statusData) bool {
 	if !data.InPath || !data.HookOn {
 		return false
 	}
-	return data.MissingKey == 0 && data.BadPattern == 0
+	return data.MissingKey+data.MissingSection == 0 && data.BadPattern == 0
 }
 
 func printStatusJSON(data *statusData) int {
@@ -280,8 +283,13 @@ func printStatus(data *statusData) {
 	printStatusIndex(data)
 	fmt.Println(i18n.T(i18n.StatusInstallLine, data.Version, data.Schema, data.DBVersion,
 		mark(data.InPath), mark(data.HookOn)))
-	fmt.Println(i18n.T(i18n.StatusConfigLine, data.MissingKey, data.Patterns,
-		badPatternPart(data), data.Synonyms, data.Stopwords))
+	if data.MissingSection > 0 {
+		fmt.Println(i18n.T(i18n.StatusConfigLineSections, data.MissingKey, data.MissingSection, data.Patterns,
+			badPatternPart(data), data.Synonyms, data.Stopwords))
+	} else {
+		fmt.Println(i18n.T(i18n.StatusConfigLine, data.MissingKey, data.Patterns,
+			badPatternPart(data), data.Synonyms, data.Stopwords))
+	}
 	fmt.Println(i18n.T(i18n.StatusUsageLine, usageText(data.Usage)))
 }
 

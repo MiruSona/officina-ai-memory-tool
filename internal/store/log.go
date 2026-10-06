@@ -39,11 +39,23 @@ const (
 	LogDiscarded = "버림"
 	// LogCard 는 `mem consolidate --apply` 가 모음 기억 카드를 쓴 것이다 (B1).
 	LogCard = "모음카드"
+	// LogWarned 는 자동 관문이 막지 않고 남긴 알림이다 — R3 를 못 물어 건너뛴 것 등 (A1 후속 7절).
+	LogWarned = "경고"
 )
 
 // AppendLog 는 오늘 날짜 절 밑에 한 줄을 덧붙인다. 날짜 절이 없으면 만든다.
 // 실패해도 부르는 쪽이 하던 일을 멈추지 않는다 — 기록은 곁다리다.
 func AppendLog(dir string, at time.Time, kind, line string) error {
+	return AppendLogLines(dir, at, kind, []string{line})
+}
+
+// AppendLogLines 는 같은 머리말의 여러 줄을 오늘 날짜 절 밑에 한 번에 덧붙인다.
+// log.md 를 한 번만 읽고 한 번만 쓴다 — 결과는 AppendLog 를 줄마다 부른 것과
+// 바이트까지 같다 (A8). 빈 lines 면 아무것도 안 쓴다.
+func AppendLogLines(dir string, at time.Time, kind string, lines []string) error {
+	if len(lines) == 0 {
+		return nil
+	}
 	path := LogPath(dir)
 	old, err := os.ReadFile(path)
 	if err != nil && !os.IsNotExist(err) {
@@ -61,7 +73,9 @@ func AppendLog(dir string, at time.Time, kind, line string) error {
 		}
 		out.WriteString(heading + "\n")
 	}
-	out.WriteString(fmt.Sprintf("- %s %s\n", kind, oneLine(line)))
+	for _, line := range lines {
+		out.WriteString(fmt.Sprintf("- %s %s\n", kind, oneLine(line)))
+	}
 	return appendFileRetry(path, out.String())
 }
 

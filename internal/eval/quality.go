@@ -10,6 +10,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
+	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
 // QualityPath 는 저장소가 품질 골든셋을 두는 자리다.
@@ -28,6 +29,8 @@ type QualityOptions struct {
 	Now    time.Time
 	// Near 는 중복 후보의 셋째 신호(임베딩)다. nil 이면 안 쓴다 (결정 15).
 	Near quality.Vectors
+	// Canon 은 mem.toml [canon] 대표말 표다. B08 의 norm·canon 대조에 쓴다. nil 이면 대조 없이 돈다.
+	Canon *token.Canon
 }
 
 // QualityReport 는 규칙 42개가 실제로 듣는지 잰 결과다 (설계 3-6).
@@ -85,7 +88,7 @@ func repoOptionsFor(options QualityOptions, set *quality.GoldenSet) quality.Repo
 		spec = model.SpecV2
 	}
 	return quality.RepoOptions{Options: quality.Options{Near: options.Near,
-		Config: options.Config, Vocab: vocab, Now: options.Now, Spec: spec}}
+		Config: options.Config, Vocab: vocab, Now: options.Now, Spec: spec, Canon: options.Canon}}
 }
 
 // loadQualityGolden 은 품질 골든셋을 읽는다. 없으면 **한국어로** 왜 없는지와

@@ -124,7 +124,7 @@ func TestPruneKeepsMarkOfWaitingQueue(t *testing.T) {
 // 리뷰 A #16 — 시계가 앞선 기계가 남긴 락은 영영 안 늙으면 안 된다.
 func TestFutureLockIsAbandoned(t *testing.T) {
 	future := lockInfo{PID: 999999, Started: 1, Taken: time.Now().Add(10 * time.Hour).Unix(), Host: "다른기계"}
-	if !abandoned(future) {
+	if !abandonedAfter(future, staleAfter) {
 		t.Fatal("미래에 잡힌 락을 산 락으로 봤다")
 	}
 }

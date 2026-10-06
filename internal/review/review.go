@@ -19,6 +19,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
+	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
 // 큐 네 가지 (`mem review --kind`).
@@ -121,6 +122,8 @@ type Options struct {
 	SourceMissing quality.SourceMissing
 	// Near 는 STALE 모순 후보를 데려오는 임베딩이다. nil 이면 안 쓴다 (결정 15).
 	Near quality.Vectors
+	// Canon 은 mem.toml [canon] 대표말 표다. B08 의 norm·canon 대조에 쓴다. nil 이면 대조 없이 돈다.
+	Canon *token.Canon
 	// Demoted 는 `mem eval --quality` 가 정밀도를 재서 내린 등급이다 (결정 14).
 	// `add`·`lint` 는 이미 이걸 보는데 `review` 만 안 봐서, 강등된 규칙이 검토
 	// 큐에는 옛 등급 그대로 떴다 (리뷰 T17).
@@ -179,7 +182,7 @@ func repoOptions(options Options) quality.RepoOptions {
 	}
 	return quality.RepoOptions{
 		Options: quality.Options{Config: options.Config, Vocab: vocab, Now: options.Now,
-			Near: options.Near, Demoted: options.Demoted},
+			Near: options.Near, Demoted: options.Demoted, Canon: options.Canon},
 		Hits: options.Hits, SourceChanged: options.SourceChanged,
 		SourceMissing: options.SourceMissing,
 	}

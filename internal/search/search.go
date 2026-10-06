@@ -60,6 +60,10 @@ type Options struct {
 	// Vectors 는 문장 임베딩 자리다. nil 이면 낱말 검색만 돈다 (결정 16).
 	// 3A(ORT)가 여기에 꽂는다 — 꽂히기 전에도 어느 명령도 실패하지 않는다.
 	Vectors Vectors
+	// Undone 은 `mem auto undo` 로 보류에 되돌려진 기억 id 다. 색인에는 origin
+	// 칸이 없어 부르는 쪽이 되돌림 기록에서 모아 준다. nil 이면 0건 안내가
+	// 보류를 한 덩이로만 센다 (오늘 동작 그대로).
+	Undone map[string]bool
 }
 
 // Vectors 는 임베딩 갈래가 꽂는 자리다 (결정 15·62). 검색은 **이미 낱말이
@@ -209,6 +213,9 @@ type Why struct {
 	// Held 는 `--include-held` 를 켰으면 몇 건이 더 나왔을지다. 보류라서
 	// 조용히 빠진 것을 "못 찾았다" 로 착각하면 안 된다 (뒷정리-3).
 	Held int `json:"held,omitempty"`
+	// Undone 은 그 가운데 자동 되돌림(`mem auto undo`) 몫이다. Held 에는 빠지고
+	// 여기만 센다 — 사람이 일부러 보류한 것과 되살릴 길이 달라서다.
+	Undone int `json:"undone,omitempty"`
 }
 
 // Why.Reason 값 넷.
@@ -618,23 +625,41 @@ func explainEmpty(options Options, query *Query, narrow index.Filter) *Why {
 	why.Next = nextCommand(why.Found, len(query.Terms))
 	why.Total, why.LastIndex = wholeCount(options)
 	why.Reason = reasonOf(&why, len(query.Terms))
-	why.Held = heldMatchCount(options, query, narrow)
+	why.Held, why.Undone = heldMatchCount(options, query, narrow)
 	return &why
 }
 
 // heldMatchCount 는 지금 질의로 `--include-held` 를 켜면 몇 건이 나왔을지다.
 // 0건이 "못 찾았다" 가 아니라 "보류라 안 보였다" 일 수 있어서 잰다 (뒷정리-3).
-func heldMatchCount(options Options, query *Query, narrow index.Filter) int {
+// 그 가운데 options.Undone 에 든 id 는 자동 되돌림 몫으로 따로 센다.
+func heldMatchCount(options Options, query *Query, narrow index.Filter) (held, undone int) {
 	if narrow.IncludeHeld {
-		return 0
+		return 0, 0
 	}
-	held := narrow
-	held.IncludeHeld = true
-	found, err := climb(options, query, held)
+	wide := narrow
+	wide.IncludeHeld = true
+	found, err := climb(options, query, wide)
 	if err != nil {
-		return 0
+		return 0, 0
 	}
-	return len(found.hits)
+	ids := make([]string, 0, len(found.hits))
+	for _, hit := range found.hits {
+		ids = append(ids, hit.ID)
+	}
+	return splitUndone(ids, options.Undone)
+}
+
+// splitUndone 은 보류로 빠진 id 를 「사람 보류」와 「자동 되돌림」으로 가른다.
+// 합은 늘 len(ids) 다.
+func splitUndone(ids []string, undone map[string]bool) (held, back int) {
+	for _, id := range ids {
+		if undone[id] {
+			back++
+			continue
+		}
+		held++
+	}
+	return held, back
 }
 
 // reasonOf 는 0건의 까닭 하나를 고른다. 색인이 빈 것을 먼저 본다 — 그것이면
@@ -660,28 +685,44 @@ func whyFilters(options Options, narrow index.Filter, timeWord string) *Why {
 	if why.Total == 0 {
 		why.Reason = ReasonEmptyStore
 	}
-	why.Held = heldFilterCount(options, narrow)
+	why.Held, why.Undone = heldFilterCount(options, narrow)
 	return &why
 }
 
 // heldFilterCount 는 같은 조건에 `--include-held` 만 더하면 몇 건이 느는지다.
 // 조건만 준 목록(listInto)은 이미 이 narrow 로 0건을 확인한 뒤라, 여기서
 // IncludeHeld 만 켠 값 그대로가 보류 때문에 빠진 건수다 (뒷정리-3).
-func heldFilterCount(options Options, narrow index.Filter) int {
+// options.Undone 이 있으면 같은 조건의 목록(ListRows)으로 id 를 받아 가른다.
+func heldFilterCount(options Options, narrow index.Filter) (held, undone int) {
 	if narrow.IncludeHeld {
-		return 0
+		return 0, 0
 	}
-	held := narrow
-	held.IncludeHeld = true
+	wide := narrow
+	wide.IncludeHeld = true
 	now := time.Now()
-	total := 0
 	for _, from := range options.Sources {
-		count, err := from.DB.CountRows(held, now)
-		if err == nil {
-			total += count
+		count, err := from.DB.CountRows(wide, now)
+		if err != nil || count == 0 {
+			continue
 		}
+		if len(options.Undone) == 0 {
+			held += count
+			continue
+		}
+		rows, err := from.DB.ListRows(wide, count, now)
+		if err != nil {
+			held += count
+			continue
+		}
+		ids := make([]string, 0, len(rows))
+		for _, row := range rows {
+			ids = append(ids, row.ID)
+		}
+		one, back := splitUndone(ids, options.Undone)
+		held += one + (count - len(rows))
+		undone += back
 	}
-	return total
+	return held, undone
 }
 
 // filterWords 는 걸린 조건을 사람이 읽는 한 줄짜리 조각으로 만든다.

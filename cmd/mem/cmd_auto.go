@@ -25,7 +25,7 @@ import (
 
 // dry-run 은 받기만 한다 — 미리보기가 기본이라 --apply 가 없으면 늘 미리보기다.
 var autoBools = []string{"json", "apply", "dry-run"}
-var autoValues = []string{"origin", "since", "until", "session", "repo"}
+var autoValues = []string{"origin", "since", "until", "session", "repo", "sample", "seed"}
 
 // autoListFormat 은 list 한 줄이다 — id · origin · 세션 · 날짜 · 제목.
 const autoListFormat = "%s  %-16s %-8s %s  %s"
@@ -60,6 +60,8 @@ func runAuto(argv []string) int {
 		return autoUndo(parsed, filter)
 	case "redo":
 		return autoRedo(parsed, filter)
+	case "report":
+		return autoReport(parsed, filter)
 	}
 	return fail(i18n.T(i18n.AutoUsage))
 }
@@ -348,6 +350,27 @@ func openUndoRecords(dir string, since string) []undoFile {
 		files = append(files, undoFile{Path: path, Record: record})
 	}
 	return files
+}
+
+// undoneIDs 는 아직 되살리지 않은 `mem auto undo` 기록의 id 다. 0건 안내가
+// 자동 되돌림과 사람 보류를 나눠 말하는 데 쓴다. 기록이 없으면 nil 이다.
+func undoneIDs(dir string) map[string]bool {
+	if dir == "" {
+		return nil
+	}
+	var ids map[string]bool
+	for _, file := range openUndoRecords(dir, "") {
+		for _, id := range file.Record.IDs {
+			if file.Record.redone(id) {
+				continue
+			}
+			if ids == nil {
+				ids = map[string]bool{}
+			}
+			ids[id] = true
+		}
+	}
+	return ids
 }
 
 // autoRedo 는 undo 기록의 기억을 되살린다. `--since` 는 undo 기록 시각으로, `--origin`·

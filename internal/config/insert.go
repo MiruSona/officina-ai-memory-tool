@@ -165,7 +165,8 @@ func FillMissing(text string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	filled := InsertMissing(text, MissingKeys(text), loaded)
+	// 키가 없는 절([canon] · [scope])은 MissingKeys 에 안 잡혀 따로 넘긴다.
+	filled := insertMissing(text, MissingKeys(text), MissingSections(text), loaded)
 	if err := CheckConfigKept(text, filled); err != nil {
 		return "", err
 	}
@@ -176,7 +177,14 @@ func FillMissing(text string) (string, error) {
 // 바로 뒤에 끼운다. 절이 아예 없으면 파일 끝에 절째로 붙인다. from 에 없는 키는
 // 건너뛴다.
 func InsertMissing(text string, missing []string, from Config) string {
-	defaults := keyLines(string(Encode(from)))
+	return insertMissing(text, missing, nil, from)
+}
+
+// insertMissing 은 InsertMissing 에 빈 절 머리 붙이기를 더한 것이다. sections 는
+// 파일에 머리가 없는 절 이름이다 — 키가 하나도 안 빠져도 머리째 끝에 붙인다.
+func insertMissing(text string, missing, sections []string, from Config) string {
+	encoded := string(Encode(from))
+	defaults := keyLines(encoded)
 	lines := strings.Split(text, "\n")
 	lastOf, headerOf := sectionAnchors(scanTOMLLines(lines))
 	have := trimmedSet(lines)
@@ -211,24 +219,65 @@ func InsertMissing(text string, missing []string, from Config) string {
 		}
 		newKeys[section] = append(newKeys[section], line)
 	}
-	return joinInserted(lines, after, sectionLines(newSections, newKeys), mostlyCRLF(text))
+	for _, section := range sections {
+		if _, seen := newKeys[section]; !seen {
+			newKeys[section] = nil
+			newSections = append(newSections, section)
+		}
+	}
+	// 키로 생긴 절과 빈 절이 섞였다. 붙이는 차례를 기본 파일의 절 차례에 맞춘다.
+	order := headerOrder(encoded)
+	sort.SliceStable(newSections, func(left, right int) bool {
+		return order[newSections[left]] < order[newSections[right]]
+	})
+	return joinInserted(lines, after, sectionLines(newSections, newKeys, headerComments(encoded), have),
+		mostlyCRLF(text))
 }
 
 // AppendSections 는 빠진 절을 파일 끝에 붙인다. vocab.toml 처럼 절 단위로만
 // 빠짐을 보는 파일이 쓴다. bodies 는 절 이름 → 그 절에 넣을 줄이다.
 func AppendSections(text string, sections []string, bodies map[string][]string) string {
-	return joinInserted(strings.Split(text, "\n"), map[int][]string{}, sectionLines(sections, bodies),
+	lines := strings.Split(text, "\n")
+	comments := headerComments(string(EncodeVocab(DefaultVocab())))
+	return joinInserted(lines, map[int][]string{}, sectionLines(sections, bodies, comments, trimmedSet(lines)),
 		mostlyCRLF(text))
 }
 
-// sectionLines 는 끝에 붙일 절들이다. 절 앞마다 빈 줄 하나를 둔다.
-func sectionLines(sections []string, bodies map[string][]string) []string {
+// sectionLines 는 끝에 붙일 절들이다. 절 앞마다 빈 줄 하나를 둔다. 기본 글에서
+// 머리 위에 붙어 있던 설명 주석도 같이 붙인다 — 이미 파일에 다 있으면 뺀다.
+func sectionLines(sections []string, bodies, comments map[string][]string, have map[string]bool) []string {
 	tail := []string{}
 	for _, section := range sections {
-		tail = append(tail, "", "["+section+"]")
+		header := withComment(keyLine{comment: comments[section], text: "[" + section + "]"}, have)
+		tail = append(tail, "")
+		tail = append(tail, strings.Split(header, "\n")...)
 		tail = append(tail, bodies[section]...)
 	}
 	return tail
+}
+
+// headerComments 는 절 이름 → 그 절 머리 바로 위에 붙은 설명 주석 줄들이다.
+// 같은 절 머리가 두 번 나오면 처음 것을 쓴다.
+func headerComments(text string) map[string][]string {
+	lines := strings.Split(text, "\n")
+	table := map[string][]string{}
+	for at, one := range scanTOMLLines(lines) {
+		if _, seen := table[one.section]; one.header && !seen {
+			table[one.section] = commentAbove(lines, at)
+		}
+	}
+	return table
+}
+
+// headerOrder 는 절 이름 → 그 절 머리가 글에 처음 나온 줄 번호다.
+func headerOrder(text string) map[string]int {
+	order := map[string]int{}
+	for at, one := range scanTOMLLines(strings.Split(text, "\n")) {
+		if _, seen := order[one.section]; one.header && !seen {
+			order[one.section] = at
+		}
+	}
+	return order
 }
 
 // sectionAnchors 는 절마다 마지막 키 값이 끝나는 줄과 마지막 머리 줄이다.

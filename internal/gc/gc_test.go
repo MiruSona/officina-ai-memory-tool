@@ -397,3 +397,28 @@ func TestLockedSkips(t *testing.T) {
 		t.Fatalf("락이 잡혀 있는데 돌았다 : %+v", result)
 	}
 }
+
+// TestFoldLogWrittenOnce 는 여러 건을 접어도 log.md 에 날짜 절이 하나이고 접힌
+// 줄이 건수만큼인지 본다 (A8 — 사유를 모아 한 번에 쓴다).
+func TestFoldLogWrittenOnce(t *testing.T) {
+	opened := newStore(t, oldMemory(idAt(0), 200), oldMemory(idAt(1), 200), oldMemory(idAt(2), 200))
+	result := runGC(t, opened, testConfig(), now, false)
+	if len(result.Items) != 3 {
+		t.Fatalf("세 건이 접혀야 한다 : %+v", result)
+	}
+	text, err := store.ReadLog(opened.Dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Count(text, "## "+now.Format("2006-01-02")); got != 1 {
+		t.Fatalf("날짜 절이 %d 개다 :\n%s", got, text)
+	}
+	if got := strings.Count(text, "- "+store.LogFolded+" "); got != 3 {
+		t.Fatalf("접힌 줄이 %d 개다 :\n%s", got, text)
+	}
+	for at := 0; at < 3; at++ {
+		if !strings.Contains(text, idAt(at)+" (gc, ") {
+			t.Fatalf("%s 의 줄이 없다 :\n%s", idAt(at), text)
+		}
+	}
+}

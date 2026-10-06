@@ -231,6 +231,9 @@ func searchOptions(parsed *options, repos *opened) (search.Options, error) {
 		// mem.toml 에 적은 값이 죽고 코드 기본값만 돈다 (파도 C).
 		Search: repos.settings.Search, Embed: repos.settings.Embed,
 		RepoDir: repos.dirOf(), Types: config.TypesIn(repos.dirOf()),
+		// 0건 안내가 자동 되돌림과 사람 보류를 나눠 말하게 프로젝트 저장소의
+		// 되돌림 기록만 넘긴다.
+		Undone: undoneIDs(repos.dirOf()),
 	}
 	// 의미 재정렬을 꽂는다. 벡터 파일이 없으면 nil 이고 낱말 모드로 답한다.
 	if near := rerankerFor(repos.dirOf(), repos.sources); near != nil {

@@ -189,9 +189,7 @@ func whyLines(result *Result) string {
 	if len(why.Filters) > 0 {
 		lines = append(lines, i18n.T(i18n.EmptyFilters, strings.Join(why.Filters, " ")))
 		lines = append(lines, i18n.T(i18n.EmptyFilterHint))
-		if why.Held > 0 {
-			lines = append(lines, i18n.T(i18n.EmptyHeld, why.Held))
-		}
+		lines = append(lines, heldLines(why)...)
 		lines = append(lines, i18n.T(i18n.EmptyScale, why.Total, orDash(why.LastIndex)))
 		return strings.Join(lines, "\n")
 	}
@@ -224,11 +222,26 @@ func whyLines(result *Result) string {
 	if why.Next == "" && len(why.Missing) == 0 {
 		lines = append(lines, i18n.T(i18n.EmptyFewerWords))
 	}
-	if why.Held > 0 {
-		lines = append(lines, i18n.T(i18n.EmptyHeld, why.Held))
-	}
+	lines = append(lines, heldLines(why)...)
 	lines = append(lines, i18n.T(i18n.EmptyScale, why.Total, orDash(why.LastIndex)))
 	return strings.Join(lines, "\n")
+}
+
+// heldLines 는 보류라서 빠진 것의 안내다. 자동 되돌림 몫이 없으면 예전 한 줄
+// 그대로고, 있으면 「자동 되돌림」과 「사람 보류」를 나눠 0 아닌 줄만 찍는다 —
+// 되살리는 길이 달라서다.
+func heldLines(why *Why) []string {
+	if why.Undone == 0 {
+		if why.Held == 0 {
+			return nil
+		}
+		return []string{i18n.T(i18n.EmptyHeld, why.Held)}
+	}
+	lines := []string{i18n.T(i18n.EmptyUndone, why.Undone)}
+	if why.Held > 0 {
+		lines = append(lines, i18n.T(i18n.EmptyHeldOnly, why.Held))
+	}
+	return lines
 }
 
 // missingKey·foundKey 는 조사를 낱말에 맞춘다. 받침이 있으면 「이 · 은」,

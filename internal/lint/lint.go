@@ -19,6 +19,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
+	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
 // Level 은 얼마나 나쁜지다. 오류만 종료 코드를 바꾼다.
@@ -83,6 +84,8 @@ type Options struct {
 	NoGit bool
 	// Near 는 중복 후보의 셋째 신호(임베딩)다. nil 이면 안 쓴다 (결정 15).
 	Near quality.Vectors
+	// Canon 은 mem.toml [canon] 대표말 표다. B08 의 norm·canon 대조에 쓴다. nil 이면 대조 없이 돈다.
+	Canon *token.Canon
 }
 
 // Fix 는 --fix 가 실제로 고친 것 하나다. 되돌릴 수 있는 것만 여기 온다.
@@ -203,7 +206,7 @@ func gateOptions(options *Options) quality.Options {
 		vocab = config.DefaultVocab()
 	}
 	return quality.Options{Config: options.Config, Vocab: vocab,
-		Now: options.Now, Demoted: options.Demoted, Near: options.Near,
+		Now: options.Now, Demoted: options.Demoted, Near: options.Near, Canon: options.Canon,
 		Secret:     secret.New(patternsOf(options.Config.Secret.Patterns, config.DefaultSecretPatterns())),
 		SecretWarn: secret.New(patternsOf(options.Config.Secret.WarnPatterns, config.DefaultWarnPatterns())),
 	}

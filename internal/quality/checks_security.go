@@ -66,7 +66,8 @@ func checkSecurity(m *model.Memory, opt Options) []Finding {
 	if hit := opt.SecretWarn.ScanText(text); hit != nil {
 		found = append(found, Finding{Rule: RuleSecretEntropy, Level: GradeWarn, ID: m.ID,
 			Reason: fmt.Sprintf("%d번째 줄에 개인정보로 보이는 것이 있다 (%s)", hit.Line, hit.Rule), Line: hit.Line})
-	} else if line, token := highEntropy(text); line > 0 {
+	} else if line, token := highEntropy(secret.MemoryText(m.Title, m.Summary, entropySources(m.Sources), m.Body)); line > 0 {
+		// 엔트로피만 출처 url 경로를 뺀 글로 잰다. 거절·개인정보 검사는 원래 글 그대로다.
 		found = append(found, Finding{Rule: RuleSecretEntropy, Level: GradeWarn, ID: m.ID,
 			Reason: fmt.Sprintf("%d번째 줄에 뜻 없는 %d자 토막이 있다. 열쇠가 아닌지 본다", line, token), Line: line})
 	}
@@ -111,6 +112,41 @@ func highEntropy(text string) (int, int) {
 		}
 	}
 	return 0, 0
+}
+
+// entropySources 는 엔트로피 검사용 출처 목록이다. `url:` 출처의 **경로만** 뺀다 —
+// 문서 주소의 경로 토막(…/AbC12xYz…)은 열쇠가 아닌데 경고가 났다. 쿼리(`?`)와
+// 조각(`#`) 꼬리는 남긴다(`?token=` 처럼 진짜 열쇠가 거기 실린다). `user:pass@`
+// 같은 userinfo 도 호스트 쪽이라 그대로 남는다. 줄 수는 그대로라 줄 번호가 안 어긋난다.
+func entropySources(sources []string) []string {
+	out := make([]string, len(sources))
+	for at, source := range sources {
+		out[at] = source
+		if strings.HasPrefix(source, "url:") {
+			out[at] = "url:" + withoutURLPath(strings.TrimPrefix(source, "url:"))
+		}
+	}
+	return out
+}
+
+// withoutURLPath 는 `scheme://` 뒤 첫 `/` 부터 `?`·`#` 전까지(경로)를 뺀 주소다.
+// `scheme://` 가 없으면 어디가 경로인지 몰라 아무것도 안 뺀다 — 덜 빼는 쪽이 안전하다.
+func withoutURLPath(value string) string {
+	scheme := strings.Index(value, "://")
+	if scheme < 0 {
+		return value
+	}
+	host := scheme + len("://")
+	pathAt := strings.IndexAny(value[host:], "/?#")
+	if pathAt < 0 || value[host+pathAt] != '/' {
+		return value
+	}
+	pathAt += host
+	tail := len(value)
+	if end := strings.IndexAny(value[pathAt:], "?#"); end >= 0 {
+		tail = pathAt + end
+	}
+	return value[:pathAt] + value[tail:]
 }
 
 // mixedToken 은 대문자·소문자·숫자가 다 섞였는지다. 하나라도 빠지면 사람이 지은

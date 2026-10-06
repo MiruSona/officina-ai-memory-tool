@@ -138,3 +138,113 @@ func TestAppendSectionsKeepsVocab(t *testing.T) {
 		t.Fatalf("CRLF 로 절을 안 붙였다 : %q", result)
 	}
 }
+
+// cutSection 은 기본 파일에서 절 하나(머리와 그 아래 줄)를 뺀다. withComment 면
+// 머리 위 설명 주석도 같이 뺀다.
+func cutSection(text, name string, withComment bool) string {
+	lines := strings.Split(text, "\n")
+	drop := map[int]bool{}
+	for at, one := range scanTOMLLines(lines) {
+		if one.section != name {
+			continue
+		}
+		drop[at] = true
+		if one.header && withComment {
+			for from := at - len(commentAbove(lines, at)); from < at; from++ {
+				drop[from] = true
+			}
+		}
+	}
+	kept := []string{}
+	for at, line := range lines {
+		if !drop[at] {
+			kept = append(kept, line)
+		}
+	}
+	return strings.Join(kept, "\n")
+}
+
+const canonComment = "# 낱말 -> 대표말. 색인과 질의가 이 표를 똑같이 타서 같은 글자가 된다."
+
+// 키가 없는 절이 빠지면 MissingKeys 로는 안 잡히고 MissingSections 로 잡힌다.
+// 채우면 머리와 그 위 설명 주석이 따라오고, 두 번 돌려도 같다.
+func TestFillMissingAddsEmptySection(t *testing.T) {
+	base := string(Encode(Default("x")))
+	for _, crlf := range []bool{false, true} {
+		text := cutSection(base, "canon", true)
+		if crlf {
+			text = strings.ReplaceAll(text, "\n", "\r\n")
+		}
+		if got := strings.Join(MissingSections(text), " "); got != "canon" {
+			t.Fatalf("crlf=%v : 빠진 절을 %q 로 셌다", crlf, got)
+		}
+		if len(MissingKeys(text)) != 0 {
+			t.Fatalf("crlf=%v : 키는 안 빠졌는데 %v", crlf, MissingKeys(text))
+		}
+		result := fillOnce(text)
+		if left := MissingSections(result); len(left) != 0 {
+			t.Fatalf("crlf=%v : 채운 뒤에도 빠진 절 %v", crlf, left)
+		}
+		if strings.Count(result, canonComment) != 1 || !strings.Contains(result, "[canon]") {
+			t.Fatalf("crlf=%v : 절 머리 주석이 안 따라왔다 :\n%s", crlf, result)
+		}
+		if !keepsOrder(text, result) {
+			t.Fatalf("crlf=%v : 원래 줄이 바뀌었다", crlf)
+		}
+		if crlf && strings.Count(result, "\n") != strings.Count(result, "\r\n") {
+			t.Fatalf("CRLF 파일에 LF 줄을 끼웠다")
+		}
+		if again := fillOnce(result); again != result {
+			t.Fatalf("crlf=%v : 두 번 돌리니 달라졌다", crlf)
+		}
+	}
+}
+
+// 절 머리 주석이 이미 파일에 있으면(머리만 지운 경우) 두 벌이 되지 않는다.
+func TestFillMissingKeepsSingleHeaderComment(t *testing.T) {
+	text := cutSection(string(Encode(Default("x"))), "canon", false)
+	if !strings.Contains(text, canonComment) {
+		t.Fatalf("시험 준비가 틀렸다 : 주석까지 지워졌다")
+	}
+	result := fillOnce(text)
+	if strings.Count(result, canonComment) != 1 || !strings.Contains(result, "\n[canon]") {
+		t.Fatalf("주석이 두 벌이거나 머리가 없다 :\n%s", result)
+	}
+}
+
+// 빠진 키가 있는 절을 절째 붙일 때도 머리 주석이 따라온다 ([quality]).
+func TestInsertMissingSectionCarriesHeaderComment(t *testing.T) {
+	text := cutSection(string(Encode(Default("x"))), "quality", true)
+	result := fillOnce(text)
+	comment := "# 문서 품질 문턱. mem eval --quality 가 규칙을 강등하면 여기 적는다."
+	if strings.Count(result, comment+"\n[quality]") != 1 {
+		t.Fatalf("[quality] 머리 주석이 안 따라왔다 :\n%s", result)
+	}
+	if fillOnce(result) != result || len(MissingKeys(result))+len(MissingSections(result)) != 0 {
+		t.Fatalf("멱등이 아니거나 아직 빠진 것이 있다")
+	}
+}
+
+// 다 있는 파일은 바이트까지 그대로다.
+func TestFillMissingCompleteFileUntouched(t *testing.T) {
+	base := string(Encode(Default("x")))
+	for _, text := range []string{base, strings.ReplaceAll(base, "\n", "\r\n")} {
+		if len(MissingSections(text)) != 0 || fillOnce(text) != text {
+			t.Fatalf("다 있는 파일을 바꿨다")
+		}
+	}
+}
+
+// vocab.toml 에 절을 붙일 때도 기본 글의 머리 주석이 따라오고, 있으면 한 벌만 둔다.
+func TestAppendSectionsCarriesHeaderComment(t *testing.T) {
+	comment := "# 태그로 못 쓰는 낱말. 주제가 아니라 출처라서다 (author·sources 칸이 맡는다)."
+	bodies := map[string][]string{"tag.deny": {"words = [\"ai\"]"}}
+	result := AppendSections("[tag]\n", []string{"tag.deny"}, bodies)
+	if !strings.HasSuffix(result, comment+"\n[tag.deny]\nwords = [\"ai\"]\n") {
+		t.Fatalf("머리 주석이 안 따라왔다 : %q", result)
+	}
+	already := AppendSections("[tag]\n"+comment+"\n", []string{"tag.deny"}, bodies)
+	if strings.Count(already, comment) != 1 {
+		t.Fatalf("주석이 두 벌이 됐다 : %q", already)
+	}
+}

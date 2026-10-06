@@ -8,6 +8,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
+	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
 // relativeDateWords 는 반년 뒤에 거짓말이 되는 말이다 (규칙 B09).
@@ -85,8 +86,8 @@ func checkBody(m *model.Memory, opt Options) []Finding {
 		}
 	}
 	found = append(found, checkTypeBody(m, opt)...)
-	if reason := summaryBodyGap(m); reason != "" {
-		add(RuleSummaryBodyMatch, reason)
+	if one, ok := summaryBodyFinding(m, opt); ok {
+		found = append(found, one)
 	}
 	if word := relativeDate(m.Body); word != "" {
 		add(RuleRelativeDate, fmt.Sprintf("본문에 「%s」 가 있다. 반년 뒤에 읽으면 거짓말이 되니 날짜를 적는다", word))
@@ -209,24 +210,63 @@ func numberedSteps(body string) bool {
 	return len(seen) >= 2
 }
 
+// summaryBodyFinding 은 B08 한 건을 등급까지 매겨 준다.
+//
+// 설정 `[quality] summary_body_reject` 가 꺼져 있으면 오늘과 똑같다 — 글자 그대로
+// 대조 · 어느 종류든 경고. 켜면 이름씨와 본문을 norm·canon 에 태워 견주고,
+// **결정 종류 · add 단계(Gate) · 받친 비율 0.25 미만 · pinned 아님** 일 때만 거절로
+// 올린다. lint(Check)는 켜도 경고 그대로다 (2026-10-07 B05·B08 설계 3-1·3-3).
+func summaryBodyFinding(m *model.Memory, opt Options) (Finding, bool) {
+	on := opt.Config.Quality.SummaryBodyReject
+	reason, share := summaryBodyGap(m, on, opt.Canon)
+	if reason == "" {
+		return Finding{}, false
+	}
+	one := opt.finding(RuleSummaryBodyMatch, m, reason)
+	if on && opt.addStage && one.Level == GradeWarn && summaryBodyRejects(m, share) {
+		one.Level = GradeReject
+	}
+	return one, true
+}
+
+// summaryBodyRejects 는 울린 B08 이 거절감인지다. eval --rule-sample 이 「거절이라
+// 치고」 표본을 뽑을 때도 이 자를 같이 쓴다 — 두 자가 어긋나면 표본이 헛것이 된다.
+// `--pin` 으로 넣는 사용자 확정 기억은 막지 않는다 (윗말로 적은 꼴은 대조로 못 본다).
+func summaryBodyRejects(m *model.Memory, share float64) bool {
+	return m.Type == model.TypeDecision && !m.Pinned && share < summaryRejectShare
+}
+
 // summaryBodyGap 은 요약의 낱말 중 본문에 한 번도 안 나온 것이 절반을 넘는지다
 // (규칙 B08). 요약이 본문과 다른 이야기를 하면 검색은 맞히고 사람은 헛읽는다.
-func summaryBodyGap(m *model.Memory) string {
+// 둘째 값은 받친 비율(본문에 나온 이름씨 / 전체)이다. 안 울리면 빈 글과 -1.
+//
+// norm 이 참이면 이름씨와 본문을 `token.Normalize` 에 태워 한 번 더 견준다 —
+// 「색인을」↔「색인」, canon 표에 줄이 있으면 「SQLite」↔「index.db」 도 같게 본다.
+// 원래 꼴 대조를 먼저 하니 norm 을 켜서 받친 것이 줄지는 않는다.
+func summaryBodyGap(m *model.Memory, norm bool, canon *token.Canon) (string, float64) {
 	// 본문이 아예 없으면 낱말을 세는 것이 뜻이 없다. 「15개 중 15개가 본문에
 	// 없다」는 읽는 쪽을 헷갈리게 한다 — 그때는 body-thin 하나만 말한다.
 	if strings.TrimSpace(m.Body) == "" {
-		return ""
+		return "", -1
 	}
 	words := nounWords(m.Summary)
 	if len(words) < summaryWordFloor {
-		return ""
+		return "", -1
 	}
 	body := strings.ToLower(m.Body)
+	normBody := ""
+	if norm {
+		normBody = token.Normalize(m.Body, canon)
+	}
 	missing := []string{}
 	for _, word := range words {
-		if !containsWord(body, word) {
-			missing = append(missing, word)
+		if containsWord(body, word) {
+			continue
 		}
+		if norm && (containsWord(normBody, word) || normWordIn(normBody, word, canon)) {
+			continue
+		}
+		missing = append(missing, word)
 	}
 	// 절반 초과가 규격이지만 그것만 보면 잘 쓴 요약도 걸린다 — 요약은 본문을
 	// 그대로 베끼는 것이 아니라 풀어 쓰는 자리라서다. 본문이 요약을 받치고
@@ -236,19 +276,30 @@ func summaryBodyGap(m *model.Memory) string {
 	// 요약이 길수록 헐거워져서(이름씨 여덟 개 중 다섯이 없어도 안 울림) 규칙이
 	// 사실상 안 돌았다.
 	backed := len(words) - len(missing)
-	if len(missing)*2 <= len(words) || float64(backed)/float64(len(words)) > summaryBackedShare {
-		return ""
+	share := float64(backed) / float64(len(words))
+	if len(missing)*2 <= len(words) || share > summaryBackedShare {
+		return "", -1
 	}
 	sample := missing
 	if len(sample) > 3 {
 		sample = sample[:3]
 	}
 	return fmt.Sprintf("요약 낱말 %d개 중 %d개가 본문에 없다 (%s …). 요약과 본문이 다른 이야기다",
-		len(words), len(missing), strings.Join(sample, " "))
+		len(words), len(missing), strings.Join(sample, " ")), share
+}
+
+// normWordIn 은 이름씨의 정규화 꼴이 본문 정규화 글에 있는지다. 정규화해서
+// 비면(조사뿐인 낱말 등) 안 받친 것으로 본다.
+func normWordIn(normBody, word string, canon *token.Canon) bool {
+	normed := strings.TrimSpace(token.Normalize(word, canon))
+	return normed != "" && containsWord(normBody, normed)
 }
 
 const (
-	summaryWordFloor = 4
+	// summaryRejectShare 는 B08 을 거절로 올리는 받친 비율 상한이다. 경고 문턱
+	// (summaryBackedShare)보다 훨씬 낮게 둬서 반쯤 받치는 요약은 경고로만 남긴다.
+	summaryRejectShare = 0.25
+	summaryWordFloor   = 4
 	// summaryBackedShare 는 「본문이 요약을 받친다」고 볼 이름씨 비율이다.
 	//
 	// 개수(셋)를 비율로 바꾼 것은 요약이 길수록 옛 자가 헐거워졌기 때문이다.

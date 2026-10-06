@@ -120,6 +120,9 @@ type RuleScore struct {
 	True int `json:"true"`
 	// False 는 대조군에서 켜진 것이다 (눈감기로 한 것은 뺐다).
 	False int `json:"false"`
+	// Unjudged 는 「안 셈」 — 잡음 − 진짜 − 거짓이다. 골든셋이 이 규칙으로 잡으라고도
+	// 깨끗하다고도 안 적은 기억에서 운 것이라 정밀도 어디에도 안 들어간다 (B-05).
+	Unjudged int `json:"unjudged"`
 	// Precision 은 True / (True + False) 다. 셀 수 없으면 -1.
 	Precision float64 `json:"precision"`
 	// Grade 는 정밀도를 보고 매긴 등급이다.
@@ -379,6 +382,7 @@ func ruleScores(set *GoldenSet, fired map[string]map[string]bool, thresholds con
 			}
 			score.False++
 		}
+		score.Unjudged = score.Fired - score.True - score.False
 		if score.True+score.False > 0 {
 			score.Precision = float64(score.True) / float64(score.True+score.False)
 		}
@@ -390,6 +394,10 @@ func ruleScores(set *GoldenSet, fired map[string]map[string]bool, thresholds con
 	}
 	return scores
 }
+
+// FewJudged 는 안 셈이 잡음의 절반을 넘는지다. 그러면 대조군 정밀도 1.000 뒤에
+// 안 센 울음이 더 많이 숨어 있다는 뜻이라 표에 `(표본 적음)` 을 붙인다 (B-05).
+func (s RuleScore) FewJudged() bool { return s.Unjudged*2 > s.Fired }
 
 // gradeFor 는 정밀도를 보고 등급을 매긴다 (설계 결정 14).
 // 정밀도가 낮은 규칙을 거절로 켜 두면 사람이 경고 전체를 무시하기 시작한다.
@@ -413,19 +421,22 @@ func gradeFor(rule Rule, precision float64, thresholds config.QualityConfig) (Gr
 // Table 은 사람이 읽는 표다. `mem eval --quality` 가 그대로 찍는다.
 func (r GoldenReport) Table() string {
 	out := strings.Builder{}
-	out.WriteString("규칙별 정밀도\n")
-	out.WriteString("| 규칙 | 잡음 | 진짜 | 거짓 | 정밀도 | 등급 |\n| --- | --- | --- | --- | --- | --- |\n")
+	out.WriteString("규칙별 대조군 정밀도\n")
+	out.WriteString("| 규칙 | 잡음 | 진짜 | 거짓 | 안 셈 | 대조군 정밀도 | 등급 |\n| --- | --- | --- | --- | --- | --- | --- |\n")
 	for _, one := range r.Rules {
 		precision := "—"
 		if one.Precision >= 0 {
 			precision = fmt.Sprintf("%.3f", one.Precision)
 		}
+		if one.FewJudged() {
+			precision += " (표본 적음)"
+		}
 		grade := "그대로"
 		if one.Grade != "" {
 			grade = string(one.Grade)
 		}
-		fmt.Fprintf(&out, "| %s | %d | %d | %d | %s | %s |\n",
-			one.Rule, one.Fired, one.True, one.False, precision, grade)
+		fmt.Fprintf(&out, "| %s | %d | %d | %d | %d | %s | %s |\n",
+			one.Rule, one.Fired, one.True, one.False, one.Unjudged, precision, grade)
 	}
 	out.WriteString("\n유형별 재현율\n")
 	out.WriteString("| 유형 | 전체 | 잡음 | 재현율 | 기계 규칙군 |\n| --- | --- | --- | --- | --- |\n")

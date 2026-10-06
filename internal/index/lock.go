@@ -38,7 +38,12 @@ const takeoverTries = 8
 const takeoverWaitCap = 20 * time.Millisecond
 
 // removeTries 는 지우기가 막혔을 때 다시 해 보는 횟수다 (Windows 공유 위반).
-const removeTries = 8
+// 쉬는 시간은 1ms 에서 두 배씩 늘고 removeWaitCap 에서 멈춘다. 다 실패해도
+// 합계 약 213ms 이고 (마지막 실패 뒤에는 안 쉰다), 실패할 때만 든다.
+const removeTries = 10
+
+// removeWaitCap 은 지우기 재시도 사이 한 번에 쉬는 최대 시간이다.
+const removeWaitCap = 50 * time.Millisecond
 
 // writeGrace 는 O_EXCL 로 **막 만들어져 아직 한 줄이 안 적힌** 락 파일을 봐
 // 주는 시간이다. 만들기와 쓰기 사이에 읽으면 빈 파일이라, 그냥 「못 읽었으니
@@ -126,12 +131,20 @@ func removeOwn(path string, mine lockInfo) {
 // 여기서 그냥 물러나면 내 락이 남아 90초 동안 남을 막는다.
 func removeRetry(path string) error {
 	var err error
+	wait := time.Millisecond
 	for try := 0; try < removeTries; try++ {
 		err = os.Remove(path)
 		if err == nil || os.IsNotExist(err) {
 			return nil
 		}
-		time.Sleep(time.Millisecond)
+		if try == removeTries-1 {
+			break
+		}
+		time.Sleep(wait)
+		wait *= 2
+		if wait > removeWaitCap {
+			wait = removeWaitCap
+		}
 	}
 	return err
 }
@@ -281,13 +294,8 @@ func readLock(path string) (lockInfo, bool) {
 	return info, info.PID > 0
 }
 
-// abandoned 는 락을 뺏어도 되는지 본다. PID 가 살아 있고 **시작시각까지 같아야**
-// 산 락이다.
-func abandoned(info lockInfo) bool {
-	return abandonedAfter(info, staleAfter)
-}
-
-// abandonedAfter 는 만료를 골라서 보는 판이다. 인수 락은 훨씬 짧게 본다.
+// abandonedAfter 는 락을 뺏어도 되는지 본다. PID 가 살아 있고 **시작시각까지
+// 같아야** 산 락이다. 만료는 골라서 본다 — 인수 락은 훨씬 짧게 본다.
 func abandonedAfter(info lockInfo, limit time.Duration) bool {
 	waited := time.Since(time.Unix(info.Taken, 0))
 	// 시계가 앞선 기계가 남긴 락은 time.Since 가 음수라 영영 안 늙는다.

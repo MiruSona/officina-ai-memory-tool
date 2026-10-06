@@ -53,6 +53,10 @@ const (
 	EmptyTryOther    Key = "empty-try-other"
 	// EmptyHeld 는 보류(review: true)라서 빠진 것이 있을 때다 (뒷정리-3).
 	EmptyHeld Key = "empty-held"
+	// EmptyUndone 은 그 가운데 `mem auto undo` 로 되돌려진 몫이다.
+	// EmptyHeldOnly 는 그것을 뺀 사람 보류 몫이다 (자동 되돌림과 나눠 말할 때만).
+	EmptyUndone   Key = "empty-undone"
+	EmptyHeldOnly Key = "empty-held-only"
 )
 
 // 사다리 칸 꼬리표 (설계 6-6).
@@ -170,6 +174,8 @@ var searchMessages = map[Key]string{
 	EmptyNoWord:      "  · 물어볼 낱말이 없다. 두 글자 이상으로 다시 쳐라.",
 	EmptyStore:       "  · 저장소에 기억이 아직 0건이다. 못 찾은 것이 아니라 넣은 것이 없다. `mem add` 로 하나 넣어 본다.",
 	EmptyHeld:        "  · 보류 %d건은 뺐다 — `--include-held` 로 본다.",
+	EmptyUndone:      "  · 자동 되돌림 %d건은 뺐다 — 되살리기 `mem auto redo --apply` · 보기 `--include-held`.",
+	EmptyHeldOnly:    "  · 보류(승격 대기) %d건은 뺐다 — `--include-held` 로 본다.",
 
 	RungLabel2: "[낱말뺌]",
 	RungLabel3: "[느슨]",

@@ -59,7 +59,7 @@ func hasLinePrefix(lines []string, prefix string) bool {
 func TestSummaryBodyGapSkipsEmptyBody(t *testing.T) {
 	memory := goodMemory()
 	memory.Body = "   \n\n"
-	if reason := summaryBodyGap(memory); reason != "" {
+	if reason, _ := summaryBodyGap(memory, false, nil); reason != "" {
 		t.Fatalf("빈 본문에 낱말을 센다 : %s", reason)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
+	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
 // Finding 은 걸린 것 하나다. 사람에게 보이는 문장은 Reason 이고, 기계가 세는
@@ -170,6 +171,11 @@ type Options struct {
 	// Lookup 은 id 로 저장소 기억 하나를 준다. 모음 기억 근거가 또 모음 기억인지
 	// (B13) 볼 때 쓴다. nil 이면 그 검사를 건너뛴다.
 	Lookup func(id string) *model.Memory
+	// Canon 은 mem.toml [canon] 대표말 표다. B08 이 norm·canon 대조에 쓴다 —
+	// 검색과 같은 표다. nil 이면 norm 만 탄다.
+	Canon *token.Canon
+	// addStage 는 Gate(add 단계)가 부를 때만 참이다. B08 거절은 add 에서만 문다.
+	addStage bool
 }
 
 // types 는 이 저장소의 기억 종류 표다. vocab.toml 이 늘릴 수 있다.
@@ -305,6 +311,7 @@ func warnPatterns(settings config.Config) []string {
 // 있다」 목록까지 찍을 이유가 없고, 저장소를 읽는 값도 아깝다.
 func Gate(m *model.Memory, opt Options) Verdict {
 	opt = opt.normalized()
+	opt.addStage = true
 	fixed, fixes := applyAliases(m, opt.Vocab)
 	verdict := Verdict{Memory: fixed, Fixes: fixes}
 
@@ -491,15 +498,17 @@ func DuplicateFindings(doc *Doc, table Finder, m *model.Memory, opt Options) []F
 		// 경로·이름이 어긋나지 않는다 (설계 결정 30 의 2단). 새 사실이 같이 든
 		// 경우가 많아 막지 않고 경고만 한다.
 		found = append(found, Finding{Rule: RuleDuplicateSoft, Level: opt.grade(RuleDuplicateSoft, m), ID: m.ID,
-			Reason:  fmt.Sprintf("`%s` 와 같은 문장이 들어 있다 (정렬 %.2f). 겹치는 부분을 지우거나 그 기억을 고친다", top.Doc.ID, top.Align),
+			Reason:  fmt.Sprintf("`%s` 와 같은 문장이 들어 있다 (정렬 %.2f · 닮음 %.3f). 겹치는 부분을 지우거나 그 기억을 고친다", top.Doc.ID, top.Align, top.Score),
 			Related: ids, Score: top.Score})
 	case top.Score >= opt.Config.Quality.DupReject && top.Hard:
 		found = append(found, Finding{Rule: RuleDuplicateHard, Level: opt.grade(RuleDuplicateHard, m), ID: m.ID,
-			Reason:  fmt.Sprintf("닮은 기억이 있다 — `%s`", top.Doc.ID),
+			Reason: fmt.Sprintf("닮은 기억이 있다 — `%s` (닮음 %.3f · 막는 문턱 %.3f)",
+				top.Doc.ID, top.Score, opt.Config.Quality.DupReject),
 			Related: ids, Score: top.Score, Next: nextForDuplicate(top.Doc.ID)})
 	case top.Score >= opt.Config.Quality.DupWarn:
 		found = append(found, Finding{Rule: RuleDuplicateSoft, Level: opt.grade(RuleDuplicateSoft, m), ID: m.ID,
-			Reason:  fmt.Sprintf("닮은 기억이 있다 — `%s`. 정말 새 사실인지 보고 넣는다", top.Doc.ID),
+			Reason: fmt.Sprintf("닮은 기억이 있다 — `%s`. 정말 새 사실인지 보고 넣는다 (닮음 %.3f · 경고 문턱 %.3f · 막는 문턱 %.3f)",
+				top.Doc.ID, top.Score, opt.Config.Quality.DupWarn, opt.Config.Quality.DupReject),
 			Related: ids, Score: top.Score})
 	}
 	return found

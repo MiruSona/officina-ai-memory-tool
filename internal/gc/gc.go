@@ -159,13 +159,18 @@ func move(database *index.DB, options Options, result *Result) error {
 		return nil
 	}
 	worker := mover{db: database, store: options.Store, now: options.Now}
+	// 접힌 것도 시간순 기록에 남긴다 (설계 3-5). 항목마다 쓰면 그때마다
+	// log.md 를 통째로 읽으니 모아 두고 끝에 한 번 쓴다 (A8). defer 라 중간에
+	// 실패해도 이미 적용한 항목은 적힌다.
+	var reasons []string
+	defer func() {
+		store.AppendLogLines(options.Store.Dir, options.Now, store.LogFolded, reasons)
+	}()
 	for _, item := range result.Items {
 		if err := worker.applyItem(item); err != nil {
 			return err
 		}
-		// 접힌 것도 시간순 기록에 남긴다 (설계 3-5).
-		store.AppendLog(options.Store.Dir, options.Now, store.LogFolded,
-			foldReason(item))
+		reasons = append(reasons, foldReason(item))
 	}
 	return nil
 }

@@ -28,6 +28,26 @@ func MissingKeys(text string) []string {
 	return missing
 }
 
+// MissingSections 는 기본 mem.toml 에 있는 절 머리 가운데 text 에 없는 것이다.
+// 키가 없는 절([canon] · [scope])은 MissingKeys 로 안 잡혀 따로 센다. 차례는 기본 글
+// 차례다. 머리는 파서와 같은 SectionHeader 로 읽는다 (scanTOMLLines).
+func MissingSections(text string) []string {
+	have := map[string]bool{}
+	for _, one := range scanTOMLLines(strings.Split(text, "\n")) {
+		if one.header {
+			have[one.section] = true
+		}
+	}
+	missing := []string{}
+	for _, one := range scanTOMLLines(strings.Split(string(Encode(Default("x"))), "\n")) {
+		if one.header && !have[one.section] {
+			have[one.section] = true // 같은 머리가 두 번 나와도 한 번만 준다.
+			missing = append(missing, one.section)
+		}
+	}
+	return missing
+}
+
 // tomlKeySet scans `[절]` and `키 = 값` lines only, into a "절.키" set. A
 // section with no keys of its own gives none, so an empty [synonym] or
 // [score] block is skipped on its own.
@@ -279,6 +299,10 @@ type EmbedConfig struct {
 	// (2차 판 · 자리 지킴). 0 이면 안 지킨다 — 그래도 「큰 쪽 하나」 규칙 덕에
 	// 낱말 j 위는 2j-1 위 안에 남는다.
 	MixKeep int
+	// MixGap 은 뜻으로만 올라온 답에 거는 「도드라짐」 문턱이다 — 그 뜻 후보의
+	// 코사인이 좁히기 전 Nearest(mix_top 개) 코사인 가운데값보다 MixGap 이상
+	// 높아야 답이 된다. 0 이면 관문을 끈다(도입 전과 같음). mix_top 20 기준 값이다.
+	MixGap float64
 }
 
 // 뜻 후보 섞기(C2) 기본값 — 2026-10-05 뜻후보섞기측정에서 골랐다.
@@ -294,6 +318,9 @@ const (
 	DefaultEmbedMixFloor  = 0.58
 	DefaultEmbedMixRank   = 3
 	DefaultEmbedMixKeep   = 0
+	// DefaultEmbedMixGap 은 0(관문 끔)이다 — 값은 측정으로 고른다 (2026-10-07 뜻답전용관문설계).
+	// 0 이 아닌 값으로 바꾸면 Default() 의 Embed 칸에 MixGap 도 적어야 한다.
+	DefaultEmbedMixGap = 0.0
 )
 
 // QualityConfig 는 문서 품질 장치의 문턱이다 (설계 3-2 · 품질규칙표).
@@ -316,6 +343,10 @@ type QualityConfig struct {
 	// 대조군 거짓 경보 3건(G6② 깨짐) · 실데이터 40건 오거절 15% 가 나와
 	// 「문서 품질 > 검색」 원칙대로 껐다. 검색 재정렬은 이 스위치와 무관하다.
 	DupVectors bool
+	// SummaryBodyReject 는 B08(요약↔본문)을 결정 종류 add 에서 거절로 올릴지다.
+	// **기본 꺼짐** — 꺼져 있으면 오늘처럼 어느 종류든 경고만 한다.
+	// 켜고 끄는 것이 이 한 줄이라 되돌리기에 자료 옮기기가 없다 (2026-10-07 B05·B08 설계 3-2).
+	SummaryBodyReject bool
 	// PrecisionDemote·PrecisionOff 는 규칙을 스스로 강등·차단하는 선이다.
 	// 정밀도가 낮은 규칙을 켜 두면 사람이 경고 전체를 무시하기 시작한다
 	// (설계 결정 14).
@@ -655,9 +686,11 @@ func Parse(text string) (Config, error) {
 	config.Embed.MixFloor = file.floatOr("embed", "mix_floor", config.Embed.MixFloor)
 	config.Embed.MixRank = file.intOr("embed", "mix_rank", config.Embed.MixRank)
 	config.Embed.MixKeep = file.intOr("embed", "mix_keep", config.Embed.MixKeep)
+	config.Embed.MixGap = file.floatOr("embed", "mix_gap", config.Embed.MixGap)
 	config.Quality.DupReject = file.floatOr("quality", "dup_reject", config.Quality.DupReject)
 	config.Quality.DupWarn = file.floatOr("quality", "dup_warn", config.Quality.DupWarn)
 	config.Quality.DupVectors = file.boolOr("quality", "dup_vectors", config.Quality.DupVectors)
+	config.Quality.SummaryBodyReject = file.boolOr("quality", "summary_body_reject", config.Quality.SummaryBodyReject)
 	config.Quality.SimhashHamming = file.intOr("quality", "simhash_hamming", config.Quality.SimhashHamming)
 	config.Quality.BodyMinLines = file.intOr("quality", "body_min_lines", config.Quality.BodyMinLines)
 	config.Quality.BodyWarn = file.intOr("quality", "body_warn", config.Quality.BodyWarn)
@@ -793,11 +826,15 @@ func Encode(config Config) []byte {
 	writeFloat(&out, "mix_floor", config.Embed.MixFloor)
 	writeInt(&out, "mix_rank", config.Embed.MixRank)
 	writeInt(&out, "mix_keep", config.Embed.MixKeep)
+	out.WriteString("# mix_gap 은 뜻으로만 올라온 답의 도드라짐 문턱이다 (코사인 − 뜻 후보 가운데값). 0 이면 끔.\n")
+	writeFloat(&out, "mix_gap", config.Embed.MixGap)
 	out.WriteString("\n# 문서 품질 문턱. mem eval --quality 가 규칙을 강등하면 여기 적는다.\n[quality]\n")
 	writeFloat(&out, "dup_reject", config.Quality.DupReject)
 	writeFloat(&out, "dup_warn", config.Quality.DupWarn)
 	out.WriteString("# dup_vectors 는 중복 판정에 임베딩을 쓸지다. 기본 꺼짐 (설계 18-7).\n")
 	writeBool(&out, "dup_vectors", config.Quality.DupVectors)
+	out.WriteString("# summary_body_reject 는 B08 을 결정 종류 add 에서 거절로 올릴지다. 기본 꺼짐.\n")
+	writeBool(&out, "summary_body_reject", config.Quality.SummaryBodyReject)
 	writeInt(&out, "simhash_hamming", config.Quality.SimhashHamming)
 	writeInt(&out, "body_min_lines", config.Quality.BodyMinLines)
 	writeInt(&out, "body_warn", config.Quality.BodyWarn)
@@ -943,6 +980,9 @@ func (c Config) Problems() []string {
 		if pair.value < 0 || pair.value > 1 {
 			out = append(out, pair.name+" 은 0~1 이어야 한다.")
 		}
+	}
+	if c.Embed.MixGap < 0 || c.Embed.MixGap > 1 {
+		out = append(out, "[embed] mix_gap 은 0~1 이어야 한다.")
 	}
 	if c.Hook.MaxBytes < 500 {
 		out = append(out, "[hook] max_bytes 가 너무 작다. 500 바이트 아래면 주입할 것이 없다.")

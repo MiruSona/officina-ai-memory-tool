@@ -68,7 +68,7 @@ func TestRulesKeepBOM(t *testing.T) {
 	if err := os.WriteFile(path, []byte("\ufeff# 규칙\n\n본문\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ensureRules(path, false); err != nil {
+	if _, err := ensureRules(path, "", false); err != nil {
 		t.Fatal(err)
 	}
 	text := readFile(t, path)
@@ -87,7 +87,7 @@ func TestRulesOldBlockOnlyKeepsCRLF(t *testing.T) {
 	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ensureRules(path, false); err != nil {
+	if _, err := ensureRules(path, "", false); err != nil {
 		t.Fatal(err)
 	}
 	text := readFile(t, path)

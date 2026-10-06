@@ -15,6 +15,7 @@ package main
 // 뒤집었다. facet 은 **쓰인** 태그만 세서 표준에 있지만 아직 안 쓴 태그가 안 보인다.
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -22,6 +23,7 @@ import (
 	"strings"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
+	"github.com/mirusona/officina-ai-memory-tool/internal/fileio"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/index"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
@@ -81,7 +83,14 @@ func editVocab(repository *config.Repository, parsed *options) int {
 		return exitLocked
 	}
 	defer release()
-	vocab := vocabOf(repository)
+	before, err := readVocabBytes(repository)
+	if err != nil {
+		return exitFor(err)
+	}
+	vocab, code := vocabFromBytes(before)
+	if code != exitOK {
+		return code
+	}
 	changed := []string{}
 	if parsed.has("add") {
 		tag, parent := splitPair(parsed.text("add"))
@@ -138,9 +147,8 @@ func editVocab(repository *config.Repository, parsed *options) int {
 		fmt.Println(i18n.T(i18n.TagsScopeAlias, from, to))
 		changed = append(changed, from)
 	}
-	path := filepath.Join(repository.Dir, config.VocabFileName)
-	if err := os.WriteFile(path, config.EncodeVocab(vocab), 0o644); err != nil {
-		return exitFor(err)
+	if code := saveVocab(repository, vocab, before); code != exitOK {
+		return code
 	}
 	fmt.Println(i18n.T(i18n.TagsSaved, strings.Join(changed, " · ")))
 	return exitOK
@@ -168,6 +176,41 @@ func addStandardTag(vocab *config.Vocab, tag, parent string) {
 
 // renameTag 는 기억 파일의 태그를 바꾼다. 기억을 고치는 일이라 --dry-run 이
 // 기본이고, 고칠 때도 inbox 큐로만 간다 (불변조건 2).
+// readVocabBytes 는 vocab.toml 을 고치기 전 바이트 그대로다. 없으면 nil 이다.
+// saveVocab 이 이 바이트와 지금 파일을 맞춰 보고 덮는다.
+func readVocabBytes(repository *config.Repository) ([]byte, error) {
+	data, err := os.ReadFile(filepath.Join(repository.Dir, config.VocabFileName))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	return data, err
+}
+
+// vocabFromBytes 는 읽어 둔 vocab.toml 바이트를 푼다. 깨져 있으면 기본값에
+// 덧쓰지 않고 입력 오류로 끝낸다 — 덮으면 사람이 적은 어휘가 날아간다.
+func vocabFromBytes(before []byte) (config.Vocab, int) {
+	vocab, err := config.ParseVocab(strings.TrimPrefix(string(before), "\ufeff"))
+	if err != nil {
+		return vocab, fail(err.Error())
+	}
+	return vocab, exitOK
+}
+
+// saveVocab 은 vocab.toml 을 원자적으로 덮는다. 읽은 뒤(before) 남이 바꿨으면
+// 아무것도 안 쓰고 알린다. 옛 바이트는 mem init 과 같은 local/backup 에 남긴다.
+func saveVocab(repository *config.Repository, vocab config.Vocab, before []byte) int {
+	path := filepath.Join(repository.Dir, config.VocabFileName)
+	backup := filepath.Join(store.LocalDir(repository.Dir), "backup")
+	err := fileio.ReplaceFile(path, config.EncodeVocab(vocab), before, backup)
+	if errors.Is(err, fileio.ErrChanged) {
+		return exitFor(errors.New(i18n.T(i18n.InitFileRaced, path)))
+	}
+	if err != nil {
+		return exitFor(err)
+	}
+	return exitOK
+}
+
 func renameTag(repository *config.Repository, opened *store.Store, parsed *options) int {
 	from, to := splitPair(parsed.text("rename"))
 	if to == "" {
@@ -221,18 +264,35 @@ func applyRename(repository *config.Repository, opened *store.Store, plans [][3]
 	if err := opened.EnsureDirs(); err != nil {
 		return exitFor(err)
 	}
+	// 기억을 고치기 전에 읽어 둔다. 쓰는 사이에 남이 바꿨으면 덮지 않는다.
+	before, err := readVocabBytes(repository)
+	if err != nil {
+		return exitFor(err)
+	}
+	return applyRenameLocked(repository, opened, plans, from, to, before)
+}
+
+// applyRenameLocked 는 락을 쥔 채로 별칭과 태그 패치를 쓴다. before 는 락 안에서 읽은 vocab.toml 바이트다.
+func applyRenameLocked(repository *config.Repository, opened *store.Store, plans [][3]string, from, to string, before []byte) int {
+	// 다음부터는 옛 이름이 저절로 새 이름이 되게 별칭도 같이 남긴다.
+	// 별칭을 먼저 쓴다 — 패치 뒤에 별칭 저장이 실패하면 태그만 바뀌고 별칭이 없다.
+	// 별칭만 남는 쪽은 해가 없다.
+	vocab, code := vocabFromBytes(before)
+	if code != exitOK {
+		return code
+	}
+	if vocab.TagAlias == nil {
+		vocab.TagAlias = map[string]string{}
+	}
+	vocab.TagAlias[from] = to
+	if code := saveVocab(repository, vocab, before); code != exitOK {
+		return code
+	}
 	for _, plan := range plans {
 		set := map[string]any{"tags": toAny(strings.Split(plan[2], ","))}
 		if _, err := opened.WritePatch(plan[0], set); err != nil {
 			return exitFor(err)
 		}
-	}
-	// 다음부터는 옛 이름이 저절로 새 이름이 되게 별칭도 같이 남긴다.
-	vocab := vocabOf(repository)
-	vocab.TagAlias[from] = to
-	path := filepath.Join(repository.Dir, config.VocabFileName)
-	if err := os.WriteFile(path, config.EncodeVocab(vocab), 0o644); err != nil {
-		return exitFor(err)
 	}
 	fmt.Println(i18n.T(i18n.TagsRenameDone, len(plans)))
 	noteLog(opened, store.LogRenamed, fmt.Sprintf("%s → %s (%d건)", from, to, len(plans)))

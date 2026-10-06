@@ -1,11 +1,14 @@
 package install
 
 import (
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
+	"github.com/mirusona/officina-ai-memory-tool/internal/fileio"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
@@ -50,7 +53,7 @@ func Init(options Options) (*Report, error) {
 				specsFor(true, options.NoSubagentHook, false))
 		})
 	}
-	steps = append(steps, func() (Step, error) { return ensureRules(rulesPath(root), options.DryRun) })
+	steps = append(steps, func() (Step, error) { return ensureRules(rulesPath(root), backupDirOf(root), options.DryRun) })
 	if err := collect(report, steps); err != nil {
 		return report, err
 	}
@@ -88,7 +91,7 @@ func Undo(options Options) (*Report, error) {
 			return removeSettings(GeminiSettingsPath(root), options.DryRun)
 		})
 	}
-	steps = append(steps, func() (Step, error) { return removeRules(rulesPath(root), options.DryRun) })
+	steps = append(steps, func() (Step, error) { return removeRules(rulesPath(root), backupDirOf(root), options.DryRun) })
 	if err := collect(report, steps); err != nil {
 		return report, err
 	}
@@ -168,15 +171,20 @@ func ensureConfig(root string, dryRun bool) (Step, error) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return step, err
 		}
-		return step, os.WriteFile(path, config.Encode(config.Default(filepath.Base(root))), 0o644)
+		return step, fileio.ReplaceFile(path, config.Encode(config.Default(filepath.Base(root))), nil, "")
 	}
 	body := strings.TrimPrefix(string(text), utf8BOM)
-	missing := config.MissingKeys(body)
-	if len(missing) == 0 {
+	// 키가 없는 빈 절([canon] 따위)은 MissingKeys 로 안 잡혀 절 머리도 같이 센다.
+	// FillMissing 은 둘 다 채우니 미리보기와 실제가 같은 수를 낸다.
+	keys, sections := len(config.MissingKeys(body)), len(config.MissingSections(body))
+	if keys+sections == 0 {
 		step.Now, step.Todo = i18n.T(i18n.InitStatePresent), i18n.T(i18n.InitTodoKeep)
 		return step, nil
 	}
-	step.Now = i18n.T(i18n.InitStateKeysMissing, len(missing))
+	step.Now = i18n.T(i18n.InitStateKeysMissing, keys)
+	if sections > 0 {
+		step.Now = i18n.T(i18n.InitStateKeysSectionsMissing, keys, sections)
+	}
 	step.Todo, step.Changed = i18n.T(i18n.InitTodoFillKeys), true
 	if dryRun {
 		return step, nil
@@ -192,18 +200,56 @@ func ensureConfig(root string, dryRun bool) (Step, error) {
 		step.Todo, step.Changed = i18n.T(i18n.InitTodoManual), false
 		return step, err
 	}
-	return step, writeWithBOM(path, strings.HasPrefix(string(text), utf8BOM), filled)
+	return step, writeWithBOM(path, strings.HasPrefix(string(text), utf8BOM), filled, text, backupDirOf(root))
 }
 
 // utf8BOM 은 메모장이 붙이는 머리 표시다. 읽을 때 벗기고 쓸 때 원래대로 붙인다.
 const utf8BOM = "\ufeff"
 
 // writeWithBOM 은 원래 파일에 BOM 이 있었으면(bom) 그대로 붙여 쓴다.
-func writeWithBOM(path string, bom bool, text string) error {
+// before 는 아까 읽어 둔 원래 바이트다 — 그 사이 남이 고쳤으면 안 쓴다.
+func writeWithBOM(path string, bom bool, text string, before []byte, backupDir string) error {
 	if bom {
 		text = utf8BOM + text
 	}
-	return os.WriteFile(path, []byte(text), 0o644)
+	return replaceFile(path, []byte(text), before, backupDir)
+}
+
+// replaceFile 은 남의·사용자 파일을 fileio 로 덮는다. 옛 판은 backupDir 에 한
+// 벌 남는다. 읽은 뒤 파일이 바뀌었으면 어느 파일인지 붙여 한국어 문구로 올린다.
+func replaceFile(path string, data, before []byte, backupDir string) error {
+	err := fileio.ReplaceFile(path, data, before, backupDir)
+	if errors.Is(err, fileio.ErrChanged) {
+		return &racedError{msg: i18n.T(i18n.InitFileRaced, path), err: err}
+	}
+	if err != nil {
+		return fmt.Errorf("%s: %w", path, err)
+	}
+	return nil
+}
+
+// racedError 는 사람에게 보일 문구만 내보내고, 속에는 fileio.ErrChanged 를 지녀
+// 부르는 쪽이 errors.Is 로 계속 가려낼 수 있게 한다.
+type racedError struct {
+	msg string
+	err error
+}
+
+func (e *racedError) Error() string { return e.msg }
+func (e *racedError) Unwrap() error { return e.err }
+
+// backupDirOf 는 init 이 덮기 전 옛 판을 남기는 폴더다. Memory/local/ 은 이미
+// gitignore 대상이라 백업이 커밋되지 않는다.
+func backupDirOf(root string) string {
+	return filepath.Join(root, config.DirName, "local", "backup")
+}
+
+// withBOM 은 readTextBOM 이 벗긴 글을 원래 바이트로 되돌린다.
+func withBOM(text string, bom bool) []byte {
+	if bom {
+		return []byte(utf8BOM + text)
+	}
+	return []byte(text)
 }
 
 // retainHeader 는 mem.toml 에 [retain] 절이 이미 있는지 볼 때 찾는 줄이다.
@@ -227,12 +273,13 @@ func ensureRetainConfig(root string, dryRun bool) (Step, error) {
 	if dryRun {
 		return step, nil
 	}
+	before := text
 	if len(text) == 0 {
 		text = config.Encode(config.Default(filepath.Base(root)))
 	}
 	// 규칙 블록과 같은 붙이기다 — CRLF 파일이면 [retain] 절도 CRLF 로 붙는다.
 	block := config.RetainBlock(config.Default("").Retain)
-	return step, os.WriteFile(path, []byte(appendBlock(string(text), block)), 0o644)
+	return step, replaceFile(path, []byte(appendBlock(string(text), block)), before, backupDirOf(root))
 }
 
 // hasRetainHeader 는 머리를 파서와 같은 함수로 읽는다. `[retain] # 자동` 도 있는
@@ -265,7 +312,7 @@ func ensureVocab(root string, dryRun bool) (Step, error) {
 		if err := os.MkdirAll(dir, 0o755); err != nil {
 			return step, err
 		}
-		return step, os.WriteFile(path, config.EncodeVocab(config.DefaultVocab()), 0o644)
+		return step, fileio.ReplaceFile(path, config.EncodeVocab(config.DefaultVocab()), nil, "")
 	}
 	body := strings.TrimPrefix(string(text), utf8BOM)
 	missing := config.MissingVocabKeys(body)
@@ -290,7 +337,7 @@ func ensureVocab(root string, dryRun bool) (Step, error) {
 		step.Todo, step.Changed = i18n.T(i18n.InitTodoManual), false
 		return step, err
 	}
-	return step, writeWithBOM(path, strings.HasPrefix(string(text), utf8BOM), filled)
+	return step, writeWithBOM(path, strings.HasPrefix(string(text), utf8BOM), filled, text, backupDirOf(root))
 }
 
 // vocabSeeds 는 빠진 절에 넣을 줄이다. **낱말은 하나도 안 더한다** — vocab.toml 은
@@ -321,7 +368,7 @@ func ensureLog(root string, dryRun bool) (Step, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return step, err
 	}
-	return step, os.WriteFile(path, []byte(i18n.InstallLogDoc), 0o644)
+	return step, fileio.ReplaceFile(path, []byte(i18n.InstallLogDoc), nil, "")
 }
 
 // ensureUsageDoc 은 AI 가 읽는 요약 문서를 쓴다. 있으면 절대 안 덮는다 —
@@ -341,7 +388,7 @@ func ensureUsageDoc(root string, dryRun bool) (Step, error) {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return step, err
 	}
-	return step, os.WriteFile(path, []byte(i18n.InstallUsageDoc), 0o644)
+	return step, fileio.ReplaceFile(path, []byte(i18n.InstallUsageDoc), nil, "")
 }
 
 // ensureGitFiles 는 .gitignore 블록과 .gitattributes 두 줄을 한 소단계로 다룬다.
@@ -350,11 +397,12 @@ func ensureGitFiles(root string, dryRun bool) (Step, error) {
 	step := Step{What: gitignoreName + " · " + i18n.InstallAttributeName}
 	ignorePath := filepath.Join(root, gitignoreName)
 	attrPath := filepath.Join(root, i18n.InstallAttributeName)
-	ignoreText, ignoreFound, err := readText(ignorePath)
+	// BOM 표시도 받는다 — 덮을 때 원래 바이트(before)를 되살려 넘기려고다.
+	ignoreText, ignoreBOM, ignoreFound, err := readTextBOM(ignorePath)
 	if err != nil {
 		return step, err
 	}
-	attrText, attrFound, err := readText(attrPath)
+	attrText, attrBOM, attrFound, err := readTextBOM(attrPath)
 	if err != nil {
 		return step, err
 	}
@@ -375,14 +423,16 @@ func ensureGitFiles(root string, dryRun bool) (Step, error) {
 	}
 	if len(needIgnore) > 0 {
 		block := i18n.InstallIgnoreOpen + "\n" + strings.Join(needIgnore, "\n") + "\n" + i18n.InstallIgnoreClose + "\n"
-		if err := os.WriteFile(ignorePath, []byte(appendBlock(ignoreText, block)), 0o644); err != nil {
+		ignoreData := []byte(appendBlock(ignoreText, block))
+		if err := replaceFile(ignorePath, ignoreData, withBOM(ignoreText, ignoreBOM), backupDirOf(root)); err != nil {
 			return step, err
 		}
 	}
 	if len(needAttr) == 0 {
 		return step, nil
 	}
-	return step, os.WriteFile(attrPath, []byte(appendBlock(attrText, strings.Join(needAttr, "\n")+"\n")), 0o644)
+	attrData := []byte(appendBlock(attrText, strings.Join(needAttr, "\n")+"\n"))
+	return step, replaceFile(attrPath, attrData, withBOM(attrText, attrBOM), backupDirOf(root))
 }
 
 // missingLines 는 글에 아직 없는 줄만 골라 준다. 사이 빈칸 수가 달라도 같은
@@ -419,7 +469,7 @@ func rulesPath(root string) string {
 	return agents
 }
 
-func ensureRules(path string, dryRun bool) (Step, error) {
+func ensureRules(path, backupDir string, dryRun bool) (Step, error) {
 	text, bom, found, err := readTextBOM(path)
 	if err != nil {
 		return Step{}, err
@@ -445,10 +495,11 @@ func ensureRules(path string, dryRun bool) (Step, error) {
 	if dryRun {
 		return step, nil
 	}
+	before := withBOM(text, bom)
 	if old {
 		text = cutRulesBlock(text)
 	}
-	return step, writeWithBOM(path, bom, appendBlock(text, i18n.InstallRulesBlock))
+	return step, writeWithBOM(path, bom, appendBlock(text, i18n.InstallRulesBlock), before, backupDir)
 }
 
 // hasRulesBlock 은 표식이든 제목이든 하나만 있으면 이미 붙은 것으로 본다.
@@ -457,7 +508,7 @@ func hasRulesBlock(text string) bool {
 	return strings.Contains(text, i18n.InstallBlockOpen) || strings.Contains(text, i18n.InstallRulesHeading)
 }
 
-func removeRules(path string, dryRun bool) (Step, error) {
+func removeRules(path, backupDir string, dryRun bool) (Step, error) {
 	text, bom, found, err := readTextBOM(path)
 	if err != nil {
 		return Step{}, err
@@ -474,7 +525,7 @@ func removeRules(path string, dryRun bool) (Step, error) {
 	if dryRun {
 		return step, nil
 	}
-	return step, writeWithBOM(path, bom, cutRulesBlock(text))
+	return step, writeWithBOM(path, bom, cutRulesBlock(text), withBOM(text, bom), backupDir)
 }
 
 // cutRulesBlock 은 표식 사이를 통째로 지운다. 표식이 없으면 제목부터 다음

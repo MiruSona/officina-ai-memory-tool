@@ -367,13 +367,13 @@ func TestLiveLockIsNotStolen(t *testing.T) {
 	if !ok || info.PID != os.Getpid() {
 		t.Fatalf("락 파일에 내 PID 가 적혀야 한다 : %+v", info)
 	}
-	if abandoned(info) {
+	if abandonedAfter(info, staleAfter) {
 		t.Fatal("산 락을 죽었다고 보면 안 된다")
 	}
 	// PID 는 같은데 시작시각이 다르면 재사용된 PID 다 (조사E #8).
 	reused := info
 	reused.Started = info.Started + 1
-	if started, known := processStart(os.Getpid()); known && !abandoned(reused) {
+	if started, known := processStart(os.Getpid()); known && !abandonedAfter(reused, staleAfter) {
 		t.Fatalf("PID 재사용을 못 걸렀다 (%d)", started)
 	}
 }

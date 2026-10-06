@@ -26,14 +26,16 @@ const (
 	InitStateOddShape     Key = "init-state-odd-shape"
 	InitStateRaced        Key = "init-state-raced"
 	InitStateKeysMissing  Key = "init-state-keys-missing"
-	InitStateBadConfig    Key = "init-state-bad-config"
-	InitStateBadVocab     Key = "init-state-bad-vocab"
-	InstallStateSelf      Key = "install-state-self"
-	InstallStateSameExe   Key = "install-state-same-exe"
-	InstallStateInPath    Key = "install-state-in-path"
-	InstallStateNotInPath Key = "install-state-not-in-path"
-	InstallStateNoPathAPI Key = "install-state-no-path-api"
-	InstallStateNoBackup  Key = "install-state-no-backup"
+	// InitStateKeysSectionsMissing 은 절이 통째로 빠졌을 때 키와 절을 따로 센다.
+	InitStateKeysSectionsMissing Key = "init-state-keys-sections-missing"
+	InitStateBadConfig           Key = "init-state-bad-config"
+	InitStateBadVocab            Key = "init-state-bad-vocab"
+	InstallStateSelf             Key = "install-state-self"
+	InstallStateSameExe          Key = "install-state-same-exe"
+	InstallStateInPath           Key = "install-state-in-path"
+	InstallStateNotInPath        Key = "install-state-not-in-path"
+	InstallStateNoPathAPI        Key = "install-state-no-path-api"
+	InstallStateNoBackup         Key = "install-state-no-backup"
 )
 
 // 「할 일」 칸.
@@ -75,12 +77,23 @@ const (
 	InstallUndoExeNote  Key = "install-undo-exe-note"
 	HookStatusMessage   Key = "hook-status-message"
 	InitFillChanged     Key = "init-fill-changed"
+	InitFileRaced       Key = "init-file-raced"
 )
 
 // status --doctor 가 쓰는 점검 이름과 안내다 (설계 6-1).
 const (
 	DoctorHookOne      Key = "doctor-hook-one"
 	DoctorHookMissing  Key = "doctor-hook-missing"
+	DoctorRetain       Key = "doctor-retain"
+	DoctorRetainOn     Key = "doctor-retain-on"
+	DoctorRetainOff    Key = "doctor-retain-off"
+	DoctorRetainPart   Key = "doctor-retain-part"
+	DoctorLLM          Key = "doctor-llm"
+	DoctorLLMOn        Key = "doctor-llm-on"
+	DoctorLLMOff       Key = "doctor-llm-off"
+	DoctorLLMBadURL    Key = "doctor-llm-bad-url"
+	DoctorLLMKey       Key = "doctor-llm-key"
+	DoctorLLMNoKey     Key = "doctor-llm-no-key"
 	DoctorAllow        Key = "doctor-allow"
 	DoctorAllowMissing Key = "doctor-allow-missing"
 	DoctorAllowShell   Key = "doctor-allow-shell"
@@ -105,28 +118,30 @@ var installMessages = map[Key]string{
 	InstallStepExe:  "mem.exe",
 	InstallStepPath: "사용자 PATH",
 
-	InitStateMissing:      "없음",
-	InitStatePresent:      "있음",
-	InitStateMissingParts: "%d 가지 빠짐",
-	InitStateNoBlock:      "mem 블록 없음",
-	InitStateHasBlock:     "mem 블록 있음",
-	InitStateOldBlock:     "옛 mem 블록 있음",
-	InitStateHooks:        "훅 %d개 있음 (mem 아님)",
-	InitStateMemHook:      "mem 훅 있음",
-	InitStateMemPartial:   "mem 훅 %d개 있음 · 빠진 mem 훅 %d개",
-	InitStateUnreadable:   "JSON 을 못 읽음",
-	InitStateOddShape:     "hooks 가 아는 모양이 아님",
-	InitStateRaced:        "다른 프로그램이 방금 고침",
-	InitStateKeysMissing:  "키 %d 개 빠짐",
-	InitStateBadConfig:    "mem.toml 을 못 읽음",
-	InitStateBadVocab:     "vocab.toml 을 못 읽음",
-	InitFillChanged:       "%s 에 빠진 키를 끼우면 원래 값이 바뀐다 (%s) — 파일을 안 고쳤다. 빠진 키는 손으로 넣는다.",
-	InstallStateSelf:      "이미 그 자리에서 돌고 있음",
-	InstallStateSameExe:   "같은 판이 있음",
-	InstallStateInPath:    "이미 들어 있음",
-	InstallStateNotInPath: "없음",
-	InstallStateNoPathAPI: "PATH 를 읽지 못함",
-	InstallStateNoBackup:  "되돌릴 백업이 없음",
+	InitStateMissing:             "없음",
+	InitStatePresent:             "있음",
+	InitStateMissingParts:        "%d 가지 빠짐",
+	InitStateNoBlock:             "mem 블록 없음",
+	InitStateHasBlock:            "mem 블록 있음",
+	InitStateOldBlock:            "옛 mem 블록 있음",
+	InitStateHooks:               "훅 %d개 있음 (mem 아님)",
+	InitStateMemHook:             "mem 훅 있음",
+	InitStateMemPartial:          "mem 훅 %d개 있음 · 빠진 mem 훅 %d개",
+	InitStateUnreadable:          "JSON 을 못 읽음",
+	InitStateOddShape:            "hooks 가 아는 모양이 아님",
+	InitStateRaced:               "다른 프로그램이 방금 고침",
+	InitStateKeysMissing:         "키 %d 개 빠짐",
+	InitStateKeysSectionsMissing: "키 %d 개 · 절 %d 개 빠짐",
+	InitStateBadConfig:           "mem.toml 을 못 읽음",
+	InitStateBadVocab:            "vocab.toml 을 못 읽음",
+	InitFillChanged:              "%s 에 빠진 키를 끼우면 원래 값이 바뀐다 (%s) — 파일을 안 고쳤다. 빠진 키는 손으로 넣는다.",
+	InitFileRaced:                "%s : 쓰는 사이에 다른 프로그램이 파일을 바꿨다 — 아무것도 안 바꿨다. 다시 돌려라.",
+	InstallStateSelf:             "이미 그 자리에서 돌고 있음",
+	InstallStateSameExe:          "같은 판이 있음",
+	InstallStateInPath:           "이미 들어 있음",
+	InstallStateNotInPath:        "없음",
+	InstallStateNoPathAPI:        "PATH 를 읽지 못함",
+	InstallStateNoBackup:         "되돌릴 백업이 없음",
 
 	InitTodoCreate:         "만듦",
 	InitTodoKeep:           "그대로",
@@ -172,6 +187,16 @@ var installMessages = map[Key]string{
 
 	DoctorHookOne:      "%s 훅",
 	DoctorHookMissing:  "훅이 안 붙어 있다. `mem init` 을 한 번 돌려라.",
+	DoctorRetain:       "자동 쌓기 훅",
+	DoctorRetainOn:     "켜짐 (%s %d/%d)",
+	DoctorRetainOff:    "꺼짐 — 켜려면 mem init --retain",
+	DoctorRetainPart:   "일부만 붙음 %d/%d — mem init --retain 다시",
+	DoctorLLM:          "llm 판정(R3)",
+	DoctorLLMOn:        "켜짐 — %s · %s",
+	DoctorLLMOff:       "꺼짐 — %s 없음",
+	DoctorLLMBadURL:    "주소 형식 이상",
+	DoctorLLMKey:       "키 있음",
+	DoctorLLMNoKey:     "키 없음",
 	DoctorAllow:        "auto 모드 allow 규칙",
 	DoctorAllowMissing: "규칙 %d개가 빠졌다. 없으면 mem 을 부를 때마다 분류기를 탄다. `mem init` 을 돌려라.",
 	DoctorAllowShell:   "PowerShell 꼴 %d개가 없다. Windows 의 Claude Code 는 PowerShell 도구로 명령을 돌려서 Bash 꼴만으로는 안 맞는다. `mem init` 을 다시 돌려라.",

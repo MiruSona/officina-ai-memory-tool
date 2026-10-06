@@ -22,6 +22,12 @@ const (
 	JudgeCached         Key = "judge-cached"
 	JudgeYes            Key = "judge-yes"
 	JudgeNo             Key = "judge-no"
+	JudgeCleanUsage     Key = "judge-clean-usage"
+	JudgeCleanPlan      Key = "judge-clean-plan"
+	JudgeCleanDone      Key = "judge-clean-done"
+	JudgeCleanNothing   Key = "judge-clean-nothing"
+	JudgeCleanFailed    Key = "judge-clean-failed"
+	JudgeCleanLinked    Key = "judge-clean-linked"
 )
 
 var llmMessages = map[Key]string{
@@ -29,7 +35,7 @@ var llmMessages = map[Key]string{
 	LLMBadTimeout:       "llm.toml 의 timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
 	AutoJudgeSkippedWhy: "근거 지지 판정(R3)을 못 받아 건너뛰었다 (%s).",
 
-	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl>",
+	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> | mem judge clean [--older <일>] [--apply]",
 	JudgeSupportUsage:   "support 는 --evidence 와 --claim 을 같이 주거나, --file 하나만 준다.",
 	JudgeOff:            "LLM 주소 없음 — 건너뜀 (설정 파일 : %s)",
 	JudgeConfigLine:     "설정 파일 : %s\n주소 : %s\n판정 프로필 : %s · 생성 프로필 : %s\n제한 시간 : %dms · 키 : %s",
@@ -44,6 +50,12 @@ var llmMessages = map[Key]string{
 	JudgeCached:         " · 기록에서 읽음",
 	JudgeYes:            "있음",
 	JudgeNo:             "없음",
+	JudgeCleanUsage:     "쓰는 법 : mem judge clean [--older <일>] [--apply] [--json] — --older 는 1 이상 정수다.",
+	JudgeCleanPlan:      "지울 판정 기록 %d건 (%d일 넘음 · %s) — --apply 로 지운다.",
+	JudgeCleanDone:      "판정 기록 %d건을 지웠다.",
+	JudgeCleanNothing:   "%d일 넘은 판정 기록이 없다.",
+	JudgeCleanFailed:    "판정 기록 %d건은 못 지웠다 (다른 프로그램이 쥐고 있을 수 있다).",
+	JudgeCleanLinked:    "판정 기록 폴더가 링크다. 따라가지 않고 멈춘다 : %s",
 }
 
 func init() {
@@ -55,9 +67,11 @@ func init() {
 쓰는 법 : mem judge config [--json]
           mem judge support --evidence <근거> --claim <주장> [--fresh] [--json]
           mem judge support --file <쌍.jsonl> [--fresh]
+          mem judge clean [--older <일>] [--apply] [--json]
   config            이 기계의 llm.toml 자리와 읽은 값을 보인다. 서버에는 안 묻는다. 키는 있음/없음만
   support           (근거, 주장) 쌍이 지지(A)·반대(B)·무관(C) 중 무엇인지 글자 하나로 판정한다
                     add --origin 의 R3 와 같은 물음 · 같은 판정 기록(Memory/local/judge/)을 쓴다
+  clean             판정 기록 중 --older 일(기본 30) 넘은 것을 고른다. 미리보기가 기본 · --apply 로 지운다
   --evidence <글>   근거 문장
   --claim <글>      주장 (자동 관문에서는 기억 요약)
   --file <파일>     한 줄에 {"id","evidence","claim","want"} 인 jsonl. 순차로 묻고 줄마다 JSON 을 낸다

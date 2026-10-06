@@ -85,13 +85,15 @@ const (
 	StatusUnindexed2   Key = "status-unindexed2"
 	StatusInstallLine  Key = "status-install-line"
 	StatusConfigLine   Key = "status-config-line"
-	StatusUsageLine    Key = "status-usage-line"
-	StatusUsageNone    Key = "status-usage-none"
-	StatusYes          Key = "status-yes"
-	StatusNo           Key = "status-no"
-	StatusNone         Key = "status-none"
-	StatusBadPattern   Key = "status-bad-pattern"
-	StatusHealthBad    Key = "status-health-bad"
+	// StatusConfigLineSections 는 빠진 절이 있을 때 키와 절을 따로 센다.
+	StatusConfigLineSections Key = "status-config-line-sections"
+	StatusUsageLine          Key = "status-usage-line"
+	StatusUsageNone          Key = "status-usage-none"
+	StatusYes                Key = "status-yes"
+	StatusNo                 Key = "status-no"
+	StatusNone               Key = "status-none"
+	StatusBadPattern         Key = "status-bad-pattern"
+	StatusHealthBad          Key = "status-health-bad"
 )
 
 // Version 은 이 exe 의 판이다. status 의 「설치」 줄이 찍는다.
@@ -169,21 +171,22 @@ var qualityMessages = map[Key]string{
 	GCIndexRan:   "이어서 정리했다 :",
 	GCIndexSkip:  "정리는 건너뛰었다 (--no-gc).",
 
-	StatusRepoLine:     "저장소 : %s%s",
-	StatusCountLine:    "기억   : %d건 (%s)",
-	StatusStateLine:    "         고정 %d · 무효 %d · hot %d / warm %d / cold %d",
-	StatusIndexLine2:   "색인   : index.db %.1fMB · 마지막 색인 %s · 마지막 gc %s · 미승격 %d · 실패(bad) %d",
-	StatusIndexMissing: "색인   : 아직 없다 (`mem index` 를 돌려라) · 미승격 %d",
-	StatusUnindexed2:   "         색인 안 된 파일 %d건 : %s   ← 규격을 벗어났다(자리가 store/YYYY/MM/ 이 아니거나 등). `mem index` 출력에서 이유를 본다",
-	StatusInstallLine:  "설치   : mem %s · 규격 판 %d · DB 판 %d · PATH 에 잡힘(%s) · SessionStart 훅 붙음(%s)",
-	StatusConfigLine:   "설정   : mem.toml 에 빠진 키 %d · 비밀정보 패턴 %d개 정상%s · 동의어 %d쌍 · 불용어 %d개",
-	StatusUsageLine:    "사용   : %s",
-	StatusUsageNone:    "아직 셈이 없다 (local/hits.jsonl)",
-	StatusYes:          "O",
-	StatusNo:           "X",
-	StatusNone:         "없음",
-	StatusBadPattern:   " · 못 읽는 패턴 %d개",
-	StatusHealthBad:    "색인 건강에 문제가 있다. 위 줄을 봐라.",
+	StatusRepoLine:           "저장소 : %s%s",
+	StatusCountLine:          "기억   : %d건 (%s)",
+	StatusStateLine:          "         고정 %d · 무효 %d · hot %d / warm %d / cold %d",
+	StatusIndexLine2:         "색인   : index.db %.1fMB · 마지막 색인 %s · 마지막 gc %s · 미승격 %d · 실패(bad) %d",
+	StatusIndexMissing:       "색인   : 아직 없다 (`mem index` 를 돌려라) · 미승격 %d",
+	StatusUnindexed2:         "         색인 안 된 파일 %d건 : %s   ← 규격을 벗어났다(자리가 store/YYYY/MM/ 이 아니거나 등). `mem index` 출력에서 이유를 본다",
+	StatusInstallLine:        "설치   : mem %s · 규격 판 %d · DB 판 %d · PATH 에 잡힘(%s) · SessionStart 훅 붙음(%s)",
+	StatusConfigLine:         "설정   : mem.toml 에 빠진 키 %d · 비밀정보 패턴 %d개 정상%s · 동의어 %d쌍 · 불용어 %d개",
+	StatusConfigLineSections: "설정   : mem.toml 에 빠진 키 %d · 절 %d · 비밀정보 패턴 %d개 정상%s · 동의어 %d쌍 · 불용어 %d개",
+	StatusUsageLine:          "사용   : %s",
+	StatusUsageNone:          "아직 셈이 없다 (local/hits.jsonl)",
+	StatusYes:                "O",
+	StatusNo:                 "X",
+	StatusNone:               "없음",
+	StatusBadPattern:         " · 못 읽는 패턴 %d개",
+	StatusHealthBad:          "색인 건강에 문제가 있다. 위 줄을 봐라.",
 }
 
 func init() {

@@ -18,7 +18,7 @@ func TestLongHeldOwnLockIsNotStale(t *testing.T) {
 	started, _ := processStart(os.Getpid())
 	long := lockInfo{PID: os.Getpid(), Started: started,
 		Taken: time.Now().Add(-10 * time.Minute).Unix(), Host: host}
-	if abandoned(long) {
+	if abandonedAfter(long, staleAfter) {
 		t.Fatal("몇 분째 도는 내 락을 죽었다고 봤다")
 	}
 	dir := t.TempDir()

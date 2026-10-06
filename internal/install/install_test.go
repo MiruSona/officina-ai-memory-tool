@@ -368,3 +368,29 @@ func TestOddSettingsIsLeftAlone(t *testing.T) {
 		t.Error("모르는 모양이라고 알리지 않았다")
 	}
 }
+
+// init 이 남의 파일을 덮으면 옛 판이 Memory/local/backup/ 에 한 벌 남는다.
+// 메모장이 붙인 BOM 과 CRLF 줄 끝은 덮은 뒤에도 그대로다.
+func TestInitLeavesBackup(t *testing.T) {
+	root := newProject(t)
+	agents := filepath.Join(root, "AGENTS.md")
+	old := utf8BOM + "# 우리 규칙\r\n\r\n- 하나\r\n"
+	if err := os.WriteFile(agents, []byte(old), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	mustInit(t, Options{Root: root})
+	backup := filepath.Join(root, config.DirName, "local", "backup", "AGENTS.md.mem-bak")
+	if got := readFile(t, backup); string(got) != old {
+		t.Fatalf("백업에 옛 바이트가 없다 : %q", got)
+	}
+	got := string(readFile(t, agents))
+	if !strings.HasPrefix(got, utf8BOM+"# 우리 규칙\r\n") {
+		t.Fatalf("BOM · 첫 줄이 안 지켜졌다 : %q", got[:20])
+	}
+	if strings.Contains(strings.ReplaceAll(got, "\r\n", ""), "\n") {
+		t.Fatal("CRLF 파일에 LF 줄 끝이 섞였다")
+	}
+	if !strings.Contains(toLF(got), i18n.InstallRulesBlock) {
+		t.Fatal("규칙 블록이 안 붙었다")
+	}
+}

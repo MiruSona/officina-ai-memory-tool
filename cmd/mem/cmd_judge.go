@@ -10,8 +10,11 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strconv"
 	"strings"
+	"time"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
@@ -19,8 +22,8 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
-var judgeBools = []string{"json", "fresh"}
-var judgeValues = []string{"evidence", "claim", "file", "repo"}
+var judgeBools = []string{"json", "fresh", "apply"}
+var judgeValues = []string{"evidence", "claim", "file", "repo", "older"}
 
 // judgeDirName 은 판정 기록 폴더다. Memory/local 아래라 git 에 안 들어간다.
 const judgeDirName = "judge"
@@ -48,6 +51,8 @@ func runJudge(argv []string) int {
 		return judgeConfig(parsed)
 	case "support":
 		return judgeSupport(parsed)
+	case "clean":
+		return judgeClean(parsed)
 	}
 	return fail(i18n.T(i18n.JudgeUsage))
 }
@@ -69,8 +74,105 @@ func judgeOf(repository *config.Repository, settings config.LLMConfig) *llm.Judg
 		return nil
 	}
 	scanner := scannerFor(repository.Config.Secret)
-	return &llm.Judge{Client: client, Dir: filepath.Join(store.LocalDir(repository.Dir), judgeDirName),
+	return &llm.Judge{Client: client, Dir: judgeDir(repository),
 		Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
+}
+
+// judgeDir 는 판정 기록 폴더다. 판정기와 clean 이 **같은 식 하나**로만 구한다.
+func judgeDir(repository *config.Repository) string {
+	return filepath.Join(store.LocalDir(repository.Dir), judgeDirName)
+}
+
+// judgeCleanDays 는 clean 의 기본 나이(일)다.
+const judgeCleanDays = 30
+
+// judgeRecordName 은 판정 기록 파일 이름이다 — sha256 hex 64자 + .json (llm.hashOf).
+var judgeRecordName = regexp.MustCompile(`^[0-9a-f]{64}\.json$`)
+
+// judgeCleanJSON 은 `judge clean --json` 이다.
+type judgeCleanJSON struct {
+	Dir     string `json:"dir"`
+	Older   int    `json:"older_days"`
+	Apply   bool   `json:"apply"`
+	Count   int    `json:"count"`
+	Bytes   int64  `json:"bytes"`
+	Removed int    `json:"removed"`
+	Failed  int    `json:"failed"`
+}
+
+// judgeClean 은 오래된 판정 기록을 고르고, --apply 일 때만 지운다.
+//
+// 경로 감옥 : 폴더가 링크면 멈춘다 · 한 단계만 읽는다 · 이름이 해시 꼴인 일반
+// 파일만 고른다 · 지우는 경로는 filepath.Join(dir, 이름) 하나뿐이다.
+func judgeClean(parsed *options) int {
+	days := judgeCleanDays
+	if parsed.has("older") {
+		value, err := strconv.Atoi(strings.TrimSpace(parsed.text("older")))
+		if err != nil || value < 1 {
+			return fail(i18n.T(i18n.JudgeCleanUsage))
+		}
+		days = value
+	}
+	repository, _, err := openStore(parsed)
+	if err != nil {
+		return exitFor(err)
+	}
+	dir := judgeDir(repository)
+	row := judgeCleanJSON{Dir: dir, Older: days, Apply: parsed.flags["apply"]}
+	info, err := os.Lstat(dir)
+	if err == nil && info.Mode()&os.ModeSymlink != 0 {
+		fmt.Fprintln(os.Stderr, i18n.T(i18n.JudgeCleanLinked, dir))
+		return exitSecurity
+	}
+	targets := []string{}
+	if err == nil && info.IsDir() {
+		entries, _ := os.ReadDir(dir)
+		cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+		for _, entry := range entries {
+			if !entry.Type().IsRegular() || !judgeRecordName.MatchString(entry.Name()) {
+				continue
+			}
+			fileInfo, err := entry.Info()
+			if err != nil || !fileInfo.ModTime().Before(cutoff) {
+				continue
+			}
+			targets = append(targets, filepath.Join(dir, entry.Name()))
+			row.Bytes += fileInfo.Size()
+		}
+	}
+	row.Count = len(targets)
+	if row.Apply {
+		for _, target := range targets {
+			if os.Remove(target) != nil {
+				row.Failed++
+				continue
+			}
+			row.Removed++
+		}
+	}
+	if parsed.flags["json"] {
+		printJSON(row)
+	} else {
+		printJudgeClean(row)
+	}
+	if row.Failed > 0 {
+		return exitCheck
+	}
+	return exitOK
+}
+
+func printJudgeClean(row judgeCleanJSON) {
+	switch {
+	case row.Count == 0:
+		fmt.Println(i18n.T(i18n.JudgeCleanNothing, row.Older))
+	case !row.Apply:
+		fmt.Println(i18n.T(i18n.JudgeCleanPlan, row.Count, row.Older, humanBytes(row.Bytes)))
+	default:
+		fmt.Println(i18n.T(i18n.JudgeCleanDone, row.Removed))
+		if row.Failed > 0 {
+			fmt.Fprintln(os.Stderr, i18n.T(i18n.JudgeCleanFailed, row.Failed))
+		}
+	}
 }
 
 // judgeConfigJSON 은 `judge config --json` 이다. 키는 있는지만 알린다.

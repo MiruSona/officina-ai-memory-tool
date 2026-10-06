@@ -11,7 +11,7 @@ import (
 )
 
 var evalBools = []string{"json", "hard-only", "no-index", "quality", "tune-dup", "search"}
-var evalValues = []string{"golden", "repo"}
+var evalValues = []string{"golden", "repo", "rule-sample", "rule-score", "n", "seed", "out"}
 
 func init() {
 	register(command{name: "eval", run: runEval, bools: evalBools, values: evalValues})
@@ -22,6 +22,13 @@ func runEval(argv []string) int {
 	parsed, err := parseOptions(argv, evalBools, evalValues)
 	if err != nil {
 		return fail(err.Error())
+	}
+	// 규칙 하나의 실기억 표본 정밀도 (B-05 · B08 설계 2절). 표본은 늘 그 규칙을 거절 등급이라 치고 뽑는다 — 따로 켜는 플래그는 없다.
+	if parsed.text("rule-sample") != "" {
+		return runEvalRuleSample(parsed)
+	}
+	if parsed.text("rule-score") != "" {
+		return runEvalRuleScore(parsed)
 	}
 	if parsed.flags["quality"] || parsed.flags["tune-dup"] {
 		return runEvalQuality(parsed)
@@ -88,7 +95,7 @@ func runEvalQuality(parsed *options) int {
 	// log.md·사용법.md 를 기억으로 읽다가 죽는다 (리뷰 B).
 	options := eval.QualityOptions{Golden: parsed.text("golden"), Store: opened.StoreDir(),
 		Config: repository.Config, Vocab: vocabOf(repository), Now: time.Now(),
-		Near: nearOf(vectorsFor(opened.Dir))}
+		Near: nearOf(vectorsFor(opened.Dir)), Canon: canonOf(repository)}
 	if options.Golden == "" {
 		options.Golden = eval.QualityPath(opened.Dir)
 	}

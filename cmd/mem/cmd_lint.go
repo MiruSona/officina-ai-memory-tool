@@ -41,7 +41,7 @@ func runLint(argv []string) int {
 		return fail(fmt.Sprintf("모르는 규칙 이름 : %s", rule))
 	}
 	report, err := lint.Run(lint.Options{Store: opened, Config: repository.Config,
-		Vocab: vocabOf(repository), Demoted: demotedOf(repository),
+		Vocab: vocabOf(repository), Demoted: demotedOf(repository), Canon: canonOf(repository),
 		Fix: parsed.flags["fix"], Rule: rule,
 		Synonym: parsed.flags["synonym"], NoGit: parsed.flags["no-git"],
 		Near: nearOf(vectorsFor(repository.Dir))})

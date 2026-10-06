@@ -26,12 +26,12 @@ func TestRulesBlockIdempotentAcrossLineEndings(t *testing.T) {
 		if err := os.WriteFile(path, []byte(test.text), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		if _, err := ensureRules(path, false); err != nil {
+		if _, err := ensureRules(path, "", false); err != nil {
 			t.Fatal(err)
 		}
 		once := readFile(t, path)
 		for round := 0; round < 2; round++ {
-			step, err := ensureRules(path, false)
+			step, err := ensureRules(path, "", false)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -59,7 +59,7 @@ func TestRulesBlockCRLFCheckoutKeeps(t *testing.T) {
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	step, err := ensureRules(path, false)
+	step, err := ensureRules(path, "", false)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -77,7 +77,7 @@ func TestRulesBlockFollowsCRLF(t *testing.T) {
 	if err := os.WriteFile(path, []byte("# 규칙\r\n첫 줄\r\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := ensureRules(path, false); err != nil {
+	if _, err := ensureRules(path, "", false); err != nil {
 		t.Fatal(err)
 	}
 	text := readFile(t, path)

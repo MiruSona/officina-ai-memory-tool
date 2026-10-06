@@ -43,6 +43,7 @@ func Doctor(root string) []Check {
 func DoctorAt(root, memory string) []Check {
 	checks := hookChecks(root)
 	return append(checks,
+		retainCheck(root),
 		allowCheck(root),
 		trustCheck(),
 		pathCheck(),
@@ -91,6 +92,33 @@ func hookChecks(root string) []Check {
 		checks = append(checks, check)
 	}
 	return checks
+}
+
+// retainCheck 는 `init --retain` 의 자동 쌓기 훅(retainSpecs)이 몇 개 붙었는지 본다.
+// 고를 수 있는 기능이라 하나도 없으면 「꺼짐」으로 괜찮다. 일부만 붙은 것만 실패다 —
+// 반쯤 붙으면 세션 끝·압축 중 어느 한쪽만 쌓여 빈자리가 조용히 생긴다.
+func retainCheck(root string) Check {
+	check := Check{What: i18n.T(i18n.DoctorRetain)}
+	settings, _, existed, err := loadSettings(ClaudeSettingsPath(root))
+	attached := 0
+	events := make([]string, 0, len(retainSpecs))
+	for _, spec := range retainSpecs {
+		events = append(events, spec.event)
+		if err == nil && existed && hasMemHook(eventList(settings, spec.event), spec.action) {
+			attached++
+		}
+	}
+	switch attached {
+	case len(retainSpecs):
+		check.OK = true
+		check.Note = i18n.T(i18n.DoctorRetainOn, strings.Join(events, "·"), attached, len(retainSpecs))
+	case 0:
+		check.OK = true
+		check.Note = i18n.T(i18n.DoctorRetainOff)
+	default:
+		check.Note = i18n.T(i18n.DoctorRetainPart, attached, len(retainSpecs))
+	}
+	return check
 }
 
 // allowCheck 는 auto 모드 allow 규칙이 다 들어 있는지다. 없으면 mem 을 부를

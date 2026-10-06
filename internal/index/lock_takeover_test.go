@@ -185,3 +185,32 @@ func TestLiveTakeoverLockBlocksClearing(t *testing.T) {
 		t.Fatalf("죽은 락에 손댔다 : %q %v", string(left), err)
 	}
 }
+
+// 남이 락 파일을 읽느라 30ms 쥐고 있어도 removeRetry 는 기다렸다가 지워야
+// 한다. 예전 1ms × 8 은 8ms 만에 물러났다. Windows 만 지우기가 막힌다.
+func TestRemoveRetryWaitsForReader(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("열린 파일 지우기가 막히는 것은 Windows 뿐이다")
+	}
+	path := lockPath(t.TempDir())
+	if err := os.WriteFile(path, []byte("1 1 1 h\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := os.Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		reader.Close()
+		close(done)
+	}()
+	if err := removeRetry(path); err != nil {
+		t.Fatalf("읽는 사람이 놓은 뒤에도 못 지웠다 : %v", err)
+	}
+	<-done
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("파일이 남았다 : %v", err)
+	}
+}

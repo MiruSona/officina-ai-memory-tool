@@ -13,6 +13,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 	"github.com/mirusona/officina-ai-memory-tool/internal/retain"
+	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
@@ -171,6 +172,7 @@ func runAddAuto(parsed *options, repository *config.Repository, opened *store.St
 	warnNote(verdict)
 	fixNote(verdict)
 	printAuto(auto)
+	noteWarnings(opened, auto)
 	request = markOrigin(applyVerdict(request, verdict), auto)
 	var code int
 	if parsed.flags["json"] {
@@ -219,11 +221,23 @@ func rejectAuto(opened *store.Store, verdict quality.Verdict, auto autoAdd) int 
 		}
 		noteLog(opened, store.LogRejected, i18n.T(i18n.AutoLogRejected, auto.Origin, one.Rule, one.Reason))
 	}
+	noteWarnings(opened, auto)
 	if verdict.Rejected() {
 		rules = append(rules, verdict.Rules()...)
 	}
 	fmt.Println(i18n.T(i18n.AddAutoRejected, strings.Join(rules, " ")))
 	return code
+}
+
+// warnClip 은 log.md 경고 한 줄의 글자 상한이다 — 판정기 오류 글이 길게 붙을 수 있다.
+const warnClip = 160
+
+// noteWarnings 는 막지 않은 알림(R3 건너뜀 등)을 log.md 에 `경고 자동 · <origin> · <알림>` 으로 남긴다.
+// stderr 로만 나가면 `mem auto report` 가 셀 수 없다. 글은 한 줄로 누르고 잘라 비밀값·줄바꿈이 새지 않게 한다.
+func noteWarnings(opened *store.Store, auto autoAdd) {
+	for _, warning := range auto.Result.Warnings {
+		noteLog(opened, store.LogWarned, i18n.T(i18n.AutoLogWarned, auto.Origin, safe.Clip(safe.OneLine(warning), warnClip)))
+	}
 }
 
 // printAuto 는 자동 관문 결과를 찍는다. 통과면 stderr, 거절이면 stdout 이다 —
