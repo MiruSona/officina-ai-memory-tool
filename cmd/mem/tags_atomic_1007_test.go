@@ -33,7 +33,7 @@ func TestTagsAddLeavesBackup(t *testing.T) {
 }
 
 // 메모장이 붙인 BOM 으로 시작하는 vocab.toml 도 tags --add 가 고친다.
-// 원래 있던 어휘 항목은 다시 쓴 파일에 남는다 (BOM 은 EncodeVocab 대로 안 붙는다).
+// 원래 있던 어휘 항목은 다시 쓴 파일에 남는다 (BOM 도 PatchVocab 이 지킨다).
 func TestTagsAddReadsVocabWithBOM(t *testing.T) {
 	memory := newRepo(t)
 	path := filepath.Join(memory, config.VocabFileName)
@@ -163,5 +163,61 @@ func TestApplyRenameRefusesUnreadLines(t *testing.T) {
 	entries, _ := os.ReadDir(opened.InboxNewDir())
 	if len(entries) != 0 {
 		t.Fatalf("별칭을 못 썼는데 패치 %d 개가 큐에 들어갔다", len(entries))
+	}
+}
+
+// keptVocab 은 사람 주석 · 모르는 절이 든 vocab.toml 이다. tags 가 고친 뒤에도
+// 이 줄들이 남아야 한다 — 파일을 통째로 다시 만들면 사라졌다.
+const keptVocab = "# 사람이 단 주석\n[tag]\n\"art\" = [\"sprite\"] # 꼬리 주석\n\n[tag.alias]\n\"img\" = \"art\"\n\n[extra]\nnote = \"모르는 절\"\n"
+
+// tags --add 뒤에도 주석 · 꼬리 주석 · 모르는 절이 남는다.
+func TestTagsAddKeepsCommentsAndUnknownSection(t *testing.T) {
+	memory := newRepo(t)
+	path := filepath.Join(memory, config.VocabFileName)
+	if err := os.WriteFile(path, []byte(keptVocab), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out, code := captureBoth(t, func() int { return run([]string{"tags", "--add", "shader=art"}) })
+	if code != exitOK {
+		t.Fatalf("tags --add 실패 (%d) :\n%s", code, out)
+	}
+	now, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(keptVocab, "[\"sprite\"]", "[\"sprite\", \"shader\"]", 1)
+	if string(now) != want {
+		t.Fatalf("바뀐 줄 말고 다른 줄이 달라졌다 :\n%s\n--- 기대 ---\n%s", now, want)
+	}
+}
+
+// applyRenameLocked 는 별칭 한 줄만 [tag.alias] 에 끼우고 다른 줄은 그대로 둔다.
+func TestApplyRenameKeepsOtherLines(t *testing.T) {
+	memory := newRepo(t)
+	path := filepath.Join(memory, config.VocabFileName)
+	if err := os.WriteFile(path, []byte(keptVocab), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	repository, err := config.Open(memory)
+	if err != nil {
+		t.Skipf("저장소를 못 연다 : %v", err)
+	}
+	opened := store.Open(memory, false)
+	if err := opened.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	_, code := captureBoth(t, func() int {
+		return applyRenameLocked(repository, opened, nil, "pic", "art", []byte(keptVocab))
+	})
+	if code != exitOK {
+		t.Fatal("applyRenameLocked 실패")
+	}
+	now, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := strings.Replace(keptVocab, "\"img\" = \"art\"\n", "\"img\" = \"art\"\n\"pic\" = \"art\"\n", 1)
+	if string(now) != want {
+		t.Fatalf("별칭 한 줄 말고 다른 줄이 달라졌다 :\n%s\n--- 기대 ---\n%s", now, want)
 	}
 }

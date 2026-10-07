@@ -42,6 +42,10 @@ var builtin = []struct{ name, pattern string }{
 	{"slack-webhook", `https://hooks\.slack\.com/(services|workflows|triggers)/[A-Za-z0-9/_-]{20,}`},
 	{"discord-webhook", `https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/\d+/[A-Za-z0-9_-]{20,}`},
 	{"zapier-webhook", `https://hooks\.zapier\.com/hooks/catch/\d+/\w+`},
+	// 서명 url 의 소문자 16진 비밀은 엔트로피(최대 4.0)가 문턱을 못 넘어 쿼리 키로 잡는다.
+	// token= · api_key= 는 기본 패턴 password-value 가 이미 잡는다.
+	// credential 은 비밀이 아니라 뺐다.
+	{"signed-url", `(?i)[?&](x-amz-signature|x-goog-signature|sig|signature|access_token)=[A-Za-z0-9%._~+/-]{32,}`},
 }
 
 // builtinRules 는 builtin 을 한 번만 컴파일해 둔 것이다.
@@ -270,6 +274,7 @@ var prefilters = map[string]func(string) bool{
 	"phone-kr":       hasDigit,
 	"password-value": hasAssign,
 	"password-word":  hasAssign,
+	"signed-url":     hasAssign,
 	"long-blob":      hasBlobRun,
 }
 

@@ -208,10 +208,16 @@ func vocabFromBytes(before []byte) (config.Vocab, int) {
 
 // saveVocab 은 vocab.toml 을 원자적으로 덮는다. 읽은 뒤(before) 남이 바꿨으면
 // 아무것도 안 쓰고 알린다. 옛 바이트는 mem init 과 같은 local/backup 에 남긴다.
+// 파일 전체를 다시 만들지 않고 바뀐 줄만 갈아 끼운다 — 사람이 단 주석 · 모르는
+// 키 · 모르는 절이 남아야 한다.
 func saveVocab(repository *config.Repository, vocab config.Vocab, before []byte) int {
 	path := filepath.Join(repository.Dir, config.VocabFileName)
 	backup := filepath.Join(store.LocalDir(repository.Dir), "backup")
-	err := fileio.ReplaceFile(path, config.EncodeVocab(vocab), before, backup)
+	data, err := config.PatchVocab(before, vocab)
+	if err != nil {
+		return exitFor(err)
+	}
+	err = fileio.ReplaceFile(path, data, before, backup)
 	if errors.Is(err, fileio.ErrChanged) {
 		return exitFor(errors.New(i18n.T(i18n.InitFileRaced, path)))
 	}

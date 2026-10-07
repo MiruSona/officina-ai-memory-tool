@@ -107,3 +107,14 @@ func TestDuplicateReasonShowsScoreAndThreshold(t *testing.T) {
 		}
 	}
 }
+
+// TestURLQueryRejectsSignedURL 은 서명 url 의 소문자 16진 서명이 엔트로피가 아니라
+// 고정 패턴 signed-url 로 거절되는지 본다.
+func TestURLQueryRejectsSignedURL(t *testing.T) {
+	memory := goodMemory()
+	memory.Sources = append(memory.Sources,
+		"url:https://bucket.s3.amazonaws.com/a.png?X-Amz-Signature="+strings.Repeat("0123456789abcdef", 4))
+	if kind := Gate(memory, testOptions()).Kind; kind != KindSecurityReject {
+		t.Fatalf("서명 url 은 거절이어야 한다 : %v", kind)
+	}
+}

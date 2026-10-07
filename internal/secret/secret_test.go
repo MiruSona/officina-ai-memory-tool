@@ -20,6 +20,7 @@ func TestCatchesKnownShapes(t *testing.T) {
 		"password-value":  "password = hunter2hunter2",
 		"slack-webhook":   "알림 https://hooks.slack.com/services/T0000000/B0000000/XXXXXXXXXXXXXXXXXXXXXXXX",
 		"discord-webhook": "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+		"signed-url":      "https://bucket.s3.amazonaws.com/a.png?X-Amz-Algorithm=AWS4-HMAC-SHA256&X-Amz-Signature=" + strings.Repeat("0123456789abcdef", 4),
 	}
 	scanner := defaultScanner()
 	for wanted, line := range cases {
@@ -30,6 +31,23 @@ func TestCatchesKnownShapes(t *testing.T) {
 		}
 		if found.Rule != wanted {
 			t.Errorf("expected rule %s, got %s", wanted, found.Rule)
+		}
+	}
+}
+
+// TestSignedURLLetsLookalikesThrough 는 signed-url 이 짧은 값 · 낱말 · 맨 체크섬에는
+// 울리지 않는지 본다.
+func TestSignedURLLetsLookalikesThrough(t *testing.T) {
+	lines := []string{
+		"https://example.com/a?sig=1",
+		"https://example.com/cb?access_token=YOUR_ACCESS_TOKEN_HERE",
+		"요청의 signature 를 검증하는 단계에서 막혔다",
+		"sha256 " + strings.Repeat("0123456789abcdef", 4) + " 로 받은 파일을 맞춰 봤다",
+	}
+	scanner := defaultScanner()
+	for _, line := range lines {
+		if found := scanner.ScanLine(line); found != nil && found.Rule == "signed-url" {
+			t.Errorf("signed-url should not fire: %s", line)
 		}
 	}
 }
