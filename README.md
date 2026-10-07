@@ -39,6 +39,10 @@ bin\mem.exe install --apply        # 실제로 적용한다 (PATH 는 새 터미
 
 `build.ps1 -Install` 로 2·3 을 한 번에 해도 된다. 인터넷이 없으면 `build.ps1 -Install -Bundle <꾸러미폴더>`.
 
+**바깥 LLM 판정은 선택 사항이다.** `mem` 은 서버 없이 그대로 다 돈다. OpenAI 호환 서버(llama.cpp `llama-server` 같은 것, `logprobs` 를 돌려주는 것)가 있으면
+`~/.aimemory/llm.toml` 하나로 붙인다 — 그러면 `add --origin` 의 근거 판정(R3)이 켜진다. 없으면 그 관문만 건너뛰고 나머지는 같다.
+설정 꼴과 확인 명령(`mem judge config`)은 아래 「바깥 LLM 판정 K」 절.
+
 **소스를 받은 뒤(서브모듈 갱신 포함)에는 `.\build.ps1` 로 다시 빌드한다** — `bin\` 은 git 에 안 올라가
 옛 판이 그대로 남는다. 「고쳤는데 그대로다」의 태반이 이것이다.
 지금 exe 가 어느 소스로 만들어졌는지는 `mem version` 이 판·커밋·빌드 시각으로 찍어 준다
@@ -144,12 +148,14 @@ R3(바깥 LLM 근거 판정)은 아래 K 절의 `llm.toml` 이 있을 때만 돈
 
 `add --origin` 의 R3 가 **근거 문장이 요약을 정말 뒷받침하나**를 바깥 LLM(OpenAI 호환 서버)에 글자 하나로 묻는다 — 지지(A) · 반대(B) · 무관(C), 「지지」만 통과.
 SemIf 방식이다: 생각 끔 · `max_tokens 1` · 첫 토큰 위 20개 확률에서 글자만 읽는다. 글을 안 만들게 하니 지어낼 자리가 없다.
+SemIf 는 모델이 아니라 묻는 법이다 — 어떤 생성 LLM 이든 글자 하나로 답하게 하고 그 글자의 확률만 읽는다. 그래서 특정 모델에 묶이지 않는다.
 
 - **기계 설정 `~/.aimemory/llm.toml` 이 없으면 아무것도 안 바뀐다** (기본 꺼짐). `mem` 은 서버를 띄우지 않는다.
 - 서버가 안 닿거나 · 시간을 넘기거나 · 확률을 안 주면 **R3 만 경고 한 줄로 건너뛰고** 저장은 그대로 한다. 재시도는 없다.
 - 규칙 관문에 이미 걸린 후보 · 비밀 꼴이 든 글은 서버에 안 보낸다.
 - 판정은 `Memory/local/judge/<해시>.json` 에 남기고 **같은 입력은 다시 묻지 않는다** (같은 입력도 확률이 흔들려서다).
 - `mem judge config` 로 설정을 보고, `mem judge support --evidence … --claim …` · `--file <쌍.jsonl>` 로 직접 재 본다.
+- 확인한 서버 : 로컬 llama.cpp `llama-server`(2026-10-05 실측). 다른 OpenAI 호환 서버는 `logprobs`·`top_logprobs` 를 돌려주면 된다.
 
 ```toml
 # ~/.aimemory/llm.toml — 이 기계만 (git 밖)
