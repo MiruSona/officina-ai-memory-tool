@@ -49,6 +49,17 @@ func TestURLPathStillRejectsSecretPattern(t *testing.T) {
 	}
 }
 
+// TestURLPathRejectsWebhook 은 경로에 비밀이 든 웹훅이 엔트로피가 아니라
+// 고정 패턴으로 거절되는지 본다.
+func TestURLPathRejectsWebhook(t *testing.T) {
+	memory := goodMemory()
+	memory.Sources = append(memory.Sources,
+		"url:https://hooks.slack.com/services/T0000000/B0000000/XXXXXXXXXXXXXXXXXXXXXXXX")
+	if kind := Gate(memory, testOptions()).Kind; kind != KindSecurityReject {
+		t.Fatalf("url 경로의 웹훅은 거절이어야 한다 : %v", kind)
+	}
+}
+
 func TestEntropySourcesKeepsLines(t *testing.T) {
 	in := []string{"file:a.go", "url:https://example.com/a/b?q=1#z", "url:no-scheme/path", "note:x"}
 	want := []string{"file:a.go", "url:https://example.com?q=1#z", "url:no-scheme/path", "note:x"}

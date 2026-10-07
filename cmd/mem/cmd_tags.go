@@ -20,6 +20,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
@@ -188,8 +189,17 @@ func readVocabBytes(repository *config.Repository) ([]byte, error) {
 
 // vocabFromBytes 는 읽어 둔 vocab.toml 바이트를 푼다. 깨져 있으면 기본값에
 // 덧쓰지 않고 입력 오류로 끝낸다 — 덮으면 사람이 적은 어휘가 날아간다.
+// 못 읽고 건너뛸 줄이 하나라도 있어도 같다 — 다시 쓰면 그 줄이 사라진다.
 func vocabFromBytes(before []byte) (config.Vocab, int) {
-	vocab, err := config.ParseVocab(strings.TrimPrefix(string(before), "\ufeff"))
+	text := strings.TrimPrefix(string(before), "\ufeff")
+	if lines := config.UnreadLines(text); len(lines) > 0 {
+		numbers := make([]string, len(lines))
+		for i, line := range lines {
+			numbers[i] = strconv.Itoa(line)
+		}
+		return config.DefaultVocab(), fail(i18n.T(i18n.TagsVocabUnread, strings.Join(numbers, " · ")))
+	}
+	vocab, err := config.ParseVocab(text)
 	if err != nil {
 		return vocab, fail(err.Error())
 	}

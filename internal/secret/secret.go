@@ -34,6 +34,35 @@ var names = map[string]string{
 	`\b01[016-9]-?\d{3,4}-?\d{4}\b`:                  "phone-kr",
 }
 
+// builtin 은 mem.toml 과 상관없이 New 가 늘 덧붙이는 패턴이다. 저장소 설정으로
+// 끌 수 없다. 호스트까지 박힌 꼴만 둔다 — 오탐이 나면 안 되는 자리다.
+// url: 출처의 경로는 엔트로피 검사에서 빠지므로, 경로에 비밀이 든 웹훅은
+// 여기서 잡는다.
+var builtin = []struct{ name, pattern string }{
+	{"slack-webhook", `https://hooks\.slack\.com/(services|workflows|triggers)/[A-Za-z0-9/_-]{20,}`},
+	{"discord-webhook", `https://(ptb\.|canary\.)?discord(app)?\.com/api/webhooks/\d+/[A-Za-z0-9_-]{20,}`},
+	{"zapier-webhook", `https://hooks\.zapier\.com/hooks/catch/\d+/\w+`},
+}
+
+// builtinRules 는 builtin 을 한 번만 컴파일해 둔 것이다.
+var builtinRules = compileBuiltin()
+
+func init() {
+	for _, item := range builtin {
+		names[item.pattern] = item.name
+	}
+}
+
+func compileBuiltin() []rule {
+	rules := make([]rule, 0, len(builtin))
+	for _, item := range builtin {
+		compiled := regexp.MustCompile(item.pattern)
+		rules = append(rules, rule{name: item.name, pattern: compiled,
+			filter: filterFor(item.name, compiled)})
+	}
+	return rules
+}
+
 // Finding says where a rule matched. The matched value is never carried, so an
 // error message cannot leak the secret a second time.
 type Finding struct {
@@ -62,9 +91,11 @@ func (s *Scanner) Skipped() []string {
 }
 
 // New compiles the patterns; a broken pattern is skipped so a typo in mem.toml
-// cannot stop every add.
+// cannot stop every add. builtin 은 끝에 늘 붙는다 — 설정에 같은 이름이 이미
+// 있으면 설정 쪽을 쓰고 한 번만 둔다.
 func New(patterns []string) *Scanner {
 	scanner := Scanner{}
+	have := map[string]bool{}
 	for _, pattern := range patterns {
 		compiled, err := regexp.Compile(pattern)
 		if err != nil {
@@ -72,8 +103,14 @@ func New(patterns []string) *Scanner {
 			continue
 		}
 		name := nameFor(pattern)
+		have[name] = true
 		scanner.rules = append(scanner.rules, rule{name: name, pattern: compiled,
 			filter: filterFor(name, compiled)})
+	}
+	for _, item := range builtinRules {
+		if !have[item.name] {
+			scanner.rules = append(scanner.rules, item)
+		}
 	}
 	return &scanner
 }

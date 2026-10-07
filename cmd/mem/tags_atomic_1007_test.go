@@ -107,3 +107,61 @@ func TestApplyRenameSkipsPatchWhenVocabRaced(t *testing.T) {
 		t.Fatalf("별칭 저장이 실패했는데 패치 %d 개가 큐에 들어갔다", len(entries))
 	}
 }
+
+// brokenVocab 은 못 읽는 줄(2 · 4 번째)이 섞인 vocab.toml 을 쓰고 그 바이트를 준다.
+func brokenVocab(t *testing.T, memory string) []byte {
+	t.Helper()
+	text := []byte("[tag]\n사람이 적은 깨진 줄\n\"zetaparent\" = [\"zetachild\"]\n[alias\n")
+	if err := os.WriteFile(filepath.Join(memory, config.VocabFileName), text, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return text
+}
+
+// assertVocabUntouched 는 vocab.toml 바이트가 그대로고 백업도 안 생겼는지 본다.
+func assertVocabUntouched(t *testing.T, memory string, want []byte) {
+	t.Helper()
+	now, _ := os.ReadFile(filepath.Join(memory, config.VocabFileName))
+	if string(now) != string(want) {
+		t.Fatalf("못 읽는 줄이 있는데 vocab.toml 을 다시 썼다 :\n%s", now)
+	}
+	backup := filepath.Join(store.LocalDir(memory), "backup", config.VocabFileName+fileio.BackupSuffix)
+	if _, err := os.Stat(backup); err == nil {
+		t.Fatal("쓰지 않았는데 백업이 생겼다")
+	}
+}
+
+// 못 읽는 줄이 있는 vocab.toml 은 tags --add 가 다시 쓰지 않는다 — 쓰면 그 줄이 사라진다.
+func TestTagsAddRefusesUnreadLines(t *testing.T) {
+	memory := newRepo(t)
+	want := brokenVocab(t, memory)
+	out, code := captureBoth(t, func() int { return run([]string{"tags", "--add", "shader=design"}) })
+	if code != exitUsage || !strings.Contains(out, "2 · 4 번째 줄을 못 읽는다") {
+		t.Fatalf("못 읽는 줄을 못 잡았다 (%d) :\n%s", code, out)
+	}
+	assertVocabUntouched(t, memory, want)
+}
+
+// 이름 바꾸기도 같다. 별칭을 못 썼으니 태그 패치도 큐에 안 들어간다.
+func TestApplyRenameRefusesUnreadLines(t *testing.T) {
+	memory := newRepo(t)
+	want := brokenVocab(t, memory)
+	repository, err := config.Open(memory)
+	if err != nil {
+		t.Skipf("저장소를 못 연다 : %v", err)
+	}
+	opened := store.Open(memory, false)
+	if err := opened.EnsureDirs(); err != nil {
+		t.Fatal(err)
+	}
+	plans := [][3]string{{"20260101-deadbeef", "old", "new"}}
+	out, code := captureBoth(t, func() int { return applyRenameLocked(repository, opened, plans, "old", "new", want) })
+	if code != exitUsage || !strings.Contains(out, "번째 줄을 못 읽는다") {
+		t.Fatalf("못 읽는 줄을 못 잡았다 (%d) :\n%s", code, out)
+	}
+	assertVocabUntouched(t, memory, want)
+	entries, _ := os.ReadDir(opened.InboxNewDir())
+	if len(entries) != 0 {
+		t.Fatalf("별칭을 못 썼는데 패치 %d 개가 큐에 들어갔다", len(entries))
+	}
+}

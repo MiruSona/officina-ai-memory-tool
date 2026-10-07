@@ -47,6 +47,19 @@ type tomlFile struct {
 	// order is the section names in the order they were written. [type.*] is
 	// merged in that order, and a map would shuffle it every run.
 	order []string
+	// skipped is the line numbers (from 1) we warned about and left out. A
+	// caller that writes the file back must refuse, or those lines are lost.
+	skipped []int
+}
+
+// UnreadLines gives the line numbers (from 1) parseTOML would skip, without
+// saying anything. Commands that rewrite a file check this first: rewriting
+// drops every line we could not read.
+func UnreadLines(text string) []int {
+	restore := Silence()
+	defer restore()
+	file, _ := parseTOML(text)
+	return file.skipped
 }
 
 func (f *tomlFile) value(section, key string) (tomlValue, bool) {
@@ -157,6 +170,7 @@ func parseTOML(text string) (*tomlFile, error) {
 			name, ok := parseSectionName(line)
 			if !ok {
 				Warn(i18n.T(i18n.SkippedConfigLine, from, line))
+				file.skipped = append(file.skipped, from)
 				continue
 			}
 			section = name
@@ -169,12 +183,14 @@ func parseTOML(text string) (*tomlFile, error) {
 		key, value, ok := parseAssignment(line)
 		if !ok {
 			Warn(i18n.T(i18n.SkippedConfigLine, from, line))
+			file.skipped = append(file.skipped, from)
 			continue
 		}
 		file.sections[section][key] = value
 	}
 	if pending != "" {
 		Warn(i18n.T(i18n.SkippedConfigLine, from, pending))
+		file.skipped = append(file.skipped, from)
 	}
 	return &file, nil
 }

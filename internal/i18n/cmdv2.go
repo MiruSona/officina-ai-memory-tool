@@ -52,6 +52,7 @@ const (
 	TagsAliasUsed   Key = "tags-alias-used"
 	TagsRenameDone  Key = "tags-rename-done"
 	TagsRenameNone  Key = "tags-rename-none"
+	TagsVocabUnread Key = "tags-vocab-unread"
 	TagsDryRun      Key = "tags-dry-run"
 	TagsSaved       Key = "tags-saved"
 	TagsScopeAdded  Key = "tags-scope-added"
@@ -135,6 +136,7 @@ var commandV2Messages = map[Key]string{
 	TagsAdded:       "표준 태그에 넣었다 : %s",
 	TagsAliased:     "별칭을 넣었다 : %s → %s",
 	TagsBadPair:     "`%s` 는 `왼쪽=오른쪽` 꼴이어야 한다.",
+	TagsVocabUnread: "vocab.toml %s 번째 줄을 못 읽는다. 지금 다시 쓰면 그 줄이 사라지므로 쓰지 않았다. 그 줄을 고치거나 지운 뒤 다시 한다",
 	TagsBadTag:      "태그는 영어 소문자·숫자·하이픈이어야 한다 : %s",
 	TagsCheckHead:   "태그 검사 — 기억 %d건, 표준 밖 %d가지",
 	TagsCheckClean:  "표준 밖 태그가 없다.",

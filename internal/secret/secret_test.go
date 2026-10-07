@@ -13,11 +13,13 @@ func defaultScanner() *Scanner {
 
 func TestCatchesKnownShapes(t *testing.T) {
 	cases := map[string]string{
-		"api-key":        "키는 sk-abcdefghijklmnopqrstuvwxyz 다",
-		"github-token":   "ghp_abcdefghijklmnopqrstuvwxyz01",
-		"aws-key":        "AKIAIOSFODNN7EXAMPLE",
-		"private-key":    "-----BEGIN RSA PRIVATE KEY-----",
-		"password-value": "password = hunter2hunter2",
+		"api-key":         "키는 sk-abcdefghijklmnopqrstuvwxyz 다",
+		"github-token":    "ghp_abcdefghijklmnopqrstuvwxyz01",
+		"aws-key":         "AKIAIOSFODNN7EXAMPLE",
+		"private-key":     "-----BEGIN RSA PRIVATE KEY-----",
+		"password-value":  "password = hunter2hunter2",
+		"slack-webhook":   "알림 https://hooks.slack.com/services/T0000000/B0000000/XXXXXXXXXXXXXXXXXXXXXXXX",
+		"discord-webhook": "https://discord.com/api/webhooks/000000000000000000/XXXXXXXXXXXXXXXXXXXXXXXX",
 	}
 	scanner := defaultScanner()
 	for wanted, line := range cases {
@@ -57,6 +59,19 @@ func TestUnnamedPatternReportsItself(t *testing.T) {
 	found := scanner.ScanLine("토큰1234")
 	if found == nil || found.Rule != `토큰[0-9]+` {
 		t.Fatalf("a hand written pattern is named by itself, got %+v", found)
+	}
+}
+
+// TestBuiltinRunsWithoutPatterns 는 설정 패턴이 0개여도 고정 표가 도는지,
+// 설정에 같은 패턴이 있어도 한 번만 붙는지 본다.
+func TestBuiltinRunsWithoutPatterns(t *testing.T) {
+	line := "https://hooks.zapier.com/hooks/catch/0000000/XXXXXXX/"
+	if found := New(nil).ScanLine(line); found == nil || found.Rule != "zapier-webhook" {
+		t.Fatalf("고정 표는 설정 없이도 돌아야 한다, got %+v", found)
+	}
+	same := New([]string{builtin[0].pattern})
+	if len(same.rules) != len(builtin) {
+		t.Fatalf("같은 이름은 한 번만 둬야 한다 : 규칙 %d개", len(same.rules))
 	}
 }
 
