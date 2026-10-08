@@ -14,9 +14,11 @@ import (
 // 정·역 평균은 지연이 두 배인데 50문항 중 한 문항만 더 맞혔다 (판정모델 실측 2-2).
 const (
 	KindSupport = "support"
-	// PromptVersion 은 물음 글의 판이다. 글을 바꾸면 올린다 — 해시에 들어가 옛 판정
-	// 기록을 안 섞는다.
-	PromptVersion = "support-v1"
+	// PromptVersion 은 물음 글의 판이다. 물음 글 자체가 해시에 들어가 옛 판정과 섞이지
+	// 않는다. 이 판 번호는 기록의 Prompt 라벨을 구분하려고 올린다.
+	// v2 (2026-10-08) : v1 은 「근거에 없는 말을 덧붙이면 지지 아님」이라 요약(늘 본문 한 문장보다
+	// 넓다)을 통째로 무관으로 밀어 지지 갈래가 2/16 이었다 (Docs/Research/2026-10-08-K실물판정측정.md).
+	PromptVersion = "support-v2"
 
 	LetterSupport    = "A"
 	LetterContradict = "B"
@@ -24,13 +26,17 @@ const (
 
 	judgeSystem = "You are a strict judge. Apply the given criterion to the evidence and choose exactly one option. " +
 		"Answer with the single uppercase letter of the chosen option and nothing else."
-	supportCriterion = "아래 주장이 근거 문장에 의해 뒷받침되는가? 근거에 없는 말을 덧붙였거나 숫자·뜻이 다르면 지지가 아니다.\n주장 : "
+	supportCriterion = "아래 주장이 근거 문장과 어떤 관계인가? " +
+		"주장이 근거의 내용을 요약하거나 일반화한 것이면 지지(A)다. " +
+		"근거와 어긋나는 사실·숫자·극성(긍정/부정)이 있으면 반대(B)다. " +
+		"근거가 주장에 대해 아무 말도 하지 않으면 무관(C)이다. " +
+		"주장이 근거보다 한 마디 넓은 것만으로는 무관이 아니다.\n주장 : "
 )
 
 var supportOptions = []option{
-	{Letter: LetterSupport, Description: "지지 — 근거가 주장을 뒷받침한다"},
-	{Letter: LetterContradict, Description: "반대 — 근거가 주장과 어긋난다 (뜻이 뒤집힘 · 숫자가 다름)"},
-	{Letter: LetterUnrelated, Description: "무관 — 근거만으로는 주장을 말할 수 없다"},
+	{Letter: LetterSupport, Description: "지지 — 근거가 주장의 핵심을 받친다 (주장이 근거를 요약·일반화한 것도 지지)"},
+	{Letter: LetterContradict, Description: "반대 — 근거가 주장과 어긋난다 (사실·숫자가 다름 · 뜻이 뒤집힘)"},
+	{Letter: LetterUnrelated, Description: "무관 — 근거가 주장에 대해 아무 말도 하지 않는다"},
 }
 
 type option struct {
