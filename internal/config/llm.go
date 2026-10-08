@@ -21,12 +21,15 @@ const (
 	llmTimeoutMaxMS  = 60000
 	llmMachineFolder = ".aimemory"
 
-	// Laya 판정 단(자체판정프로그램설계 3절). 주소가 비면 그 단을 건너뛴다.
-	layaTimeoutMS    = 1000
-	layaTimeoutMaxMS = 5000
-	layaSure         = 0.70
-	layaSureMin      = 0.34
-	layaSureMax      = 0.99
+	// NLI 판정 단(판정 사다리 ② · 길1 한국어 NLI 분류기 설계 7절). 주소가 비면 그 단을 건너뛴다.
+	// 문턱 둘의 기본값은 「dev 로 고른 값이 없을 때 안전한 쪽」이다 — 지지 쪽이 더 엄하다.
+	nliTimeoutMS     = 1000
+	nliTimeoutMaxMS  = 5000
+	nliSure          = 0.70
+	nliSureSupport   = 0.90
+	nliSureMin       = 0.34
+	nliSureMax       = 0.99
+	nliRemovedPrefix = "laya_"
 )
 
 // LLMConfig 는 llm.toml 한 벌이다. Key 는 화면·기록·log.md 어디에도 찍지 않는다.
@@ -37,10 +40,12 @@ type LLMConfig struct {
 	JudgeProfile    string
 	GenerateProfile string
 	TimeoutMS       int
-	// LayaURL 이 비면 Laya 단을 건너뛴다. LayaSure 아래 확률이면 다음 단으로 넘긴다.
-	LayaURL       string
-	LayaTimeoutMS int
-	LayaSure      float64
+	// NLIURL 이 비면 NLI 단을 건너뛴다. 답이 지지(A)면 NLISureSupport, 반대·무관(B·C)이면
+	// NLISure 아래 확률일 때 다음 단으로 넘긴다.
+	NLIURL         string
+	NLITimeoutMS   int
+	NLISure        float64
+	NLISureSupport float64
 }
 
 // Enabled 는 바깥 LLM 을 쓸 수 있게 적혀 있는지다. 서버가 닿는지는 모른다.
@@ -95,38 +100,59 @@ func ParseLLM(path, text string) (LLMConfig, []string) {
 		timeout = llmTimeoutMS
 	}
 	settings.TimeoutMS = timeout
-	problems = append(problems, parseLaya(file, &settings)...)
+	problems = append(problems, parseNLI(file, &settings)...)
 	return settings, problems
 }
 
 // defaultLLM 은 파일이 없거나 칸이 빠졌을 때의 값이다.
 func defaultLLM(path string) LLMConfig {
-	return LLMConfig{Path: path, TimeoutMS: llmTimeoutMS, LayaTimeoutMS: layaTimeoutMS, LayaSure: layaSure}
+	return LLMConfig{Path: path, TimeoutMS: llmTimeoutMS, NLITimeoutMS: nliTimeoutMS, NLISure: nliSure,
+		NLISureSupport: nliSureSupport}
 }
 
-// parseLaya 는 Laya 세 칸을 읽는다. 틀린 칸은 버리고(주소는 꺼짐 · 수는 기본값) 문제로 알린다.
-func parseLaya(file *tomlFile, settings *LLMConfig) []string {
+// parseNLI 는 NLI 네 칸을 읽는다. 틀린 칸은 버리고(주소는 꺼짐 · 수는 기본값) 문제로 알린다.
+// 옛 laya_* 칸은 별칭으로 받지 않는다 — 옛 값은 다른 모델에 맞춘 문턱이라 그대로 쓰면 안 된다.
+func parseNLI(file *tomlFile, settings *LLMConfig) []string {
 	problems := []string{}
-	address := strings.TrimSpace(file.stringOr("", "laya_url", ""))
+	if file.hasPrefix("", nliRemovedPrefix) {
+		problems = append(problems, i18n.T(i18n.LLMLayaRemoved))
+	}
+	address := strings.TrimSpace(file.stringOr("", "nli_url", ""))
 	if address != "" && !httpAddress(address) {
-		problems = append(problems, i18n.T(i18n.LLMBadLayaURL))
+		problems = append(problems, i18n.T(i18n.LLMBadNLIURL))
 		address = ""
 	}
-	settings.LayaURL = address
-	timeout := file.intOr("", "laya_timeout_ms", layaTimeoutMS)
-	if timeout <= 0 || timeout > layaTimeoutMaxMS {
-		problems = append(problems, i18n.T(i18n.LLMBadLayaTimeout, timeout, layaTimeoutMaxMS, layaTimeoutMS))
-		timeout = layaTimeoutMS
+	settings.NLIURL = address
+	timeout := file.intOr("", "nli_timeout_ms", nliTimeoutMS)
+	if timeout <= 0 || timeout > nliTimeoutMaxMS {
+		problems = append(problems, i18n.T(i18n.LLMBadNLITimeout, timeout, nliTimeoutMaxMS, nliTimeoutMS))
+		timeout = nliTimeoutMS
 	}
-	settings.LayaTimeoutMS = timeout
-	sure := file.floatOr("", "laya_sure", layaSure)
-	// 범위 안을 참으로 묻는다 — laya_sure = nan 은 두 비교가 다 거짓이라 범위 밖 검사를 빠져나간다.
-	if !(sure >= layaSureMin && sure <= layaSureMax) {
-		problems = append(problems, i18n.T(i18n.LLMBadLayaSure, sure, layaSureMin, layaSureMax, layaSure))
-		sure = layaSure
+	settings.NLITimeoutMS = timeout
+	var problem string
+	settings.NLISure, problem = readSure(file, "nli_sure", nliSure)
+	if problem != "" {
+		problems = append(problems, problem)
 	}
-	settings.LayaSure = sure
+	settings.NLISureSupport, problem = readSure(file, "nli_sure_support", nliSureSupport)
+	if problem != "" {
+		problems = append(problems, problem)
+	}
+	// 지지 선이 반대·무관 선보다 낮으면 거짓 지지를 막는 뜻이 뒤집힌다. 막지는 않고 알리기만 한다.
+	if settings.NLISureSupport < settings.NLISure {
+		problems = append(problems, i18n.T(i18n.LLMNLISureInverted, settings.NLISureSupport, settings.NLISure))
+	}
 	return problems
+}
+
+// readSure 는 문턱 한 칸을 읽는다. 범위 밖이면 기본값과 문제 한 줄이다.
+func readSure(file *tomlFile, key string, fallback float64) (float64, string) {
+	sure := file.floatOr("", key, fallback)
+	// 범위 안을 참으로 묻는다 — nan 은 두 비교가 다 거짓이라 범위 밖 검사를 빠져나간다.
+	if !(sure >= nliSureMin && sure <= nliSureMax) {
+		return fallback, i18n.T(i18n.LLMBadNLISure, key, sure, nliSureMin, nliSureMax, fallback)
+	}
+	return sure, ""
 }
 
 // httpAddress 는 http(s) 주소인지다. 다른 꼴(file: 등)은 받지 않는다.

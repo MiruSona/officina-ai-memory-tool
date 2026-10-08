@@ -6,9 +6,11 @@ const (
 	LLMBadURL           Key = "llm-bad-url"
 	LLMBadTimeout       Key = "llm-bad-timeout"
 	AutoJudgeSkippedWhy Key = "auto-judge-skipped-why"
-	LLMBadLayaURL       Key = "llm-bad-laya-url"
-	LLMBadLayaTimeout   Key = "llm-bad-laya-timeout"
-	LLMBadLayaSure      Key = "llm-bad-laya-sure"
+	LLMBadNLIURL        Key = "llm-bad-nli-url"
+	LLMBadNLITimeout    Key = "llm-bad-nli-timeout"
+	LLMBadNLISure       Key = "llm-bad-nli-sure"
+	LLMLayaRemoved      Key = "llm-laya-removed"
+	LLMNLISureInverted  Key = "llm-nli-sure-inverted"
 	JudgeStageUsage     Key = "judge-stage-usage"
 	JudgeNoHit          Key = "judge-no-hit"
 	JudgeStageMark      Key = "judge-stage-mark"
@@ -42,14 +44,16 @@ var llmMessages = map[Key]string{
 	LLMBadURL:           "llm.toml 의 url 이 http(s) 주소가 아니다. 바깥 LLM 을 끈 것으로 친다.",
 	LLMBadTimeout:       "llm.toml 의 timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
 	AutoJudgeSkippedWhy: "근거 지지 판정(R3)을 못 받아 건너뛰었다 (%s).",
-	LLMBadLayaURL:       "llm.toml 의 laya_url 이 http(s) 주소가 아니다. Laya 단을 끈 것으로 친다.",
-	LLMBadLayaTimeout:   "llm.toml 의 laya_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
-	LLMBadLayaSure:      "llm.toml 의 laya_sure(%.2f)는 %.2f~%.2f 여야 한다. 기본 %.2f 로 읽었다.",
-	JudgeStageUsage:     "--stage 는 rules · laya · semif 를 쉼표로 이은 것이다 (예 rules,laya).",
+	LLMBadNLIURL:        "llm.toml 의 nli_url 이 http(s) 주소가 아니다. NLI 단을 끈 것으로 친다.",
+	LLMBadNLITimeout:    "llm.toml 의 nli_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
+	LLMBadNLISure:       "llm.toml 의 %s(%.2f)는 %.2f~%.2f 여야 한다. 기본 %.2f 로 읽었다.",
+	LLMLayaRemoved:      "llm.toml 의 laya_* 는 없어졌다 — 읽지 않는다. nli_url · nli_sure · nli_sure_support 를 쓴다.",
+	LLMNLISureInverted:  "llm.toml 의 nli_sure_support(%.2f)가 nli_sure(%.2f)보다 낮다 — 지지를 더 쉽게 확정한다. 값은 그대로 읽었다.",
+	JudgeStageUsage:     "--stage 는 rules · nli · semif 를 쉼표로 이은 것이다 (예 rules,nli).",
 	JudgeNoHit:          "판정 없음 — 규칙에 안 걸렸고 다음 단의 답도 없다 (모른다)",
 	JudgeStageMark:      " · %s 단",
 
-	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> [--prompt v2|v3|v3-strict] [--stage rules,laya,semif] | mem judge clean [--older <일>] [--apply]",
+	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> [--prompt v2|v3|v3-strict] [--stage rules,nli,semif] | mem judge clean [--older <일>] [--apply]",
 	JudgeSupportUsage:   "support 는 --evidence 와 --claim 을 같이 주거나, --file 하나만 준다.",
 	JudgeOff:            "LLM 주소 없음 — 건너뜀 (설정 파일 : %s)",
 	JudgeConfigLine:     "설정 파일 : %s\n주소 : %s\n판정 프로필 : %s · 생성 프로필 : %s\n제한 시간 : %dms · 키 : %s",
@@ -95,8 +99,9 @@ func init() {
   --fresh           판정 기록을 안 읽고 다시 묻는다 (새 결과로 기록을 덮는다)
   --prompt <판>     물음 글 판을 고른다 (측정용 · v2 · v3 · v3-strict). 안 주면 기본 판(support-v3)
                     최고 확률이 0.40 아래거나 동점이면 「모른다」 꼬리표가 붙는다 (글자는 그대로)
-  --stage <단,…>    판정 사다리에서 돌 단을 고른다 (rules · laya · semif 를 쉼표로). 안 주면 전체
-                    규칙(rules) → Laya(laya_url) → SemIf(url) 차례로 묻고 앞 단이 확신하면 멈춘다
+  --stage <단,…>    판정 사다리에서 돌 단을 고른다 (rules · nli · semif 를 쉼표로). 안 주면 전체
+                    규칙(rules) → NLI(nli_url) → SemIf(url) 차례로 묻고 앞 단이 확신하면 멈춘다
+                    NLI 확신 문턱은 지지 nli_sure_support · 반대·무관 nli_sure
                     마지막 단도 확신이 없으면 「모른다」 · 규칙에 안 걸린 쌍은 글자가 빈 「모른다」
   --json            결과를 JSON 으로
   --repo <폴더>     저장소를 직접 가리킨다

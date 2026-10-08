@@ -71,6 +71,16 @@ func (f *tomlFile) value(section, key string) (tomlValue, bool) {
 	return found, ok
 }
 
+// hasPrefix 는 그 절에 prefix 로 시작하는 키가 하나라도 있는지다 (없어진 옛 키 알림용).
+func (f *tomlFile) hasPrefix(section, prefix string) bool {
+	for key := range f.sections[section] {
+		if strings.HasPrefix(key, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func (f *tomlFile) stringOr(section, key, fallback string) string {
 	found, ok := f.value(section, key)
 	if !ok || found.kind != kindString {

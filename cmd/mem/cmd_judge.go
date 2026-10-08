@@ -68,18 +68,18 @@ func loadLLM() config.LLMConfig {
 }
 
 // judgeOf 는 저장소 하나의 판정기다. 늘 판정기를 돌려준다 — 규칙 단은 서버 없이 돌고,
-// Laya·SemIf 는 llm.toml 에 적혀 있을 때만 붙는다 (Client·Laya 가 nil 일 수 있다).
+// NLI·SemIf 는 llm.toml 에 적혀 있을 때만 붙는다 (Client·NLI 가 nil 일 수 있다).
 // rulesFinal 은 최종으로 칠 규칙 글자다. 비밀 꼴이 든 글은 프로세스 밖으로 안 보낸다.
 func judgeOf(repository *config.Repository, settings config.LLMConfig, rulesFinal []string) *llm.Judge {
 	scanner := scannerFor(repository.Config.Secret)
-	return &llm.Judge{Client: llm.New(settings), Laya: llm.NewLaya(settings), Dir: judgeDir(repository),
+	return &llm.Judge{Client: llm.New(settings), NLI: llm.NewNLI(settings), Dir: judgeDir(repository),
 		RulesFinal: rulesFinal, Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
 }
 
 // judgeRulesFinal 은 mem judge 가 최종으로 치는 규칙 글자다 (반대 · 무관).
 var judgeRulesFinal = []string{llm.LetterContradict, llm.LetterUnrelated}
 
-// parseStages 는 --stage 값(rules,laya,semif 를 쉼표로)을 사다리 차례로 맞춘다.
+// parseStages 는 --stage 값(rules,nli,semif 를 쉼표로)을 사다리 차례로 맞춘다.
 func parseStages(text string) ([]string, bool) {
 	given := map[string]bool{}
 	for _, part := range strings.Split(text, ",") {
@@ -204,9 +204,10 @@ type judgeConfigJSON struct {
 	JudgeProfile    string  `json:"judge_profile,omitempty"`
 	GenerateProfile string  `json:"generate_profile,omitempty"`
 	TimeoutMS       int     `json:"timeout_ms"`
-	LayaURL         string  `json:"laya_url,omitempty"`
-	LayaTimeoutMS   int     `json:"laya_timeout_ms"`
-	LayaSure        float64 `json:"laya_sure"`
+	NLIURL          string  `json:"nli_url,omitempty"`
+	NLITimeoutMS    int     `json:"nli_timeout_ms"`
+	NLISure         float64 `json:"nli_sure"`
+	NLISureSupport  float64 `json:"nli_sure_support"`
 }
 
 // judgeConfig 는 llm.toml 자리와 읽은 값을 보인다. 서버에는 아무것도 안 보낸다.
@@ -215,7 +216,8 @@ func judgeConfig(parsed *options) int {
 	row := judgeConfigJSON{Path: settings.Path, Enabled: settings.Enabled(), URL: settings.URL,
 		Key: settings.Key != "", JudgeProfile: settings.JudgeProfile,
 		GenerateProfile: settings.GenerateProfile, TimeoutMS: settings.TimeoutMS,
-		LayaURL: settings.LayaURL, LayaTimeoutMS: settings.LayaTimeoutMS, LayaSure: settings.LayaSure}
+		NLIURL: settings.NLIURL, NLITimeoutMS: settings.NLITimeoutMS, NLISure: settings.NLISure,
+		NLISureSupport: settings.NLISureSupport}
 	if parsed.flags["json"] {
 		return printJSON(row)
 	}
@@ -277,7 +279,7 @@ func judgeOne(parsed *options, judge *llm.Judge) int {
 	}
 	if verdict.Letter == "" {
 		fmt.Println(i18n.T(i18n.JudgeNoHit))
-		if judge.Client == nil && judge.Laya == nil {
+		if judge.Client == nil && judge.NLI == nil {
 			fmt.Println(i18n.T(i18n.JudgeOff, config.LLMPath()))
 		}
 		return exitOK

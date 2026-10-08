@@ -115,7 +115,7 @@ type Verdict struct {
 	Evidence string             `json:"evidence"`
 	Claim    string             `json:"claim"`
 	Cached   bool               `json:"cached,omitempty"`
-	// Stage 는 답을 낸 단(rules · laya · semif)이고 Reason 은 규칙의 까닭이다 (neg:한다→안 한다).
+	// Stage 는 답을 낸 단(rules · nli · semif)이고 Reason 은 규칙의 까닭이다 (neg:한다→안 한다).
 	Stage  string `json:"stage,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	// Unsure 는 「모른다」다 — 최고 확률이 UnsureBelow 아래거나 1·2등이 동점. 글자는 그대로
@@ -140,22 +140,22 @@ func unsureOf(choice Choice) bool {
 	return choice.Prob-second < tieGap
 }
 
-// 판정 사다리의 단 이름이다 (자체판정프로그램설계 1절). 이 차례로 묻는다.
+// 판정 사다리의 단 이름이다 (자체판정프로그램설계 1절 · ② 는 길1 NLI 설계로 바뀜). 이 차례로 묻는다.
 const (
 	StageRules = "rules"
-	StageLaya  = "laya"
+	StageNLI   = "nli"
 	StageSemIf = "semif"
 )
 
 // Stages 는 사다리 차례다.
-var Stages = []string{StageRules, StageLaya, StageSemIf}
+var Stages = []string{StageRules, StageNLI, StageSemIf}
 
-// Judge 는 판정기다. 규칙 → Laya → SemIf 차례로 묻고 앞 단이 확신하면 멈춘다.
-// Laya·Client 가 nil 이면 그 단을 건너뛴다. Dir 이나 프로필이 비면 SemIf 기록을 안 남기고 안 읽는다.
-// Refuse 가 참을 내는 글(비밀 꼴)은 프로세스 밖(Laya·SemIf)으로 보내지 않는다. Prompt 가 비면 DefaultPrompt 다.
+// Judge 는 판정기다. 규칙 → NLI → SemIf 차례로 묻고 앞 단이 확신하면 멈춘다.
+// NLI·Client 가 nil 이면 그 단을 건너뛴다. Dir 이나 프로필이 비면 SemIf 기록을 안 남기고 안 읽는다.
+// Refuse 가 참을 내는 글(비밀 꼴)은 프로세스 밖(NLI·SemIf)으로 보내지 않는다. Prompt 가 비면 DefaultPrompt 다.
 type Judge struct {
 	Client *Client
-	Laya   *LayaClient
+	NLI    *NLIClient
 	Dir    string
 	Fresh  bool
 	Refuse func(text string) bool
@@ -197,12 +197,12 @@ func (j *Judge) Support(evidence, claim string) (Verdict, error) {
 		}
 		pending = &verdict
 	}
-	outside := (j.uses(StageLaya) && j.Laya != nil) || (j.uses(StageSemIf) && j.Client != nil)
+	outside := (j.uses(StageNLI) && j.NLI != nil) || (j.uses(StageSemIf) && j.Client != nil)
 	if outside && j.Refuse != nil && (j.Refuse(evidence) || j.Refuse(claim)) {
 		return settle(pending, ErrRefused)
 	}
-	if j.uses(StageLaya) && j.Laya != nil {
-		verdict, err := j.askLaya(evidence, claim)
+	if j.uses(StageNLI) && j.NLI != nil {
+		verdict, err := j.askNLI(evidence, claim)
 		if err != nil {
 			j.last = err.Error()
 			lastErr = err
@@ -271,18 +271,20 @@ func ruleVerdict(evidence, claim string) Verdict {
 	return verdict
 }
 
-// askLaya 는 Laya 단이다. laya_sure 아래거나 동점이면 Unsure 다. 판정 기록은 남기기만 한다 —
-// 모델 이름(Profile)을 응답에서야 알아 묻기 전에 기록을 찾을 수 없고, 0.1초라 다시 물어도 싸다.
-func (j *Judge) askLaya(evidence, claim string) (Verdict, error) {
-	choice, model, err := j.Laya.Judge(evidence, claim)
+// askNLI 는 NLI 단이다. 동점이거나, 답이 지지(A)인데 nli_sure_support 아래거나, 반대·무관(B·C)인데
+// nli_sure 아래면 Unsure 다 — 지지에만 높은 선을 걸어 거짓 지지를 막고 B·C 확정은 덜 잃는다
+// (길1 NLI 설계 7절). 판정 기록은 남기기만 한다 — 모델 이름(Profile)을 응답에서야 알아 묻기 전에
+// 기록을 찾을 수 없고, 1초 안쪽(p95 ≤ 1.0초)이라 다시 물어도 싸다.
+func (j *Judge) askNLI(evidence, claim string) (Verdict, error) {
+	choice, model, err := j.NLI.Judge(evidence, claim)
 	if err != nil {
 		return Verdict{}, err
 	}
-	hash := hashOf(KindSupport, LayaVersion, model, evidence, claim)
-	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: LayaVersion, Profile: model, Stage: StageLaya,
+	hash := hashOf(KindSupport, NLIVersion, model, evidence, claim)
+	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: NLIVersion, Profile: model, Stage: StageNLI,
 		Letter: choice.Letter, Prob: choice.Prob, Probs: choice.Probs, MS: choice.MS,
 		At: time.Now().Format(time.RFC3339), Evidence: evidence, Claim: claim,
-		Unsure: unsureOf(choice) || choice.Prob < j.Laya.Sure()}
+		Unsure: unsureOf(choice) || choice.Prob < j.NLI.sureFor(choice.Letter)}
 	if model != "-" {
 		j.write(verdict)
 	}

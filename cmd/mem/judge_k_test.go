@@ -213,7 +213,7 @@ func TestJudgeStageOption(t *testing.T) {
 	if code != exitOK || hits.Load() != 1 || !strings.Contains(out, `"stage":"semif"`) {
 		t.Fatalf("사다리 전체 : %d hits=%d %s", code, hits.Load(), out)
 	}
-	for _, bad := range []string{"llm", "rules,,laya", ""} {
+	for _, bad := range []string{"llm", "rules,,nli", "rules,laya", ""} {
 		if _, code := capture(t, func() int { return run([]string{"judge", "support", "--file", pairs, "--stage", bad}) }); code != exitUsage {
 			t.Errorf("--stage %q 를 받았다", bad)
 		}

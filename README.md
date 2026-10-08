@@ -166,29 +166,35 @@ generate_profile = "flashnext"  # B2·A2 몫 (아직 안 쓴다)
 timeout_ms = 5000               # 한 요청 제한 시간 (1~60000)
 ```
 
-### 판정 사다리 — 규칙 → Laya → SemIf (2026-10-08)
+### 판정 사다리 — 규칙 → NLI → SemIf (2026-10-08 · ② 단은 2026-10-09 NLI 로 바뀜)
 
 판정은 싼 단부터 묻고 앞 단이 확신하면 멈춘다 (자체판정프로그램설계 2026-10-08 · 1~3절).
 **규칙 단은 `llm.toml` 이 없어도 늘 돈다.**
-**Laya 단은 지금 접혀 있다 (2026-10-08 · game90 0.757 미달)** — `laya_url` 을 비워 두면 건너뛰어, 실제 사다리는 「규칙 → SemIf → 보류」다. 수치는 `Docs/Research/2026-10-08-자체판정프로그램실측.md`.
-Laya 판정 프로세스(까는 법 · 띄우는 법 · 학습 고리)는 `judge-laya/README.md`.
+**NLI 단은 기본으로 꺼져 있다** — `nli_url` 을 비워 두면 건너뛰어, 실제 사다리는 「규칙 → SemIf → 보류」다.
+NLI 서버는 JudgeTool 의 응답 꼴을 따르는 HTTP 서버다 — `POST /judge {"evidence","claim"}` → `{"a","b","c","model","ms"}` (a 지지 · b 반대 · c 무관 확률, model 은 가중치 SHA 앞 8자).
+옛 Laya 단(`laya-v2`, 2026-10-08 game90 0.757 미달로 접음)의 `judge-laya/` 폴더는 지웠다(2026-10-09) — 판정 서버는 JudgeTool 로 옮겼다.
+JudgeTool 의 첫 모델 `nli-studio-v1` 도 2026-10-09 game90 미달(정확도 0.748)로 접어, 지금은 `nli_url` 을 비워 둔다.
 
 | 단 | `stage` · `prompt` | 하는 일 | 멈추는 때 |
 | --- | --- | --- | --- |
 | ① 규칙 | `rules` · `rules-v1` | R-부정 → R-숫자 → R-무관. 반대(B)·무관(C)만 낸다 · 까닭은 `reason` (`neg:한다→안 한다` · `num:5초≠12초` · `unrelated:j0.02/b0.05`) | `mem judge` 는 B·C, retain(R3)은 **B 만** |
-| ② Laya | `laya` · `laya-v2` | `POST {laya_url}/judge` → A·B·C 확률. 안 닿음·시간 넘김·200 아님이면 건너뛴다 (`laya:timeout`) | 최고 확률 ≥ `laya_sure` |
+| ② NLI | `nli` · `nli-v1` | `POST {nli_url}/judge` → A·B·C 확률. 안 닿음·시간 넘김·200 아님이면 건너뛴다 (`nli:timeout`) | 답이 지지(A)면 확률 ≥ `nli_sure_support`, 반대·무관(B·C)이면 ≥ `nli_sure` |
 | ③ SemIf | `semif` · `support-v3` | 위 K 그대로 | 「모른다」가 아니면 |
 | ④ 보류 | — | 마지막 답에 `unsure: true` | 늘 |
 
+- NLI 문턱이 둘인 까닭 : 막을 실수는 거짓 지지 하나다. 지지에만 높은 선을 걸면 반대·무관 확정은 덜 잃는다. 확신 아래면 SemIf 로 넘기고, SemIf 도 없으면 보류다.
 - retain 에서 규칙 C 는 다음 단에 묻고, 다음 단이 없으면 「판정 못 받음」 경고다. 규칙에 안 걸렸고 물을 단도 없으면 경고 없이 넘긴다.
 - 비밀 꼴 검사는 ② 앞에서 한다. 규칙 단은 프로세스 밖으로 안 나가 비밀 꼴이어도 돈다.
-- `mem judge support … --stage rules,laya,semif` (쉼표 묶음)로 고른 단만 돈다. 결과 jsonl 에 `stage` · `reason` 이 찍혀 단마다 몇 쌍을 잡았는지 센다.
+- `mem judge support … --stage rules,nli,semif` (쉼표 묶음)로 고른 단만 돈다. 결과 jsonl 에 `stage` · `reason` 이 찍혀 단마다 몇 쌍을 잡았는지 센다.
 
 ```toml
-laya_url = ""            # 예 "http://127.0.0.1:8091" · 비면 Laya 단을 건너뛴다
-laya_timeout_ms = 1000   # 1~5000
-laya_sure = 0.70         # 0.34~0.99 · 이 확률 아래면 다음 단으로 넘긴다
+nli_url = ""              # 예 "http://127.0.0.1:8092" · 비면 NLI 단을 건너뛴다
+nli_timeout_ms = 1000     # 1~5000
+nli_sure = 0.70           # 반대·무관 확정 문턱 · 0.34~0.99 · 이 확률 아래면 다음 단으로 넘긴다
+nli_sure_support = 0.90   # 지지 확정 문턱 · 0.34~0.99 · 보통 nli_sure 보다 높다
 ```
+
+- 옛 `laya_url` · `laya_timeout_ms` · `laya_sure` 는 받지 않는다. 적혀 있으면 읽지 않고 경고 한 줄을 낸다 — 옛 값은 다른 모델에 맞춘 문턱이다.
 
 ## 모음 기억 B1 (2026-10-05)
 
