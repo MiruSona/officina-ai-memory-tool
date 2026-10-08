@@ -10,6 +10,7 @@ import (
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
+	"github.com/mirusona/officina-ai-memory-tool/internal/llm"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 	"github.com/mirusona/officina-ai-memory-tool/internal/retain"
@@ -117,12 +118,10 @@ func checkAuto(parsed *options, repository *config.Repository, request store.Add
 	}
 	candidate := retain.Candidate{Memory: memory, Origin: origin, Quotes: quotesOf(parsed),
 		Supersedes: request.Supersedes, GateRules: findingRules(verdict)}
-	// R3 는 llm.toml 이 켜져 있고 근거 문장이 있고 기존 관문을 지났을 때만 묻는다.
-	// nil 포인터를 인터페이스에 넣으면 nil 이 아니게 되므로 있을 때만 단다.
+	// R3 는 근거 문장이 있고 기존 관문을 지났을 때만 묻는다. 규칙 단은 서버 없이도 돌지만
+	// retain 은 「반대」만 최종으로 친다 — 「무관」은 오발이 많아 다음 단에 묻는다 (자체판정프로그램설계 3절).
 	if len(candidate.Quotes) > 0 && !verdict.Rejected() {
-		if judge := judgeOf(repository, loadLLM()); judge != nil {
-			context.Judge = judge
-		}
+		context.Judge = judgeOf(repository, loadLLM(), retainRulesFinal)
 	}
 	short := retain.Short(sessionID)
 	if short == "" {
@@ -131,6 +130,9 @@ func checkAuto(parsed *options, repository *config.Repository, request store.Add
 	return autoAdd{Origin: origin, Session: sessionID, Short: short,
 		Result: retain.Check(candidate, context)}
 }
+
+// retainRulesFinal 은 retain 관문이 최종으로 치는 규칙 글자다.
+var retainRulesFinal = []string{llm.LetterContradict}
 
 // findingRules 는 판정이 낸 규칙 이름 그대로다. 경고 등급도 빠짐없이 R4 에 넘긴다.
 func findingRules(verdict quality.Verdict) []string {

@@ -115,6 +115,9 @@ type Verdict struct {
 	Evidence string             `json:"evidence"`
 	Claim    string             `json:"claim"`
 	Cached   bool               `json:"cached,omitempty"`
+	// Stage 는 답을 낸 단(rules · laya · semif)이고 Reason 은 규칙의 까닭이다 (neg:한다→안 한다).
+	Stage  string `json:"stage,omitempty"`
+	Reason string `json:"reason,omitempty"`
 	// Unsure 는 「모른다」다 — 최고 확률이 UnsureBelow 아래거나 1·2등이 동점. 글자는 그대로
 	// 두되(판정 갈래에 안 넣는다) 부르는 쪽이 경고로 흘린다 (사용자 결정 2026-10-08).
 	Unsure bool `json:"unsure,omitempty"`
@@ -137,16 +140,35 @@ func unsureOf(choice Choice) bool {
 	return choice.Prob-second < tieGap
 }
 
-// Judge 는 판정기다. Dir 이나 프로필(judge_profile)이 비면 판정 기록을 안 남기고 안 읽는다.
-// Refuse 가 참을 내는 글(비밀 꼴)은 서버로 보내지 않는다. Prompt 가 비면 DefaultPrompt 다.
+// 판정 사다리의 단 이름이다 (자체판정프로그램설계 1절). 이 차례로 묻는다.
+const (
+	StageRules = "rules"
+	StageLaya  = "laya"
+	StageSemIf = "semif"
+)
+
+// Stages 는 사다리 차례다.
+var Stages = []string{StageRules, StageLaya, StageSemIf}
+
+// Judge 는 판정기다. 규칙 → Laya → SemIf 차례로 묻고 앞 단이 확신하면 멈춘다.
+// Laya·Client 가 nil 이면 그 단을 건너뛴다. Dir 이나 프로필이 비면 SemIf 기록을 안 남기고 안 읽는다.
+// Refuse 가 참을 내는 글(비밀 꼴)은 프로세스 밖(Laya·SemIf)으로 보내지 않는다. Prompt 가 비면 DefaultPrompt 다.
 type Judge struct {
 	Client *Client
+	Laya   *LayaClient
 	Dir    string
 	Fresh  bool
 	Refuse func(text string) bool
 	Prompt *Prompt
+	// RulesFinal 은 규칙 글자 중 최종으로 칠 것이다 (mem judge {B,C} · retain {B}).
+	// 비면 규칙에 걸려도 늘 다음 단에 묻는다.
+	RulesFinal []string
+	// Only 는 돌 단을 고른다 (mem judge --stage). 비면 사다리 전체다.
+	Only []string
 	// last 는 마지막으로 판정을 못 받은 까닭이다 (retain 관문의 경고 글에 쓴다).
 	last string
+	// skipped 는 마지막 Supports 에서 물을 단이 하나도 없었는지다 (관문은 조용히 넘긴다).
+	skipped bool
 }
 
 // prompt 는 쓰는 물음 글이다.
@@ -160,15 +182,116 @@ func (j *Judge) prompt() Prompt {
 // ErrRefused 는 비밀 꼴이 있어 보내지 않은 것이다.
 var ErrRefused = errors.New("secret-shape")
 
-// Support 는 (근거, 주장) 한 쌍을 판정한다. 같은 입력의 기록이 있으면 다시 묻지
-// 않는다 — 같은 입력에 확률이 최대 0.23 흔들렸다 (판정모델 실측 2-6).
+// Support 는 (근거, 주장) 한 쌍을 사다리로 판정한다. 확신 없는 답만 남으면 마지막 답을
+// Unsure 로 돌려준다. 어느 단도 답을 못 냈으면 마지막 오류다 (물을 단이 없으면 ErrDisabled).
 func (j *Judge) Support(evidence, claim string) (Verdict, error) {
-	if j == nil || j.Client == nil {
+	if j == nil {
 		return Verdict{}, ErrDisabled
 	}
-	if j.Refuse != nil && (j.Refuse(evidence) || j.Refuse(claim)) {
-		return Verdict{}, ErrRefused
+	var pending *Verdict
+	var lastErr error = ErrDisabled
+	if j.uses(StageRules) {
+		verdict := ruleVerdict(evidence, claim)
+		if verdict.Letter != "" && j.ruleFinal(verdict.Letter) {
+			return verdict, nil
+		}
+		pending = &verdict
 	}
+	outside := (j.uses(StageLaya) && j.Laya != nil) || (j.uses(StageSemIf) && j.Client != nil)
+	if outside && j.Refuse != nil && (j.Refuse(evidence) || j.Refuse(claim)) {
+		return settle(pending, ErrRefused)
+	}
+	if j.uses(StageLaya) && j.Laya != nil {
+		verdict, err := j.askLaya(evidence, claim)
+		if err != nil {
+			j.last = err.Error()
+			lastErr = err
+		} else if !verdict.Unsure {
+			return verdict, nil
+		} else {
+			pending = &verdict
+		}
+	}
+	if j.uses(StageSemIf) && j.Client != nil {
+		verdict, err := j.askSemIf(evidence, claim)
+		if err != nil {
+			return settle(pending, err)
+		}
+		return verdict, nil
+	}
+	return settle(pending, lastErr)
+}
+
+// settle 은 확신 있는 답 없이 사다리가 끝났을 때다. 어느 단이 오류를 냈으면 그 오류다 —
+// 부르는 쪽이 「판정 못 받음」 경고로 흘린다. 오류 없이 물을 단이 없었으면 남은 답을 Unsure 로
+// 돌려준다 (규칙에 안 걸린 답은 글자가 비어 있다).
+func settle(pending *Verdict, err error) (Verdict, error) {
+	if pending == nil || !errors.Is(err, ErrDisabled) {
+		return Verdict{}, err
+	}
+	pending.Unsure = true
+	return *pending, nil
+}
+
+// uses 는 그 단을 돌지다.
+func (j *Judge) uses(stage string) bool {
+	if len(j.Only) == 0 {
+		return true
+	}
+	for _, one := range j.Only {
+		if one == stage {
+			return true
+		}
+	}
+	return false
+}
+
+func (j *Judge) ruleFinal(letter string) bool {
+	for _, one := range j.RulesFinal {
+		if one == letter {
+			return true
+		}
+	}
+	return false
+}
+
+// ruleVerdict 는 규칙 단의 답이다. 안 걸리면 글자가 빈 답이다. 같은 입력이면 늘 같은 답이라
+// 기록을 안 남긴다.
+func ruleVerdict(evidence, claim string) Verdict {
+	started := time.Now()
+	verdict := Verdict{Kind: KindSupport, Prompt: RulesVersion, Profile: RulesProfile, Stage: StageRules,
+		Evidence: evidence, Claim: claim, At: started.Format(time.RFC3339)}
+	verdict.Hash = hashOf(KindSupport, RulesVersion, RulesProfile, evidence, claim)
+	label, reason, ok := RuleJudge(evidence, claim)
+	if ok {
+		verdict.Letter, verdict.Prob, verdict.Reason = label, 1, reason
+		verdict.Probs = map[string]float64{label: 1}
+	}
+	verdict.MS = time.Since(started).Milliseconds()
+	return verdict
+}
+
+// askLaya 는 Laya 단이다. laya_sure 아래거나 동점이면 Unsure 다. 판정 기록은 남기기만 한다 —
+// 모델 이름(Profile)을 응답에서야 알아 묻기 전에 기록을 찾을 수 없고, 0.1초라 다시 물어도 싸다.
+func (j *Judge) askLaya(evidence, claim string) (Verdict, error) {
+	choice, model, err := j.Laya.Judge(evidence, claim)
+	if err != nil {
+		return Verdict{}, err
+	}
+	hash := hashOf(KindSupport, LayaVersion, model, evidence, claim)
+	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: LayaVersion, Profile: model, Stage: StageLaya,
+		Letter: choice.Letter, Prob: choice.Prob, Probs: choice.Probs, MS: choice.MS,
+		At: time.Now().Format(time.RFC3339), Evidence: evidence, Claim: claim,
+		Unsure: unsureOf(choice) || choice.Prob < j.Laya.Sure()}
+	if model != "-" {
+		j.write(verdict)
+	}
+	return verdict, nil
+}
+
+// askSemIf 는 SemIf 단이다. 같은 입력의 기록이 있으면 다시 묻지 않는다 — 같은 입력에 확률이
+// 최대 0.23 흔들렸다 (판정모델 실측 2-6).
+func (j *Judge) askSemIf(evidence, claim string) (Verdict, error) {
 	prompt := j.prompt()
 	user, err := json.Marshal(semifInput{Evidence: evidence, Criterion: prompt.Criterion + claim,
 		Options: prompt.Options})
@@ -183,6 +306,7 @@ func (j *Judge) Support(evidence, claim string) (Verdict, error) {
 	if !j.Fresh && remember {
 		if cached, ok := j.read(hash); ok {
 			cached.Cached = true
+			cached.Stage = StageSemIf
 			return cached, nil
 		}
 	}
@@ -191,7 +315,7 @@ func (j *Judge) Support(evidence, claim string) (Verdict, error) {
 	if err != nil {
 		return Verdict{}, err
 	}
-	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: prompt.Version, Profile: profile,
+	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: prompt.Version, Profile: profile, Stage: StageSemIf,
 		Letter: choice.Letter, Prob: choice.Prob, Probs: choice.Probs, MS: choice.MS,
 		At: time.Now().Format(time.RFC3339), Evidence: evidence, Claim: claim, Unsure: unsureOf(choice)}
 	if remember {
@@ -204,19 +328,34 @@ func (j *Judge) Support(evidence, claim string) (Verdict, error) {
 var ErrUnsure = errors.New("unsure")
 
 // Supports 는 retain.Judge 자리다. ok 가 거짓이면 판정을 못 받은 것이다. 「모른다」도
-// ok 거짓이다 — 거절 대신 경고로 흘린다 (사용자 결정 2026-10-08).
+// ok 거짓이다 — 거절 대신 경고로 흘린다 (사용자 결정 2026-10-08). 물을 단이 하나도 없었으면
+// Skipped 가 참이다 (규칙에 안 걸렸고 다음 단이 없음).
 func (j *Judge) Supports(quote, summary string) (bool, bool) {
+	j.skipped = false
 	verdict, err := j.Support(quote, summary)
 	if err != nil {
 		j.last = err.Error()
+		j.skipped = errors.Is(err, ErrDisabled)
+		return false, false
+	}
+	if verdict.Letter == "" {
+		j.last = ""
+		j.skipped = true
 		return false, false
 	}
 	if verdict.Unsure {
 		j.last = fmt.Sprintf("%s %s=%.2f", ErrUnsure.Error(), verdict.Letter, verdict.Prob)
+		if verdict.Reason != "" {
+			j.last += " " + verdict.Reason
+		}
 		return false, false
 	}
 	return verdict.Supported(), true
 }
+
+// Skipped 는 마지막 Supports 에 물을 단이 없었는지다. 관문은 이때 경고 없이 넘긴다 —
+// 서버 없는 기계에서 규칙에 안 걸린 쌍마다 경고가 찍히면 안 된다.
+func (j *Judge) Skipped() bool { return j.skipped }
 
 // Problem 은 마지막으로 판정을 못 받은 까닭이다 (timeout · http-500 · no-logprobs …).
 func (j *Judge) Problem() string { return j.last }

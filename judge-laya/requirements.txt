@@ -1,0 +1,4 @@
+# 서빙용 (serve.py 기본 ONNX 판) — torch 없음. 2026-10-08 메인 PC(Windows · Python 3.14)에서 확인한 판
+onnxruntime==1.30.0
+tokenizers==0.23.2
+numpy==2.5.3

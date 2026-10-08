@@ -39,8 +39,8 @@ bin\mem.exe install --apply        # 실제로 적용한다 (PATH 는 새 터미
 
 `build.ps1 -Install` 로 2·3 을 한 번에 해도 된다. 인터넷이 없으면 `build.ps1 -Install -Bundle <꾸러미폴더>`.
 
-**바깥 LLM 판정은 선택 사항이다.** `mem` 은 서버 없이 그대로 다 돈다. OpenAI 호환 서버(llama.cpp `llama-server` 같은 것, `logprobs` 를 돌려주는 것)가 있으면
-`~/.aimemory/llm.toml` 하나로 붙인다 — 그러면 `add --origin` 의 근거 판정(R3)이 켜진다. 없으면 그 관문만 건너뛰고 나머지는 같다.
+**바깥 LLM 판정은 선택 사항이다.** `mem` 은 서버 없이 그대로 다 돈다. 근거 판정(R3)의 **규칙 단은 서버 없이 늘 돈다.**
+OpenAI 호환 서버(llama.cpp `llama-server` 같은 것, `logprobs` 를 돌려주는 것)가 있으면 `~/.aimemory/llm.toml` 하나로 붙인다 — 그러면 규칙에 안 걸린 쌍을 서버(SemIf)에 묻는다. 없으면 그 단만 건너뛴다.
 설정 꼴과 확인 명령(`mem judge config`)은 아래 「바깥 LLM 판정 K」 절.
 
 **소스를 받은 뒤(서브모듈 갱신 포함)에는 `.\build.ps1` 로 다시 빌드한다** — `bin\` 은 git 에 안 올라가
@@ -142,7 +142,7 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 | `mem auto redo --apply` | undo 기록대로 되살린다 |
 | `mem review --reject <id>` | 보류 기억을 버린다 — 지우지 않고 접는다 (`gc --restore` 로 되돌림) |
 
-R3(바깥 LLM 근거 판정)은 아래 K 절의 `llm.toml` 이 있을 때만 돈다. 없으면 A1 그대로 건너뛴다.
+R3(근거 판정)는 아래 「판정 사다리」 절대로 돈다 — 규칙 단은 늘, 서버 단(SemIf)은 K 절의 `llm.toml` 이 있을 때만.
 
 ## 바깥 LLM 판정 K (2026-10-05)
 
@@ -150,7 +150,7 @@ R3(바깥 LLM 근거 판정)은 아래 K 절의 `llm.toml` 이 있을 때만 돈
 SemIf 방식이다: 생각 끔 · `max_tokens 1` · 첫 토큰 위 20개 확률에서 글자만 읽는다. 글을 안 만들게 하니 지어낼 자리가 없다.
 SemIf 는 모델이 아니라 묻는 법이다 — 어떤 생성 LLM 이든 글자 하나로 답하게 하고 그 글자의 확률만 읽는다. 그래서 특정 모델에 묶이지 않는다.
 
-- **기계 설정 `~/.aimemory/llm.toml` 이 없으면 아무것도 안 바뀐다** (기본 꺼짐). `mem` 은 서버를 띄우지 않는다.
+- **기계 설정 `~/.aimemory/llm.toml` 이 없으면 서버 단만 꺼진다** (기본 꺼짐). 규칙 단은 그래도 돈다 (아래 「판정 사다리」). `mem` 은 서버를 띄우지 않는다.
 - 서버가 안 닿거나 · 시간을 넘기거나 · 확률을 안 주면 **R3 만 경고 한 줄로 건너뛰고** 저장은 그대로 한다. 재시도는 없다.
 - 규칙 관문에 이미 걸린 후보 · 비밀 꼴이 든 글은 서버에 안 보낸다.
 - 판정은 `Memory/local/judge/<해시>.json` 에 남기고 **같은 입력은 다시 묻지 않는다** (같은 입력도 확률이 흔들려서다).
@@ -164,6 +164,30 @@ key = ""                        # 있으면 Bearer 로 보낸다
 judge_profile = "flashnext"     # 요청의 model 칸 · 판정 기록에 적는 이름
 generate_profile = "flashnext"  # B2·A2 몫 (아직 안 쓴다)
 timeout_ms = 5000               # 한 요청 제한 시간 (1~60000)
+```
+
+### 판정 사다리 — 규칙 → Laya → SemIf (2026-10-08)
+
+판정은 싼 단부터 묻고 앞 단이 확신하면 멈춘다 (자체판정프로그램설계 2026-10-08 · 1~3절).
+**규칙 단은 `llm.toml` 이 없어도 늘 돈다.**
+**Laya 단은 지금 접혀 있다 (2026-10-08 · game90 0.757 미달)** — `laya_url` 을 비워 두면 건너뛰어, 실제 사다리는 「규칙 → SemIf → 보류」다. 수치는 `Docs/Research/2026-10-08-자체판정프로그램실측.md`.
+Laya 판정 프로세스(까는 법 · 띄우는 법 · 학습 고리)는 `judge-laya/README.md`.
+
+| 단 | `stage` · `prompt` | 하는 일 | 멈추는 때 |
+| --- | --- | --- | --- |
+| ① 규칙 | `rules` · `rules-v1` | R-부정 → R-숫자 → R-무관. 반대(B)·무관(C)만 낸다 · 까닭은 `reason` (`neg:한다→안 한다` · `num:5초≠12초` · `unrelated:j0.02/b0.05`) | `mem judge` 는 B·C, retain(R3)은 **B 만** |
+| ② Laya | `laya` · `laya-v2` | `POST {laya_url}/judge` → A·B·C 확률. 안 닿음·시간 넘김·200 아님이면 건너뛴다 (`laya:timeout`) | 최고 확률 ≥ `laya_sure` |
+| ③ SemIf | `semif` · `support-v3` | 위 K 그대로 | 「모른다」가 아니면 |
+| ④ 보류 | — | 마지막 답에 `unsure: true` | 늘 |
+
+- retain 에서 규칙 C 는 다음 단에 묻고, 다음 단이 없으면 「판정 못 받음」 경고다. 규칙에 안 걸렸고 물을 단도 없으면 경고 없이 넘긴다.
+- 비밀 꼴 검사는 ② 앞에서 한다. 규칙 단은 프로세스 밖으로 안 나가 비밀 꼴이어도 돈다.
+- `mem judge support … --stage rules,laya,semif` (쉼표 묶음)로 고른 단만 돈다. 결과 jsonl 에 `stage` · `reason` 이 찍혀 단마다 몇 쌍을 잡았는지 센다.
+
+```toml
+laya_url = ""            # 예 "http://127.0.0.1:8091" · 비면 Laya 단을 건너뛴다
+laya_timeout_ms = 1000   # 1~5000
+laya_sure = 0.70         # 0.34~0.99 · 이 확률 아래면 다음 단으로 넘긴다
 ```
 
 ## 모음 기억 B1 (2026-10-05)

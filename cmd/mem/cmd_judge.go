@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -23,7 +24,7 @@ import (
 )
 
 var judgeBools = []string{"json", "fresh", "apply"}
-var judgeValues = []string{"evidence", "claim", "file", "repo", "older", "prompt"}
+var judgeValues = []string{"evidence", "claim", "file", "repo", "older", "prompt", "stage"}
 
 // judgeDirName 은 판정 기록 폴더다. Memory/local 아래라 git 에 안 들어간다.
 const judgeDirName = "judge"
@@ -66,16 +67,35 @@ func loadLLM() config.LLMConfig {
 	return settings
 }
 
-// judgeOf 는 저장소 하나의 판정기다. llm.toml 이 꺼져 있으면 nil 이다 — 부르는 쪽은
-// nil 이면 판정을 건너뛴다. 비밀 꼴이 든 글은 서버로 안 보낸다.
-func judgeOf(repository *config.Repository, settings config.LLMConfig) *llm.Judge {
-	client := llm.New(settings)
-	if client == nil {
-		return nil
-	}
+// judgeOf 는 저장소 하나의 판정기다. 늘 판정기를 돌려준다 — 규칙 단은 서버 없이 돌고,
+// Laya·SemIf 는 llm.toml 에 적혀 있을 때만 붙는다 (Client·Laya 가 nil 일 수 있다).
+// rulesFinal 은 최종으로 칠 규칙 글자다. 비밀 꼴이 든 글은 프로세스 밖으로 안 보낸다.
+func judgeOf(repository *config.Repository, settings config.LLMConfig, rulesFinal []string) *llm.Judge {
 	scanner := scannerFor(repository.Config.Secret)
-	return &llm.Judge{Client: client, Dir: judgeDir(repository),
-		Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
+	return &llm.Judge{Client: llm.New(settings), Laya: llm.NewLaya(settings), Dir: judgeDir(repository),
+		RulesFinal: rulesFinal, Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
+}
+
+// judgeRulesFinal 은 mem judge 가 최종으로 치는 규칙 글자다 (반대 · 무관).
+var judgeRulesFinal = []string{llm.LetterContradict, llm.LetterUnrelated}
+
+// parseStages 는 --stage 값(rules,laya,semif 를 쉼표로)을 사다리 차례로 맞춘다.
+func parseStages(text string) ([]string, bool) {
+	given := map[string]bool{}
+	for _, part := range strings.Split(text, ",") {
+		name := strings.ToLower(strings.TrimSpace(part))
+		if !slices.Contains(llm.Stages, name) {
+			return nil, false
+		}
+		given[name] = true
+	}
+	stages := []string{}
+	for _, name := range llm.Stages {
+		if given[name] {
+			stages = append(stages, name)
+		}
+	}
+	return stages, true
 }
 
 // judgeDir 는 판정 기록 폴더다. 판정기와 clean 이 **같은 식 하나**로만 구한다.
@@ -177,13 +197,16 @@ func printJudgeClean(row judgeCleanJSON) {
 
 // judgeConfigJSON 은 `judge config --json` 이다. 키는 있는지만 알린다.
 type judgeConfigJSON struct {
-	Path            string `json:"path"`
-	Enabled         bool   `json:"enabled"`
-	URL             string `json:"url,omitempty"`
-	Key             bool   `json:"key"`
-	JudgeProfile    string `json:"judge_profile,omitempty"`
-	GenerateProfile string `json:"generate_profile,omitempty"`
-	TimeoutMS       int    `json:"timeout_ms"`
+	Path            string  `json:"path"`
+	Enabled         bool    `json:"enabled"`
+	URL             string  `json:"url,omitempty"`
+	Key             bool    `json:"key"`
+	JudgeProfile    string  `json:"judge_profile,omitempty"`
+	GenerateProfile string  `json:"generate_profile,omitempty"`
+	TimeoutMS       int     `json:"timeout_ms"`
+	LayaURL         string  `json:"laya_url,omitempty"`
+	LayaTimeoutMS   int     `json:"laya_timeout_ms"`
+	LayaSure        float64 `json:"laya_sure"`
 }
 
 // judgeConfig 는 llm.toml 자리와 읽은 값을 보인다. 서버에는 아무것도 안 보낸다.
@@ -191,7 +214,8 @@ func judgeConfig(parsed *options) int {
 	settings := loadLLM()
 	row := judgeConfigJSON{Path: settings.Path, Enabled: settings.Enabled(), URL: settings.URL,
 		Key: settings.Key != "", JudgeProfile: settings.JudgeProfile,
-		GenerateProfile: settings.GenerateProfile, TimeoutMS: settings.TimeoutMS}
+		GenerateProfile: settings.GenerateProfile, TimeoutMS: settings.TimeoutMS,
+		LayaURL: settings.LayaURL, LayaTimeoutMS: settings.LayaTimeoutMS, LayaSure: settings.LayaSure}
 	if parsed.flags["json"] {
 		return printJSON(row)
 	}
@@ -217,12 +241,16 @@ func judgeSupport(parsed *options) int {
 	if err != nil {
 		return exitFor(err)
 	}
-	judge := judgeOf(repository, loadLLM())
-	if judge == nil {
-		fmt.Println(i18n.T(i18n.JudgeOff, config.LLMPath()))
-		return exitOK
-	}
+	judge := judgeOf(repository, loadLLM(), judgeRulesFinal)
 	judge.Fresh = parsed.flags["fresh"]
+	// --stage 는 측정용이다 — 고른 단만 사다리 차례로 돈다. 안 주면 사다리 전체.
+	if parsed.has("stage") {
+		stages, ok := parseStages(parsed.text("stage"))
+		if !ok {
+			return fail(i18n.T(i18n.JudgeStageUsage))
+		}
+		judge.Only = stages
+	}
 	// --prompt 는 측정용이다 — 물음 글 판(v2 · v3 · v3-strict)을 골라 나란히 잰다. 안 주면 기본 판.
 	if parsed.has("prompt") {
 		prompt, ok := llm.PromptNamed(strings.TrimSpace(parsed.text("prompt")))
@@ -247,8 +275,19 @@ func judgeOne(parsed *options, judge *llm.Judge) int {
 	if parsed.flags["json"] {
 		return printJSON(verdict)
 	}
+	if verdict.Letter == "" {
+		fmt.Println(i18n.T(i18n.JudgeNoHit))
+		if judge.Client == nil && judge.Laya == nil {
+			fmt.Println(i18n.T(i18n.JudgeOff, config.LLMPath()))
+		}
+		return exitOK
+	}
+	tail := unsureMark(verdict.Unsure) + cachedMark(verdict.Cached) + i18n.T(i18n.JudgeStageMark, verdict.Stage)
+	if verdict.Reason != "" {
+		tail += " · " + verdict.Reason
+	}
 	fmt.Println(i18n.T(i18n.JudgeVerdictLine, verdict.Letter, labelOf(verdict.Letter), verdict.Prob,
-		probsText(verdict.Probs), verdict.MS, unsureMark(verdict.Unsure)+cachedMark(verdict.Cached)))
+		probsText(verdict.Probs), verdict.MS, tail))
 	return exitOK
 }
 
@@ -298,7 +337,7 @@ func judgeFile(path string, judge *llm.Judge) int {
 			row.Problem = err.Error()
 		} else {
 			row.Verdict = verdict
-			if !verdict.Cached {
+			if !verdict.Cached && verdict.Stage != llm.StageRules {
 				asked = append(asked, verdict.MS)
 			}
 			if verdict.Unsure {

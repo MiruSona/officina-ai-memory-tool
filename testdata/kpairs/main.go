@@ -3,6 +3,7 @@
 //
 //	go run ./testdata/kpairs make -store <Memory/store> -seed 1 -out <폴더> [-deny <금지어 파일>]
 //	go run ./testdata/kpairs score -pairs <pairs.jsonl> -result <mem judge support --file 의 stdout>
+//	make2 · leak · merge 는 Laya 학습 쌍용이다 (make2.go · leak.go · merge.go).
 //
 // 같은 씨앗이면 언제나 바이트까지 같은 파일이 나온다. LLM 은 부르지 않는다.
 package main
@@ -79,6 +80,9 @@ var numberPattern = regexp.MustCompile(`\d+`)
 type memory struct {
 	id, kind, title, summary, scope, origin, body string
 	sentences                                     []string
+	// make2 만 쓰는 칸이다. supersededBy 는 이 기억을 덮은 기억 · links 는 links 와 sources 의 mem: 을 합친 것.
+	supersededBy string
+	links        []string
 }
 
 // pair 는 pairs.jsonl 한 줄이다. src · rule 은 mem judge 가 무시하는 칸이다.
@@ -98,7 +102,7 @@ func main() {
 // run 은 하위 명령을 고르고 종료 코드를 돌려준다.
 func run(args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "쓰는 법: kpairs make|score ...")
+		fmt.Fprintln(stderr, "쓰는 법: kpairs make|score|make2|leak|merge ...")
 		return 2
 	}
 	var err error
@@ -107,6 +111,12 @@ func run(args []string, stdout, stderr io.Writer) int {
 		err = runMake(args[1:])
 	case "score":
 		err = runScore(args[1:], stdout)
+	case "make2":
+		err = runMake2(args[1:], stdout)
+	case "leak":
+		err = runLeak(args[1:], stdout)
+	case "merge":
+		err = runMerge(args[1:], stdout)
 	default:
 		err = fmt.Errorf("모르는 하위 명령: %s", args[0])
 	}
@@ -207,7 +217,8 @@ func hasDenyWord(text string, words []string) bool {
 	return false
 }
 
-// parseMemory 는 머리말(--- 사이)의 한 줄 칸과 본문을 읽는다. 목록 칸은 쓰지 않으니 무시한다.
+// parseMemory 는 머리말(--- 사이)의 한 줄 칸과 본문을 읽는다.
+// 목록 칸은 links([a, b] 또는 - 줄)와 sources 의 「- mem:<id>」만 읽는다.
 func parseMemory(text string) (memory, bool) {
 	text = strings.ReplaceAll(text, "\r\n", "\n")
 	if !strings.HasPrefix(text, "---\n") {
@@ -219,7 +230,13 @@ func parseMemory(text string) (memory, bool) {
 	}
 	head, body := text[4:4+end], text[4+end+4:]
 	item := memory{body: strings.TrimSpace(body)}
+	listKey := ""
 	for _, line := range strings.Split(head, "\n") {
+		if entry, isEntry := strings.CutPrefix(strings.TrimSpace(line), "- "); isEntry {
+			item.links = append(item.links, listLink(listKey, entry)...)
+			continue
+		}
+		listKey = ""
 		key, value, ok := strings.Cut(line, ":")
 		if !ok {
 			continue
@@ -238,9 +255,34 @@ func parseMemory(text string) (memory, bool) {
 			item.scope = value
 		case "origin":
 			item.origin = value
+		case "superseded_by":
+			item.supersededBy = value
+		case "links":
+			listKey = "links"
+			for _, id := range strings.Split(strings.Trim(value, "[]"), ",") {
+				item.links = append(item.links, listLink(listKey, id)...)
+			}
+		case "sources":
+			listKey = "sources"
 		}
 	}
 	return item, item.id != ""
+}
+
+// listLink 는 목록 한 칸에서 기억 id 를 꺼낸다. links 는 칸 그대로, sources 는 「mem:」 붙은 것만.
+func listLink(listKey, entry string) []string {
+	entry = strings.Trim(strings.TrimSpace(entry), `"'`)
+	switch listKey {
+	case "links":
+		if entry != "" {
+			return []string{entry}
+		}
+	case "sources":
+		if id, ok := strings.CutPrefix(entry, "mem:"); ok && id != "" {
+			return []string{strings.TrimSpace(id)}
+		}
+	}
+	return nil
 }
 
 // splitSentences 는 본문을 줄과 문장 끝(. ! ? 뒤 빈칸)으로 자르고 15~300자만 남긴다.
@@ -307,7 +349,12 @@ func jaccard(a, b string) float64 {
 // bestSentence 는 요약과 낱말이 가장 많이 겹치는 문장을 고른다. keep 이 거르면 그 문장만 본다.
 // 겹침이 같으면 먼저 나온 문장이다.
 func bestSentence(item memory, keep func(string) bool) (string, int) {
-	target := words(item.summary)
+	return bestSentenceFor(item, item.summary, keep)
+}
+
+// bestSentenceFor 는 bestSentence 와 같되 겹침을 잴 글(claim)을 따로 받는다 (다른 기억의 요약 등).
+func bestSentenceFor(item memory, claim string, keep func(string) bool) (string, int) {
+	target := words(claim)
 	best, bestScore := "", -1
 	for _, sentence := range item.sentences {
 		if keep != nil && !keep(sentence) {
@@ -522,11 +569,11 @@ func writeOutputs(dir string, pairs []pair) error {
 	return writeJSONL(filepath.Join(dir, "smoke.jsonl"), smoke)
 }
 
-func writeJSONL(path string, pairs []pair) error {
+func writeJSONL[T any](path string, items []T) error {
 	var buffer bytes.Buffer
 	encoder := json.NewEncoder(&buffer)
 	encoder.SetEscapeHTML(false)
-	for _, item := range pairs {
+	for _, item := range items {
 		if err := encoder.Encode(item); err != nil {
 			return err
 		}

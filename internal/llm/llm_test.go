@@ -193,8 +193,12 @@ func TestDisabledAndUnreachable(t *testing.T) {
 	if _, err := nothing.Support("a", "b"); !errors.Is(err, ErrDisabled) {
 		t.Fatalf("nil 판정기는 꺼짐이다 : %v", err)
 	}
-	if _, err := (&Judge{}).Support("a", "b"); !errors.Is(err, ErrDisabled) {
-		t.Fatalf("Client 없는 판정기는 꺼짐이다 : %v", err)
+	// Client 없는 판정기도 규칙 단은 돈다. 규칙에 안 걸리면 글자 빈 「모른다」다.
+	if verdict, err := (&Judge{}).Support("a", "b"); err != nil || verdict.Letter != "" || !verdict.Unsure || verdict.Stage != StageRules {
+		t.Fatalf("Client 없는 판정기는 규칙 단만 돈다 : %+v %v", verdict, err)
+	}
+	if _, err := (&Judge{Only: []string{StageSemIf}}).Support("a", "b"); !errors.Is(err, ErrDisabled) {
+		t.Fatalf("SemIf 만 고르고 Client 가 없으면 꺼짐이다 : %v", err)
 	}
 	closed := httptest.NewServer(http.NotFoundHandler())
 	address := closed.URL

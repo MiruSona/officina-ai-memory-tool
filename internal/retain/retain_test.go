@@ -358,3 +358,48 @@ func TestGateJudgeSkippedWhenRejectedAndSaysWhy(t *testing.T) {
 		t.Fatalf("못 받으면 까닭을 알리고 건너뛴다 : %+v calls=%d", result, calls)
 	}
 }
+
+// skippingJudge 는 물을 단이 하나도 없었다고 말하는 판정자다 (llm.Judge 의 Skipped 꼴).
+type skippingJudge struct{ skipped bool }
+
+func (s skippingJudge) Supports(string, string) (bool, bool) { return false, false }
+func (s skippingJudge) Problem() string                      { return "" }
+func (s skippingJudge) Skipped() bool                        { return s.skipped }
+
+// 서버 없는 기계 — 규칙에 안 걸려 물을 단이 없었으면 경고 없이 넘기고, 아니면 지금처럼 경고다.
+func TestGateJudgeSkippedIsQuiet(t *testing.T) {
+	fixture := newGateFixture(t)
+	candidate := Candidate{Memory: fixture.memory, Origin: OriginStop,
+		Quotes: []string{"훅 지연이 길어서 상태 파일을 오프셋으로 읽게 바꾸자"}}
+	context := fixture.context
+	context.Judge = skippingJudge{}
+	before := len(Check(candidate, context).Warnings)
+	context.Judge = skippingJudge{skipped: true}
+	result := Check(candidate, context)
+	if result.Rejected() || len(result.Warnings) != before-1 {
+		t.Fatalf("물을 단이 없었으면 경고가 하나 줄어야 한다 : %d → %v", before, result.Warnings)
+	}
+}
+
+// quoteJudge 는 근거마다 다르게 답한다 — 「p95」가 든 근거만 반대, 나머지는 물을 단 없음.
+type quoteJudge struct{ skipped *bool }
+
+func (q quoteJudge) Supports(quote, _ string) (bool, bool) {
+	*q.skipped = !strings.Contains(quote, "p95")
+	return false, !*q.skipped
+}
+func (q quoteJudge) Problem() string { return "" }
+func (q quoteJudge) Skipped() bool   { return *q.skipped }
+
+// 앞 근거가 「물을 단 없음」이어도 뒤 근거는 본다 — 뒤 근거가 규칙 B 에 걸릴 수 있다.
+func TestGateJudgeSkippedQuoteDoesNotStopLaterQuotes(t *testing.T) {
+	fixture := newGateFixture(t)
+	candidate := Candidate{Memory: fixture.memory, Origin: OriginStop,
+		Quotes: []string{"훅 지연이 길어서 상태 파일을 오프셋으로 읽게 바꾸자", "상태 파일을 오프셋으로 읽게 바꾸자. p95 가 180ms 였다"}}
+	context := fixture.context
+	context.Judge = quoteJudge{skipped: new(bool)}
+	if !strings.Contains(rulesOf(Check(candidate, context)), RuleSupport) {
+		result := Check(candidate, context)
+		t.Fatalf("둘째 근거의 반대를 놓쳤다 : %s %v", rulesOf(result), result.Warnings)
+	}
+}

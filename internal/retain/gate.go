@@ -31,8 +31,8 @@ const (
 // dupRules 는 R4 가 보는 기존 관문 규칙이다. 경고 등급이어도 자동 기억에는 거절이다.
 var dupRules = map[string]bool{"duplicate-hard": true, "duplicate-soft": true, "same-body": true}
 
-// Judge 는 R3(근거 지지 판정)을 맡는 바깥 LLM 자리다 (자동쌓기설계 2-3 · 5절 K).
-// llm.toml 이 켜져 있으면 llm.Judge 가 들어오고, 없으면 nil 이라 R3 를 건너뛴다.
+// Judge 는 R3(근거 지지 판정)을 맡는 자리다 (자동쌓기설계 2-3 · 자체판정프로그램설계 3절).
+// llm.Judge 는 서버 없이도 규칙 단이 늘 돈다. nil 이면 R3 를 건너뛴다.
 type Judge interface {
 	// Supports 는 근거 문장이 요약을 뒷받침하는지다. ok 가 거짓이면 판정을
 	// 못 받은 것이다 (서버가 안 닿음 등).
@@ -172,8 +172,11 @@ func checkFragments(result *Result, memory *model.Memory, context Context, all s
 // problemer 는 판정을 못 받은 까닭을 말해 주는 판정자다 (llm.Judge). 없어도 된다.
 type problemer interface{ Problem() string }
 
-// checkSupport 는 R3 다. 판정자가 없으면 조용히 건너뛴다 — LLM 주소가 없는
-// 기계에서는 규칙 관문만 돈다 (U5). 앞 규칙에 이미 걸렸으면 묻지 않는다 — 어차피
+// skipper 는 물을 단이 하나도 없었는지 말해 주는 판정자다 (llm.Judge). 그때는 경고 없이 넘긴다.
+type skipper interface{ Skipped() bool }
+
+// checkSupport 는 R3 다. 판정자가 없거나 물을 단이 없었으면 조용히 건너뛴다 — LLM 주소가
+// 없는 기계에서는 규칙 단만 돈다 (U5). 앞 규칙에 이미 걸렸으면 묻지 않는다 — 어차피
 // 거절이라 바깥 서버에 한 판(1초대)을 쓸 까닭이 없다. 판정을 한 번 못 받으면
 // 남은 근거도 묻지 않고 경고 한 줄로 끝낸다 (재시도 없음).
 func checkSupport(result *Result, candidate Candidate, context Context) {
@@ -183,6 +186,10 @@ func checkSupport(result *Result, candidate Candidate, context Context) {
 	for _, quote := range candidate.Quotes {
 		supported, ok := context.Judge.Supports(quote, candidate.Memory.Summary)
 		if !ok {
+			// 이 근거만 물을 단이 없었다 — 남은 근거는 규칙 B 에 걸릴 수 있어 계속 본다.
+			if quiet, has := context.Judge.(skipper); has && quiet.Skipped() {
+				continue
+			}
 			warning := i18n.T(i18n.AutoJudgeSkipped)
 			if why, has := context.Judge.(problemer); has && why.Problem() != "" {
 				warning = i18n.T(i18n.AutoJudgeSkippedWhy, why.Problem())

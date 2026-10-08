@@ -171,9 +171,51 @@ func TestJudgeCommand(t *testing.T) {
 	}
 	server.Close()
 	_, code = capture(t, func() int {
-		return run([]string{"judge", "support", "--evidence", "새 근거", "--claim", "새 주장"})
+		// 규칙 단에 안 걸리는 쌍이어야 서버까지 간다 (「새 근거」·「새 주장」은 R-무관에 걸린다).
+		return run([]string{"judge", "support", "--evidence", "새 근거 문장", "--claim", "새 주장 문장"})
 	})
 	if code != exitCheck {
 		t.Fatalf("서버가 안 닿으면 종료 2 : %d", code)
+	}
+}
+
+// --stage — 고른 단만 돈다. rules 만이면 서버를 안 부르고, 결과 줄에 stage·reason 이 찍힌다.
+func TestJudgeStageOption(t *testing.T) {
+	newRepo(t)
+	server, hits := fakeLLM(t, "A", 0)
+	useLLM(t, server.URL)
+	pairs := filepath.Join(t.TempDir(), "pairs.jsonl")
+	os.WriteFile(pairs, []byte(
+		`{"id":"n1","evidence":"새 기억을 넣을 때 중복 검사를 한다","claim":"새 기억을 넣을 때 중복 검사를 안 한다","want":"B"}`+"\n"+
+			`{"id":"u1","evidence":"고양이는 햇볕 아래에서 낮잠을 즐긴다","claim":"서버 배포는 금요일 오후에 멈춘다","want":"C"}`+"\n"+
+			`{"id":"s1","evidence":"색인은 SQLite FTS5 로 만든다","claim":"색인은 SQLite FTS5 로 만들고 점수 순으로 보여 준다","want":"A"}`+"\n"), 0o644)
+	out, code := capture(t, func() int { return run([]string{"judge", "support", "--file", pairs, "--stage", "rules"}) })
+	if code != exitOK || hits.Load() != 0 {
+		t.Fatalf("--stage rules 는 서버를 안 부른다 : %d hits=%d %s", code, hits.Load(), out)
+	}
+	rows := map[string]map[string]any{}
+	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
+		row := map[string]any{}
+		json.Unmarshal([]byte(line), &row)
+		rows[row["id"].(string)] = row
+	}
+	if rows["n1"]["letter"] != "B" || rows["n1"]["stage"] != "rules" || rows["n1"]["reason"] != "neg:한다→안 한다" {
+		t.Errorf("부정 쌍 : %v", rows["n1"])
+	}
+	if rows["u1"]["letter"] != "C" || !strings.HasPrefix(rows["u1"]["reason"].(string), "unrelated:") {
+		t.Errorf("무관 쌍 : %v", rows["u1"])
+	}
+	if rows["s1"]["letter"] != "" || rows["s1"]["unsure"] != true || rows["s1"]["stage"] != "rules" {
+		t.Errorf("안 걸린 쌍은 글자 빈 모른다 : %v", rows["s1"])
+	}
+	// 전체 사다리면 안 걸린 쌍만 서버에 묻는다.
+	out, code = capture(t, func() int { return run([]string{"judge", "support", "--file", pairs}) })
+	if code != exitOK || hits.Load() != 1 || !strings.Contains(out, `"stage":"semif"`) {
+		t.Fatalf("사다리 전체 : %d hits=%d %s", code, hits.Load(), out)
+	}
+	for _, bad := range []string{"llm", "rules,,laya", ""} {
+		if _, code := capture(t, func() int { return run([]string{"judge", "support", "--file", pairs, "--stage", bad}) }); code != exitUsage {
+			t.Errorf("--stage %q 를 받았다", bad)
+		}
 	}
 }
