@@ -229,3 +229,60 @@ func TestEndpointShapes(t *testing.T) {
 		}
 	}
 }
+
+// v3 — 최고 확률 0.40 아래거나 동점이면 「모른다」. 글자는 그대로 두고 Supports 는 경고로 흘린다.
+func TestSupportUnsureIsWarningNotRejection(t *testing.T) {
+	for name, one := range map[string]struct {
+		tops   map[string]float64
+		unsure bool
+	}{
+		"또렷":    {map[string]float64{"A": 0.80, "B": 0.10, "C": 0.10}, false},
+		"선 위 동점": {map[string]float64{"A": 0.45, "B": 0.10, "C": 0.45}, true},
+		"선 아래":   {map[string]float64{"A": 0.38, "B": 0.22, "C": 0.39}, true},
+		"선 바로 위": {map[string]float64{"A": 0.41, "B": 0.20, "C": 0.39}, false},
+	} {
+		fake := newFake(t, answerWith(logprobsBody(one.tops)))
+		judge := judgeFor(t, fake.URL, 2000)
+		verdict, err := judge.Support("근거", "주장")
+		if err != nil || verdict.Unsure != one.unsure || verdict.Letter == "" {
+			t.Errorf("%s : unsure=%v 여야 한다 : %+v %v", name, one.unsure, verdict, err)
+		}
+		_, ok := judge.Supports("근거", "주장")
+		if ok == one.unsure {
+			t.Errorf("%s : Supports ok 는 %v 여야 한다", name, !one.unsure)
+		}
+		if one.unsure && !strings.HasPrefix(judge.Problem(), "unsure") {
+			t.Errorf("%s : 경고 까닭이 unsure 로 시작해야 한다 : %q", name, judge.Problem())
+		}
+	}
+}
+
+// 물음 글 판은 이름으로 찾고, 판마다 해시가 갈려 기록이 섞이지 않는다.
+func TestPromptVersionsKeepRecordsApart(t *testing.T) {
+	for _, name := range []string{"v2", "v3", "v3-strict", "support-v3"} {
+		if _, ok := PromptNamed(name); !ok {
+			t.Errorf("%s 를 못 찾는다", name)
+		}
+	}
+	if _, ok := PromptNamed("v9"); ok {
+		t.Error("없는 판을 찾았다")
+	}
+	if DefaultPrompt.Version != PromptVersion {
+		t.Errorf("기본 판 %s 와 PromptVersion %s 가 다르다", DefaultPrompt.Version, PromptVersion)
+	}
+	fake := newFake(t, answerWith(logprobsBody(map[string]float64{"A": 0.90, "B": 0.05, "C": 0.05})))
+	judge := judgeFor(t, fake.URL, 2000)
+	hashes := map[string]bool{}
+	for _, prompt := range []Prompt{PromptV2, PromptV3, PromptV3Strict} {
+		copied := prompt
+		judge.Prompt = &copied
+		verdict, err := judge.Support("근거", "주장")
+		if err != nil || verdict.Cached || verdict.Prompt != prompt.Version {
+			t.Fatalf("%s : %+v %v", prompt.Version, verdict, err)
+		}
+		hashes[verdict.Hash] = true
+	}
+	if len(hashes) != 3 || fake.hits.Load() != 3 {
+		t.Fatalf("판 셋은 서로 다른 기록이어야 한다 : %d개 · hits=%d", len(hashes), fake.hits.Load())
+	}
+}

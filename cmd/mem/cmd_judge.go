@@ -23,7 +23,7 @@ import (
 )
 
 var judgeBools = []string{"json", "fresh", "apply"}
-var judgeValues = []string{"evidence", "claim", "file", "repo", "older"}
+var judgeValues = []string{"evidence", "claim", "file", "repo", "older", "prompt"}
 
 // judgeDirName 은 판정 기록 폴더다. Memory/local 아래라 git 에 안 들어간다.
 const judgeDirName = "judge"
@@ -223,6 +223,14 @@ func judgeSupport(parsed *options) int {
 		return exitOK
 	}
 	judge.Fresh = parsed.flags["fresh"]
+	// --prompt 는 측정용이다 — 물음 글 판(v2 · v3 · v3-strict)을 골라 나란히 잰다. 안 주면 기본 판.
+	if parsed.has("prompt") {
+		prompt, ok := llm.PromptNamed(strings.TrimSpace(parsed.text("prompt")))
+		if !ok {
+			return fail(i18n.T(i18n.JudgePromptUsage))
+		}
+		judge.Prompt = &prompt
+	}
 	if single {
 		return judgeOne(parsed, judge)
 	}
@@ -240,7 +248,7 @@ func judgeOne(parsed *options, judge *llm.Judge) int {
 		return printJSON(verdict)
 	}
 	fmt.Println(i18n.T(i18n.JudgeVerdictLine, verdict.Letter, labelOf(verdict.Letter), verdict.Prob,
-		probsText(verdict.Probs), verdict.MS, cachedMark(verdict.Cached)))
+		probsText(verdict.Probs), verdict.MS, unsureMark(verdict.Unsure)+cachedMark(verdict.Cached)))
 	return exitOK
 }
 
@@ -271,7 +279,7 @@ func judgeFile(path string, judge *llm.Judge) int {
 	defer file.Close()
 	scanner := bufio.NewScanner(file)
 	scanner.Buffer(make([]byte, 64*1024), judgeLineLimit)
-	total, failed, right, graded := 0, 0, 0, 0
+	total, failed, right, graded, unsure := 0, 0, 0, 0, 0
 	asked := []int64{}
 	for number := 1; scanner.Scan(); number++ {
 		line := strings.TrimSpace(scanner.Text())
@@ -293,6 +301,9 @@ func judgeFile(path string, judge *llm.Judge) int {
 			if !verdict.Cached {
 				asked = append(asked, verdict.MS)
 			}
+			if verdict.Unsure {
+				unsure++
+			}
 			if row.Want != "" {
 				graded++
 				hit := row.Want == verdict.Letter
@@ -307,7 +318,7 @@ func judgeFile(path string, judge *llm.Judge) int {
 	if scanner.Err() != nil {
 		return fail(i18n.T(i18n.JudgeFileUnreadable, path))
 	}
-	fmt.Fprintln(os.Stderr, i18n.T(i18n.JudgeFileSummary, total, total-failed, failed, right, graded,
+	fmt.Fprintln(os.Stderr, i18n.T(i18n.JudgeFileSummary, total, total-failed, failed, right, graded, unsure,
 		percentile(asked, 50), percentile(asked, 95), len(asked)))
 	if failed > 0 {
 		return exitCheck
@@ -349,6 +360,14 @@ func probsText(probs map[string]float64) string {
 		parts = append(parts, fmt.Sprintf("%s=%.3f", letter, probs[letter]))
 	}
 	return strings.Join(parts, " ")
+}
+
+// unsureMark 는 「모른다」 꼬리표다. 글자는 그대로 찍고 경고만 붙인다.
+func unsureMark(unsure bool) string {
+	if unsure {
+		return i18n.T(i18n.JudgeUnsure)
+	}
+	return ""
 }
 
 func cachedMark(cached bool) string {
