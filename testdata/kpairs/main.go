@@ -348,16 +348,17 @@ func jaccard(a, b string) float64 {
 
 // bestSentence 는 요약과 낱말이 가장 많이 겹치는 문장을 고른다. keep 이 거르면 그 문장만 본다.
 // 겹침이 같으면 먼저 나온 문장이다.
-func bestSentence(item memory, keep func(string) bool) (string, int) {
-	return bestSentenceFor(item, item.summary, keep)
+// avoid 에 든 문장은 건너뛴다 (make2 -avoid · 평소엔 nil).
+func bestSentence(item memory, keep func(string) bool, avoid map[string]bool) (string, int) {
+	return bestSentenceFor(item, item.summary, keep, avoid)
 }
 
 // bestSentenceFor 는 bestSentence 와 같되 겹침을 잴 글(claim)을 따로 받는다 (다른 기억의 요약 등).
-func bestSentenceFor(item memory, claim string, keep func(string) bool) (string, int) {
+func bestSentenceFor(item memory, claim string, keep func(string) bool, avoid map[string]bool) (string, int) {
 	target := words(claim)
 	best, bestScore := "", -1
 	for _, sentence := range item.sentences {
-		if keep != nil && !keep(sentence) {
+		if (keep != nil && !keep(sentence)) || avoid[sentence] {
 			continue
 		}
 		if score := overlap(words(sentence), target); score > bestScore {
@@ -367,8 +368,8 @@ func bestSentenceFor(item memory, claim string, keep func(string) bool) (string,
 	return best, bestScore
 }
 
-// contradiction 은 요약을 뒤집은 주장과 그 뒤집힌 말이 든 근거 문장 후보를 모두 돌려준다.
-func contradictions(item memory) []pair {
+// contradiction 은 요약을 뒤집은 주장과 그 뒤집힌 말이 든 근거 문장 후보를 모두 돌려준다. avoid 문장은 근거로 안 쓴다.
+func contradictions(item memory, avoid map[string]bool) []pair {
 	options := []pair{}
 	for _, loc := range numberPattern.FindAllStringIndex(item.summary, -1) {
 		number := item.summary[loc[0]:loc[1]]
@@ -377,7 +378,7 @@ func contradictions(item memory) []pair {
 		if err != nil || !ok {
 			continue
 		}
-		evidence, _ := bestSentence(item, func(s string) bool { return hasNumber(s, number, unit) })
+		evidence, _ := bestSentence(item, func(s string) bool { return hasNumber(s, number, unit) }, avoid)
 		if evidence == "" {
 			continue
 		}
@@ -393,7 +394,7 @@ func contradictions(item memory) []pair {
 		if !strings.Contains(item.summary, flip[0]) {
 			continue
 		}
-		evidence, _ := bestSentence(item, func(s string) bool { return strings.Contains(s, flip[0]) })
+		evidence, _ := bestSentence(item, func(s string) bool { return strings.Contains(s, flip[0]) }, avoid)
 		if evidence == "" {
 			continue
 		}
@@ -449,7 +450,7 @@ func makePairs(memories []memory, seed int64) ([]pair, error) {
 		if len(byBranch[wantContradict]) == perBranch {
 			break
 		}
-		options := contradictions(item)
+		options := contradictions(item, nil)
 		if len(options) == 0 {
 			continue
 		}
@@ -475,7 +476,7 @@ func makePairs(memories []memory, seed int64) ([]pair, error) {
 		if same == perBranch-longSupport {
 			continue
 		}
-		if evidence, score := bestSentence(item, nil); score >= minOverlap {
+		if evidence, score := bestSentence(item, nil, nil); score >= minOverlap {
 			byBranch[wantSupport] = append(byBranch[wantSupport],
 				pair{Evidence: evidence, Claim: item.summary, Want: wantSupport, Src: item.id, Rule: "same"})
 			used[item.id] = true
@@ -532,7 +533,7 @@ func unrelatedPairs(pool []memory, used map[string]bool, crossScope bool, want i
 		if used[x.id] || len(x.sentences) == 0 {
 			continue
 		}
-		evidence, _ := bestSentence(x, nil)
+		evidence, _ := bestSentence(x, nil, nil)
 		for _, y := range pool {
 			if y.id == x.id || used[y.id] || (y.scope != x.scope) != crossScope {
 				continue

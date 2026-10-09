@@ -158,12 +158,12 @@ func TestContradictionsReallyClash(t *testing.T) {
 
 func TestFlipForms(t *testing.T) {
 	item := memory{id: "x", summary: "검사는 기본 켬 이다", sentences: []string{"이 검사는 기본 켬 상태로 둔다."}}
-	options := contradictions(item)
+	options := contradictions(item, nil)
 	if len(options) != 1 || options[0].Claim != "검사는 기본 끔 이다" || options[0].Rule != "neg" {
 		t.Fatalf("극성 뒤집기: %+v", options)
 	}
 	item = memory{id: "y", summary: "재시도는 3 번", sentences: []string{"재시도는 3 번까지 한다고 정했다."}}
-	options = contradictions(item)
+	options = contradictions(item, nil)
 	if len(options) != 1 || options[0].Claim != "재시도는 6 번" || options[0].Rule != "num" {
 		t.Fatalf("숫자 뒤집기: %+v", options)
 	}
@@ -174,13 +174,13 @@ func TestFlipForms(t *testing.T) {
 		{"예산 5만 이 한계다", "공수는 값의 4~5배 로 잡는다."},
 	} {
 		item = memory{id: "w", summary: pairText[0], sentences: []string{pairText[1]}}
-		if options = contradictions(item); len(options) != 0 {
+		if options = contradictions(item, nil); len(options) != 0 {
 			t.Fatalf("뒤집으면 안 되는 숫자를 뒤집었다: %+v", options)
 		}
 	}
 	// 근거 문장에 뒤집을 말이 없으면 쓰지 않는다.
 	item = memory{id: "z", summary: "재시도는 3 번", sentences: []string{"재시도 횟수를 정했다는 기록이다."}}
-	if options = contradictions(item); len(options) != 0 {
+	if options = contradictions(item, nil); len(options) != 0 {
 		t.Fatalf("부딪치지 않는 쌍을 만들었다: %+v", options)
 	}
 }

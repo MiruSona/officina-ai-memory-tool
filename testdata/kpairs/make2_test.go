@@ -61,7 +61,7 @@ func TestMake2MeasureNoReuseAndKinds(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := makeCandidates(memories, 3, measureQuota, true)
+	got := makeCandidates(memories, 3, measureQuota, true, make2Opts{})
 	used, counts := map[string]bool{}, map[string]int{}
 	for _, item := range got {
 		counts[item.Kind]++
@@ -78,7 +78,7 @@ func TestMake2MeasureNoReuseAndKinds(t *testing.T) {
 			used[id] = true
 		}
 	}
-	if counts[kindSupersede] != 6 || counts[kindSupersede]+counts[kindFlip] != measureContradict {
+	if counts[kindSupersede] != 6 || counts[kindSupersede]+counts[kindFlip] != contradictWant(measureQuota) {
 		t.Fatalf("반대는 덮음 6 + 뒤집기 24 여야 한다: %v", counts)
 	}
 	if counts[kindLink] != 8 || counts[kindSame] != 15 || counts[kindNum] != 7 {
@@ -93,8 +93,8 @@ func TestMake2SameSeedSameOutput(t *testing.T) {
 	store := writeLinkedStore(t, 120)
 	first, _ := loadAll(store, nil, nil)
 	second, _ := loadAll(store, nil, nil)
-	a := fmt.Sprint(makeCandidates(first, 5, trainQuota, false))
-	b := fmt.Sprint(makeCandidates(second, 5, trainQuota, false))
+	a := fmt.Sprint(makeCandidates(first, 5, trainQuota, false, make2Opts{}))
+	b := fmt.Sprint(makeCandidates(second, 5, trainQuota, false, make2Opts{}))
 	if a != b {
 		t.Fatal("씨앗이 같은데 출력이 다르다")
 	}
@@ -175,7 +175,7 @@ func TestMake2FlipsOnly(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	got := flipOnly(memories, 1, 5)
+	got := flipOnly(memories, 1, 5, make2Opts{})
 	if len(got) != 5 {
 		t.Fatalf("뒤집기 5 쌍이어야 한다: %d", len(got))
 	}
@@ -191,7 +191,7 @@ func TestMake2FlipsOnly(t *testing.T) {
 			used[id] = true
 		}
 	}
-	if fmt.Sprint(got) != fmt.Sprint(flipOnly(memories, 1, 5)) {
+	if fmt.Sprint(got) != fmt.Sprint(flipOnly(memories, 1, 5, make2Opts{})) {
 		t.Fatal("씨앗이 같은데 출력이 다르다")
 	}
 }
@@ -211,5 +211,148 @@ func TestReadVotesSplitsRuleStage(t *testing.T) {
 	rules, err := readVotes(path, true)
 	if err != nil || len(rules) != 2 || rules["r1"] != "B" || rules["o1"] != "C" {
 		t.Fatalf("규칙 표 : %v %v", rules, err)
+	}
+}
+
+func TestParseQuota(t *testing.T) {
+	got, err := parseQuota("supersede=40, flip=60,same=5")
+	if err != nil || got[kindSupersede] != 40 || got[kindFlip] != 60 || got[kindSame] != 5 || got[kindLink] != 0 {
+		t.Fatalf("몫을 잘못 읽음: %v %v", got, err)
+	}
+	for _, bad := range []string{"", "nope=3", "same=-1", "same=x", "same"} {
+		if _, err := parseQuota(bad); err == nil {
+			t.Fatalf("%q 를 받았다", bad)
+		}
+	}
+}
+
+// -quota 로 덮음 몫을 크게 잡으면 모자란 반대는 뒤집기로 채우고, 갈래 밖 몫은 0 이다.
+func TestMake2CustomQuotaFillsContradictWithFlips(t *testing.T) {
+	memories, err := loadAll(writeLinkedStore(t, 120), nil, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	quota, _ := parseQuota("supersede=10,flip=5,same=4")
+	got := makeCandidates(memories, 2, quota, true, make2Opts{})
+	counts := map[string]int{}
+	used := map[string]bool{}
+	for _, item := range got {
+		counts[item.Kind]++
+		for _, id := range item.SrcIDs {
+			if used[id] {
+				t.Fatalf("measure 에서 기억 %s 를 두 번 썼다", id)
+			}
+			used[id] = true
+		}
+	}
+	if counts[kindSupersede] != 6 || counts[kindFlip] != 9 || counts[kindSame] != 4 || len(got) != 19 {
+		t.Fatalf("덮음 6 + 뒤집기 9 + 같음 4 여야 한다: %v", counts)
+	}
+}
+
+func TestMake2QuotaOnlyForMeasure(t *testing.T) {
+	store := writeFakeStore(t, 10)
+	err := runMake2([]string{"-store", store, "-out", t.TempDir(), "-set", "measure", "-flips", "3", "-quota", "same=1"}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "-quota") {
+		t.Fatalf("-flips 와 -quota 를 같이 받았다: %v", err)
+	}
+	out := t.TempDir()
+	var stdout bytes.Buffer
+	if err := runMake2([]string{"-store", store, "-out", out, "-set", "measure", "-quota", "same=2"}, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(out, "measure-draft.jsonl")); err != nil {
+		t.Fatalf("measure-draft.jsonl 이 없다: %v", err)
+	}
+}
+
+// -more-types 를 주면 history 도 쌍 재료가 되고, 끝나면 원래대로 돌아온다.
+func TestMake2MoreTypesUsesHistory(t *testing.T) {
+	dir := t.TempDir()
+	for i := 0; i < 6; i++ {
+		writeRaw(t, dir, fmt.Sprintf("7%03d", i), "history", "", fmt.Sprintf("기록k%d 빌드 시간 값 %d 초 걸렸다", i, i+3),
+			fmt.Sprintf("기록k%d 빌드 시간 은 값 %d 초 걸렸다 문장.\n", i, i+3))
+	}
+	out := t.TempDir()
+	if err := runMake2([]string{"-store", dir, "-out", out, "-set", "measure", "-quota", "same=6"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	if data, _ := os.ReadFile(filepath.Join(out, "measure-draft.jsonl")); len(data) != 0 {
+		t.Fatalf("-more-types 없이 history 를 썼다: %s", data)
+	}
+	out2 := t.TempDir()
+	var stdout bytes.Buffer
+	if err := runMake2([]string{"-store", dir, "-out", out2, "-set", "measure", "-quota", "same=6", "-more-types", "history"}, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stdout.String(), "same\t6\t6") || !strings.Contains(stdout.String(), "more-types: history") {
+		t.Fatalf("history 6 쌍이 안 나왔다:\n%s", stdout.String())
+	}
+	if err := runMake2([]string{"-store", dir, "-out", t.TempDir(), "-set", "train", "-more-types", "history"}, &bytes.Buffer{}); err == nil {
+		t.Fatal("train 에서 -more-types 를 받았다")
+	}
+}
+
+// -avoid 로 준 쌍의 근거 문장은 다시 근거로 안 고른다 — 같은 기억이면 다른 문장을 고른다.
+func TestMake2AvoidSkipsUsedEvidence(t *testing.T) {
+	dir := t.TempDir()
+	writeRaw(t, dir, "8001", "decision", "", "회수기 범위 값 3 칸 으로 정했다",
+		"회수기 범위 값 3 칸 으로 정했다 첫 문장.\n회수기 범위 는 3 칸 둘째 문장.\n")
+	first := t.TempDir()
+	if err := runMake2([]string{"-store", dir, "-out", first, "-set", "measure", "-quota", "same=1"}, &bytes.Buffer{}); err != nil {
+		t.Fatal(err)
+	}
+	used := filepath.Join(first, "measure-draft.jsonl")
+	second := t.TempDir()
+	var stdout bytes.Buffer
+	if err := runMake2([]string{"-store", dir, "-out", second, "-set", "measure", "-quota", "same=1", "-avoid", used}, &stdout); err != nil {
+		t.Fatal(err)
+	}
+	a, _ := os.ReadFile(used)
+	b, _ := os.ReadFile(filepath.Join(second, "measure-draft.jsonl"))
+	if !strings.Contains(string(a), "첫 문장") || !strings.Contains(string(b), "둘째 문장") {
+		t.Fatalf("다른 문장을 안 골랐다:\n%s\n%s", a, b)
+	}
+	if !strings.Contains(stdout.String(), "avoid: ") {
+		t.Fatalf("MANIFEST 에 avoid 가 없다:\n%s", stdout.String())
+	}
+}
+
+// -avoid 가 한 기억의 문장을 다 거르면 그 기억은 무관 쌍 근거로 안 쓴다 — 빈 근거 쌍 없이 쌍 수만 준다.
+func TestUnrelatedSkipsFullyAvoidedEvidence(t *testing.T) {
+	pool := []memory{
+		{id: "a", scope: "s", summary: "회수기 범위 를 정했다", sentences: []string{"회수기 범위 는 세 칸 이다."}},
+		{id: "b", scope: "s", summary: "빌드 시간 을 줄였다", sentences: []string{"빌드 시간 은 십 초 다."}},
+	}
+	plain := unrelatedCandidates(pool, newLedger(false), false, 3, make2Opts{})
+	if len(plain) != 2 {
+		t.Fatalf("avoid 없이 2 쌍(a→b · b→a)이어야 한다: %d", len(plain))
+	}
+	avoid := map[string]bool{"회수기 범위 는 세 칸 이다.": true}
+	got := unrelatedCandidates(pool, newLedger(false), false, 3, make2Opts{avoid: avoid})
+	if len(got) != 1 {
+		t.Fatalf("avoid 뒤 1 쌍(b→a)이어야 한다: %d", len(got))
+	}
+	for _, c := range got {
+		if c.Evidence == "" || avoid[c.Evidence] {
+			t.Fatalf("빈 근거나 avoid 문장이 나왔다: %+v", c)
+		}
+	}
+}
+
+// long 은 본문 전체가 근거라 -avoid 가 안 먹힌다 — 둘을 같이 주면 오류다.
+func TestMake2AvoidWithLongQuotaFails(t *testing.T) {
+	dir := t.TempDir()
+	writeRaw(t, dir, "8101", "decision", "", "회수기 범위 값 3 칸 으로 정했다", "회수기 범위 값 3 칸 으로 정했다 첫 문장.\n")
+	used := filepath.Join(t.TempDir(), "used.jsonl")
+	if err := os.WriteFile(used, []byte(`{"evidence":"x"}`+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	err := runMake2([]string{"-store", dir, "-out", t.TempDir(), "-set", "measure", "-quota", "long=2,same=1", "-avoid", used}, &bytes.Buffer{})
+	if err == nil || !strings.Contains(err.Error(), "long") {
+		t.Fatalf("avoid + long 이 오류가 아니다: %v", err)
+	}
+	if err := runMake2([]string{"-store", dir, "-out", t.TempDir(), "-set", "measure", "-quota", "long=0,same=1", "-avoid", used}, &bytes.Buffer{}); err != nil {
+		t.Fatalf("long=0 은 받아야 한다: %v", err)
 	}
 }
