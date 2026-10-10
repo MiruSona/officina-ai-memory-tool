@@ -160,7 +160,9 @@ func TestMarkdownShowsNextCommand(t *testing.T) {
 // 「빈 큐일 때의 말」이지 나이 규칙이 아니다.
 func TestEmptyQueueSaysSo(t *testing.T) {
 	opened := newRepo(t)
-	put(t, opened, "20260105-0000ffff", "decision", "", "")
+	// 본문에 숫자를 둔다 — 없으면 B12(값이 있나)가 value 큐에 올린다 (점검·정리 설계 4절).
+	put(t, opened, "20260105-0000ffff", "decision", "",
+		"훅 상한은 4096 바이트로 잰다. 글자 수로 재면 한글에서 세 배로 틀린다.\n넘치면 우리가 먼저 자른다.\n말없이 사라지는 것이 제일 나쁘다.\n")
 	text := Markdown(runOn(t, opened, Options{}))
 	if !strings.Contains(text, "볼 것이 없다") {
 		t.Fatalf("빈 큐인데 그 말을 안 했다 :\n%s", text)
@@ -181,7 +183,8 @@ func TestQueuesAreGroupedInOrder(t *testing.T) {
 			seen = append(seen, item.Kind)
 		}
 	}
-	want := []string{KindExpired, KindConflict, KindStale, KindCold}
+	// value 는 첫 기억(숫자 없는 본문)의 B12 다 — Kinds 차례대로 stale 과 cold 사이에 선다.
+	want := []string{KindExpired, KindConflict, KindStale, KindValue, KindCold}
 	if strings.Join(seen, ",") != strings.Join(want, ",") {
 		t.Fatalf("큐 차례가 %v 다. %v 라야 한다", seen, want)
 	}

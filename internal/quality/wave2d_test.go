@@ -277,5 +277,5 @@ func TestCatalogCodesUnique(t *testing.T) {
 }
 
 // wave2dRuleCount 는 지금 규칙 수다. v0.2 57 + 2B 의 LINK 1 + 2D 의 셋 + C14(근거가 죽음)
-// + C1 의 keys 둘(F21 꼴 · F22 겹침).
-const wave2dRuleCount = 67
+// + C1 의 keys 둘(F21 꼴 · F22 겹침) + 점검·정리 일곱(C16~C20 · D05 · D06).
+const wave2dRuleCount = 74

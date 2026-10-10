@@ -100,20 +100,28 @@ func TestReviewSanitizesWhyAndRelated(t *testing.T) {
 // ruleKind 표에 없으면 한 건도 안 뜬다 (2D 넘김).
 func TestNewRulesReachQueue(t *testing.T) {
 	want := map[string]string{
-		quality.RuleStaleAge:          KindStale,
-		quality.RuleStaleConflictPair: KindStale,
-		quality.RuleNotationDrift:     KindStale,
-		quality.RuleLinkMissing:       KindLink,
-		quality.RuleNoValue:           KindValue,
-		quality.RuleDeadPath:          KindStale,
-		quality.RuleDeadCommit:        KindStale,
+		quality.RuleStaleAge:      KindStale,
+		quality.RuleNotationDrift: KindStale,
+		quality.RuleLinkMissing:   KindLink,
+		quality.RuleNoValue:       KindValue,
+		// 점검·정리 설계(2026-10-10) 결정 7 : 실물 사라짐은 gone, C13 은 contradict 로 옮겼다.
+		quality.RuleStaleConflictPair:  KindContradict,
+		quality.RuleDeadPath:           KindGone,
+		quality.RuleDeadCommit:         KindGone,
+		quality.RuleDeadBodyPath:       KindGone,
+		quality.RuleContradictCand:     KindContradict,
+		quality.RuleCitedNotSuperseded: KindConflict,
+		quality.RuleNewerSibling:       KindConflict,
+		quality.RuleRetiredUnfolded:    KindRetired,
+		quality.RuleMergeCandidate:     KindMerge,
+		quality.RuleNoArtifactSource:   KindValue,
 	}
 	for rule, kind := range want {
 		if ruleKind[rule] != kind {
 			t.Errorf("%s 가 %s 큐로 안 간다 (지금 %q)", rule, kind, ruleKind[rule])
 		}
 	}
-	for _, kind := range []string{KindLink, KindValue} {
+	for _, kind := range []string{KindLink, KindValue, KindRetired, KindGone, KindContradict, KindMerge} {
 		if !KnownKind(kind) {
 			t.Errorf("--kind %s 를 안 받는다", kind)
 		}

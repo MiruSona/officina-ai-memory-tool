@@ -25,6 +25,9 @@ type RepoOptions struct {
 	// SourceMissing 은 근거가 이제 없는지다 (D02·D03 · 설계 결정 36 ③).
 	// nil 이면 그 둘을 건너뛴다.
 	SourceMissing SourceMissing
+	// BodyMissing 은 본문에 적은 경로가 이제 없는지다 (D05 · 점검·정리 설계 2절 ②).
+	// lint 의 bodyAsk 가 붙인다. nil 이면 D05 를 건너뛴다.
+	BodyMissing BodyMissing
 }
 
 // RepoReport 는 저장소 한 번 훑기의 결과다.
@@ -34,7 +37,29 @@ type RepoReport struct {
 	// Wide 는 어느 한 기억의 잘못이 아닌 것이다 (태그·scope 쏠림). 여기 든
 	// Finding 은 ID 가 비어 있다.
 	Wide []Finding
+	// Near 는 중복 판정 걸음에서 본 「닮았지만 중복·C13 은 아닌」 짝이다. 짝마다 한 번,
+	// (작은 id, 큰 id) 로만 든다. review 의 C19(모순 후보)가 이것을 받아 쓴다 —
+	// 후보 뽑기를 다시 하지 않는다 (점검·정리 설계 2절 ⑤).
+	Near []NearPair
 }
+
+// NearPair 는 닮은 두 기억 한 짝이다. C17(덮임 닮음)·C19(모순 후보)·C20(합치기)이
+// 같은 짝을 나눠 쓴다.
+type NearPair struct {
+	// Left 가 Right 보다 작은 id 다. 짝을 한 번만 센다.
+	Left, Right string
+	// Align 은 가장 닮은 문장 짝의 정렬값이다 (alignInfo.Best).
+	Align float64
+	// Score 는 통째 닮음이다. 못 쟀으면 0 이다.
+	Score float64
+	// LeftText·RightText 는 정렬된 두 문장이다. C19 가 NLI 에 보내는 글이 이것이다.
+	LeftText, RightText string
+	// Soft 는 중복 경고 자(DupWarn) 이상으로 닮았는지다 — 합치기 (가) 의 자다.
+	Soft bool
+}
+
+// nearPairMax 는 기억 하나가 댈 닮은 짝 수다 (점검·정리 설계 2절 ⑤ · C13 의 clashPairMax 와 같은 값).
+const nearPairMax = 3
 
 // Findings 는 기억 하나에 걸린 것이다.
 func (r RepoReport) Findings(id string) []Finding { return r.ByID[id] }
@@ -75,6 +100,7 @@ func (r *RepoReport) repoRulesWith(memories []*model.Memory, opt RepoOptions,
 	newerByTag := newestPerTag(memories)
 	pointed := pointedIDs(memories)
 	sameSpot := bySpot(memories)
+	byID := memoriesByID(memories)
 	for _, m := range memories {
 		if word := unfixedWord(m); word != "" && hasNewer(m, newerByTag) {
 			add(m, RuleUnfixedMarker, fmt.Sprintf("「%s」 라고 적힌 채로 남았는데 같은 태그에 더 새 기억이 있다", word))
@@ -101,6 +127,13 @@ func (r *RepoReport) repoRulesWith(memories []*model.Memory, opt RepoOptions,
 			add(m, RuleStaleAge, reason)
 		}
 		staleSources(m, opt.SourceMissing, add)
+		// 점검·정리 1단 (C16 · C18 · D05 · D06). 넷 다 기억 하나씩 보는 O(n) 이다.
+		citedNotSuperseded(m, byID, opt.Now, add)
+		retiredUnfolded(m, opt.Now, add)
+		if Live(m, opt.Now) {
+			noArtifactSource(m, opt, add)
+			staleBodyPaths(m, opt.BodyMissing, add)
+		}
 		if opt.Hits != nil {
 			r.coldAndOrphan(m, pointed, opt, add)
 		}
@@ -151,15 +184,18 @@ func (r RepoReport) coldAndOrphan(m *model.Memory, pointed map[string]bool, opt 
 // (리뷰 B) 20k 에서 lint 시간의 절반이 이 자리였다. 기억 하나를 견주는 일은
 // 서로를 안 보므로 **자리 번호로 갈라** 일꾼에게 나눠 준다. 표는 다 채운 뒤로는
 // 안 바뀌고 결과는 자리 번호대로 모으므로 답은 한 갈래로 돌린 것과 같다.
-func (r RepoReport) duplicates(memories []*model.Memory, opt RepoOptions) {
+func (r *RepoReport) duplicates(memories []*model.Memory, opt RepoOptions) {
 	r.addDuplicates(memories, opt, findDuplicates(memories, opt))
 }
 
-// duplicateResult 는 중복 판정이 기억 자리마다 낸 것이다. found 는 C01~C03,
-// clash 는 모순 짝(C13) 후보다. 둘 다 memories 와 같은 차례다.
+// duplicateResult 는 중복 판정이 낸 것이다. found 는 C01~C03, clash 는 모순 짝(C13)
+// 후보로 둘 다 memories 와 같은 차례다. near 는 닮은 짝(C17·C19·C20 몫)을 짝마다
+// 한 번 모은 것이고, split 은 쪼개진 짝(C20 (나))이다.
 type duplicateResult struct {
 	found [][]Finding
 	clash [][]string
+	near  []NearPair
+	split []splitPair
 }
 
 // findDuplicates 는 중복 판정을 재기만 하고 report 는 안 만진다. 그래서
@@ -185,29 +221,41 @@ func findDuplicates(memories []*model.Memory, opt RepoOptions) duplicateResult {
 	// lint 53초의 3분의 1이었다.
 	found := make([][]Finding, len(memories))
 	clash := make([][]string, len(memories))
+	near := make([][]NearPair, len(memories))
+	byID := memoriesByID(memories)
 	InParallel(len(memories), func(from, to int) {
 		session := table.Session()
 		for at := from; at < to; at++ {
 			if memories[at].Type == model.TypeObservation {
 				continue
 			}
-			found[at] = DuplicateFindings(docs[at], session, memories[at], opt.Options)
-			clash[at] = clashingIDs(docs[at], session)
+			// (점검·정리 1단) 닮은 짝(near)도 **같은 후보 뽑기**에서 받는다. 후보는
+			// 세션이 바로 앞 것을 되쓰므로 Nearest 와 아래 정렬 걸음이 한 번만 뽑는다.
+			matches := session.Nearest(docs[at], opt.Config.Quality.DupWarn, dupListMax)
+			found[at] = duplicateFindingsOf(matches, memories[at], opt.Options)
+			clash[at], near[at] = clashAndNear(docs[at], session, matches, byID, opt)
 		}
 	})
-	return duplicateResult{found: found, clash: clash}
+	return duplicateResult{found: found, clash: clash,
+		near:  mergeNearPairs(near, clash, memories),
+		split: splitPairs(memories, docs, opt)}
 }
 
-// addDuplicates 는 중복 판정 결과를 기억 자리 차례로 report 에 붙인다.
-func (r RepoReport) addDuplicates(memories []*model.Memory, opt RepoOptions, result duplicateResult) {
-	for at, m := range memories {
-		r.ByID[m.ID] = append(r.ByID[m.ID], result.found[at]...)
-	}
-	staleConflictPairs(result.clash, memories, func(m *model.Memory, rule, reason string, related ...string) {
+// addDuplicates 는 중복 판정 결과를 기억 자리 차례로 report 에 붙인다. 닮은 짝은
+// Near 에 그대로 두고, 그중 덮임(C17)·합치기(C20) 몫을 가른다 — 저장소 규칙(C05·
+// C08·C16)이 다 붙은 뒤라 「이미 다른 큐가 맡은 짝」을 여기서 안다.
+func (r *RepoReport) addDuplicates(memories []*model.Memory, opt RepoOptions, result duplicateResult) {
+	add := func(m *model.Memory, rule, reason string, related ...string) {
 		one := opt.finding(rule, m, reason, nextFor(rule, m, related)...)
 		one.Related = related
 		r.ByID[m.ID] = append(r.ByID[m.ID], one)
-	})
+	}
+	for at, m := range memories {
+		r.ByID[m.ID] = append(r.ByID[m.ID], result.found[at]...)
+	}
+	staleConflictPairs(result.clash, memories, add)
+	r.Near = result.near
+	r.routeNear(memories, result, opt.Config.Quality.DupWarn, add)
 }
 
 // tagBroad 는 한 태그가 저장소를 덮는지다 (규칙 F11). 어느 한 기억의 잘못이

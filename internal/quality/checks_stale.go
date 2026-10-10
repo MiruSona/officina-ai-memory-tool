@@ -2,10 +2,13 @@ package quality
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
+	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 )
 
 // STALE 을 넷으로 잰다 (설계 결정 36).
@@ -50,6 +53,13 @@ func staleAge(m *model.Memory, now time.Time, kind model.TypeSpec) string {
 // 파일과 git 을 아는 쪽이 붙인다. nil 이면 D02·D03 을 건너뛴다.
 type SourceMissing func(m *model.Memory, source string) (rule, reason string)
 
+// BodyMissing 은 「본문에 적은 이 경로가 이제 없나」를 묻는 함수다 (D05 · 점검·정리
+// 설계 2절 ②). 경로 뽑기(staleBodyPaths)는 quality 가 하고, 실물 대조(프로젝트 뿌리 ·
+// 저장소 폴더 · scope 폴더 세 기준)는 파일을 아는 lint 가 한다. linked 는 `[..](경로)`
+// 링크에서 뽑은 것인지다 — 링크면 D02, 그냥 경로면 D05 를 돌려준다. 규칙 이름이 비면
+// 멀쩡한 것이다.
+type BodyMissing func(m *model.Memory, path string, linked bool) (rule, reason string)
+
 // staleSources 는 D02·D03 이다. 한 기억에서 규칙마다 한 번만 말한다 — 근거가
 // 열 줄인 기억이 열 줄짜리 경고를 내면 아무도 안 읽는다.
 func staleSources(m *model.Memory, ask SourceMissing,
@@ -66,6 +76,139 @@ func staleSources(m *model.Memory, ask SourceMissing,
 		said[rule] = true
 		add(m, rule, reason, source)
 	}
+}
+
+// staleBodyPaths 는 D05 의 뽑기와 묻기다 (점검·정리 설계 2절 ②). 본문에서 경로를
+// 뽑아 ask 에 묻기만 한다 — 실물 대조(첫 마디 실재 · 뿌리·저장소·scope 폴더 세
+// 기준)는 파일을 아는 쪽(lint)이 ask 안에서 한다. ask 가 nil 이면 건너뛴다.
+//
+// `[..](경로)` 링크는 linked=true 로 묻는다 (lint 만 보던 D02 를 review 에도 보낸다).
+// 그냥 적은 경로는 linked=false 다. 한 기억에서 규칙마다 한 번만 말하고, 걸린
+// 경로는 Related 에 bodyPathRelatedMax 개까지 든다.
+func staleBodyPaths(m *model.Memory, ask BodyMissing, add addFunc) {
+	if ask == nil || m.Body == "" {
+		return
+	}
+	linked, plain := bodyPaths(m.Body)
+	type hit struct {
+		reason string
+		paths  []string
+	}
+	hits := map[string]*hit{}
+	order := []string{}
+	look := func(path string, isLink bool) {
+		rule, reason := ask(m, path, isLink)
+		if rule == "" {
+			return
+		}
+		one := hits[rule]
+		if one == nil {
+			one = &hit{reason: reason}
+			hits[rule] = one
+			order = append(order, rule)
+		}
+		if len(one.paths) < bodyPathRelatedMax {
+			one.paths = append(one.paths, clip(path))
+		}
+	}
+	for _, path := range linked {
+		look(path, true)
+	}
+	for _, path := range plain {
+		look(path, false)
+	}
+	for _, rule := range order {
+		one := hits[rule]
+		reason := safe.Summary(one.reason, bodyReasonRoom)
+		if extra := len(one.paths) - 1; extra > 0 {
+			reason += fmt.Sprintf(" (그 밖에 %d개 더)", extra)
+		}
+		add(m, rule, reason, one.paths...)
+	}
+}
+
+// bodyPathRelatedMax 는 한 걸림이 들고 갈 경로 수다. bodyReasonRoom 은 묻는 쪽이 준
+// 까닭 글을 자르는 길이다.
+const (
+	bodyPathRelatedMax = 5
+	bodyReasonRoom     = 200
+)
+
+// bodyLink 는 본문의 마크다운 링크 `[..](대상)` 이다.
+var bodyLink = regexp.MustCompile(`\]\(([^)\s]+)\)`)
+
+// pathExt 는 경로 끝의 확장자다. 글자로 시작해야 한다 — `1.2` 같은 수는 안 친다.
+var pathExt = regexp.MustCompile(`\.[A-Za-z][A-Za-z0-9]{0,7}`)
+
+// bodyPaths 는 본문의 링크 대상과 그냥 적은 경로를 뽑는다. 같은 것은 한 번만 낸다.
+//
+// 그냥 경로는 네 겹 중 앞 둘만 여기서 거른다 (뒤 둘은 묻는 쪽 몫).
+//
+//	① `/` 를 하나 이상 품은 연속 글자. 끝에 붙은 `.,)」·` 와 한글 조사는 확장자
+//	   끝에서 자른다 — `hook.go에서` 는 `hook.go` 다
+//	② 확장자가 있어야 한다. 확장자 없는 폴더 경로(`internal/install`)는 안 본다
+//
+// URL(`://`) 과 `mem:` 같은 근거 꼴은 뺀다. `file:` 을 앞에 붙여 적은 것은 떼고 본다.
+func bodyPaths(body string) (linked, plain []string) {
+	seen := map[string]bool{}
+	for _, match := range bodyLink.FindAllStringSubmatch(body, -1) {
+		target := strings.Trim(match[1], "<>")
+		if hash := strings.Index(target, "#"); hash >= 0 {
+			target = target[:hash]
+		}
+		if target == "" || strings.Contains(target, "://") || strings.HasPrefix(target, "mailto:") ||
+			model.SourceKind(target) == "mem" || seen[target] {
+			continue
+		}
+		seen[target] = true
+		linked = append(linked, target)
+	}
+	rest := bodyLink.ReplaceAllString(body, "]()")
+	for _, token := range strings.FieldsFunc(rest, isPathBreak) {
+		path := pathIn(token)
+		if path == "" || seen[path] {
+			continue
+		}
+		seen[path] = true
+		plain = append(plain, path)
+	}
+	return linked, plain
+}
+
+// isPathBreak 는 경로를 끊는 글자다. 빈칸·따옴표·괄호·`·` 이음 등.
+func isPathBreak(letter rune) bool {
+	if unicode.IsSpace(letter) {
+		return true
+	}
+	return strings.ContainsRune("`'\"()[]<>{}「」『』,，、·;|*", letter)
+}
+
+// pathIn 은 낱말 하나에서 경로를 꺼낸다. 경로가 아니면 빈 글이다.
+func pathIn(word string) string {
+	word = strings.TrimPrefix(word, model.SourceFile)
+	if !strings.Contains(word, "/") || strings.Contains(word, "://") || model.SourceKind(word) != "" {
+		return ""
+	}
+	end := -1
+	for _, span := range pathExt.FindAllStringIndex(word, -1) {
+		after := span[1]
+		if after < len(word) && isPathLetter(word[after]) {
+			continue
+		}
+		if strings.Contains(word[:span[0]], "/") {
+			end = after
+		}
+	}
+	if end < 0 {
+		return ""
+	}
+	return word[:end]
+}
+
+// isPathLetter 는 확장자 바로 뒤에 오면 「확장자가 아직 안 끝났다」는 글자다.
+func isPathLetter(letter byte) bool {
+	return letter == '_' || (letter >= '0' && letter <= '9') ||
+		(letter >= 'a' && letter <= 'z') || (letter >= 'A' && letter <= 'Z')
 }
 
 // staleConflictCut 은 「뜻이 가깝다」로 보는 문장 정렬 값이다. 중복 1단의 자
@@ -96,26 +239,9 @@ func staleConflictPairs(found [][]string, memories []*model.Memory,
 
 // clashPairMax 는 한 기억이 댈 어긋난 짝 수다. 넘으면 그 기억이 아니라 저장소가
 // 문제라 목록을 길게 내도 사람이 못 쓴다.
+// 모순 짝을 고르는 걸음은 닮은 짝(near)과 한 걸음이라 checks_cleanup.go 의
+// clashAndNear 에 있다.
 const clashPairMax = 3
-
-func clashingIDs(doc *Doc, session *Session) []string {
-	ids := []string{}
-	for _, other := range session.Candidates(doc) {
-		if other.ID == doc.ID || SameBody(doc, other) {
-			continue
-		}
-		// 부르는 쪽이 보는 가장 낮은 자가 곧 문턱이다.
-		info := alignOf(doc, other, staleConflictFloor(), staleConflictFloor())
-		if info.Best < staleConflictFloor() || !factsClash(info.Left, info.Right) {
-			continue
-		}
-		ids = append(ids, other.ID)
-		if len(ids) >= clashPairMax {
-			break
-		}
-	}
-	return ids
-}
 
 // nextFor 는 저장소 전체 규칙에 붙는 「다음에 칠 명령」이다 (설계 결정 61 —
 // 새 규칙 넷도 v0.2 관문의 세 규칙을 그대로 탄다 : ① 다음 명령을 손에 쥐여
@@ -155,6 +281,29 @@ func nextFor(rule string, m *model.Memory, related []string) []string {
 	case RuleDeadPath, RuleDeadCommit:
 		return []string{
 			fmt.Sprintf("mem set %s --sources …   (근거를 지금 있는 것으로 고친다)", m.ID),
+		}
+	// 점검·정리 1단 (설계 5절 큐 표의 「다음 명령」).
+	case RuleCitedNotSuperseded, RuleNewerSibling:
+		return []string{
+			fmt.Sprintf("mem show %s   (더 새 기억을 본다)", other),
+			fmt.Sprintf("mem set %s --by %s   (그 기억이 이것을 덮는다고 적는다)", m.ID, other),
+		}
+	case RuleRetiredUnfolded:
+		return []string{"mem gc --retired   (접을 것을 미리 본다)"}
+	case RuleMergeCandidate:
+		return []string{
+			fmt.Sprintf("mem show %s   (짝을 본다)", other),
+			"mem add …   (둘을 합쳐 새로 쓴다)",
+			fmt.Sprintf("mem set %s --by <새 id>", m.ID),
+			fmt.Sprintf("mem set %s --by <새 id>", other),
+		}
+	case RuleDeadBodyPath:
+		return []string{
+			fmt.Sprintf("mem set %s --body …   (본문 경로를 지금 있는 것으로 고친다)", m.ID),
+		}
+	case RuleNoArtifactSource:
+		return []string{
+			fmt.Sprintf("mem set %s --sources …   (file:·commit:·url: 근거를 더한다)", m.ID),
 		}
 	}
 	return nil

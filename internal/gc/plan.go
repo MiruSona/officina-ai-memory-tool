@@ -44,10 +44,7 @@ func exemptSQL(table model.TypeTable) string {
 	AND (last_hit_at IS NULL OR last_hit_at < ?)
 	AND id NOT IN (SELECT dst FROM links WHERE dst <> src)
 	AND id NOT IN (SELECT superseded_by FROM memories WHERE superseded_by IS NOT NULL)
-	AND id NOT IN (SELECT TRIM(s.value) FROM sources s JOIN memories o ON o.id = s.mem_id
-		WHERE s.kind = 'mem' AND o.type = '` + model.TypeObservation + `'
-		AND o.superseded_by IS NULL AND o.review = 0
-		AND (o.invalid_at IS NULL OR o.invalid_at >= ?))
+	AND ` + cardBasisSQL + `
 	AND importance < 5
 	AND NOT (type = 'caution' AND severity = 'high')
 	AND id NOT IN (SELECT id FROM (SELECT id, ROW_NUMBER() OVER (

@@ -31,6 +31,9 @@ type Options struct {
 	Restore []string
 	// Types 는 이 저장소의 기억 종류 표다. 비면 vocab.toml 에서 읽는다.
 	Types model.TypeTable
+	// Retired 는 덮였거나 무효인데 안 접힌 기억만 문턱 없이 고른다 (`--retired`).
+	// 미리보기냐 접기냐는 DryRun 이 정한다 — cmd 가 `--apply` 없으면 DryRun 을 켠다.
+	Retired bool
 }
 
 // Result 는 센 결과다. 한글 보고는 cmd 가 찍는다.
@@ -51,7 +54,9 @@ type Result struct {
 	// 확인할 수 있게 하기 위해서다 (불변조건 5).
 	Deleted int `json:"deleted"`
 	// Manual 은 --fold · --restore 가 기억 하나하나에 한 일이다.
-	Manual  []Manual      `json:"manual,omitempty"`
+	Manual []Manual `json:"manual,omitempty"`
+	// Retired 는 --retired 가 고른 죽은 기억이다 (미리보기든 접기든).
+	Retired []Retired     `json:"retired,omitempty"`
 	Elapsed time.Duration `json:"-"`
 }
 
@@ -84,6 +89,9 @@ func dispatch(options Options, result *Result) error {
 		result.NoIndex = true
 		return nil
 	}
+	if options.DryRun && options.Retired {
+		return previewRetired(options, result)
+	}
 	if options.DryRun && !manualWanted(options) {
 		return preview(options, result)
 	}
@@ -110,6 +118,16 @@ func preview(options Options, result *Result) error {
 	return plan(database, options, result)
 }
 
+// previewRetired 는 --retired 미리보기다. 락 없이 읽기만 한다.
+func previewRetired(options Options, result *Result) error {
+	database, err := index.Open(options.Store.Dir)
+	if err != nil {
+		return err
+	}
+	defer database.Close()
+	return pickRetired(database, options, result)
+}
+
 func runLocked(options Options, result *Result) error {
 	database, err := index.Open(options.Store.Dir)
 	if err != nil {
@@ -118,6 +136,9 @@ func runLocked(options Options, result *Result) error {
 	defer database.Close()
 	// 사람이 집은 것은 쉬는 시간(Cooldown)과 상관없이 바로 한다. 자동으로
 	// 도는 정리가 아니라 시킨 일이다.
+	if options.Retired {
+		return runRetired(database, options, result)
+	}
 	if manualWanted(options) {
 		return runManual(database, options, result)
 	}

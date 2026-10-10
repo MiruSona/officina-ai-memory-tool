@@ -9,7 +9,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
-var gcBools = []string{"dry-run", "json"}
+var gcBools = []string{"dry-run", "json", "retired", "apply"}
 var gcValues = []string{"repo", "fold", "restore"}
 
 func init() {
@@ -17,19 +17,28 @@ func init() {
 }
 
 // runGC 는 오래된 기억의 본문을 접는다. 파일은 하나도 안 지운다. 종료 코드는
-// 늘 0 이다 (설계 8-1).
+// 사용법이 틀렸을 때(1)만 빼고 늘 0 이다 (설계 8-1).
+// `--retired` 만 기본이 미리보기다 — `--apply` 를 줘야 접는다 (기억점검정리설계 7절).
 func runGC(argv []string) int {
 	parsed, err := parseOptions(argv, gcBools, gcValues)
 	if err != nil {
 		return fail(err.Error())
+	}
+	retired, apply := parsed.flags["retired"], parsed.flags["apply"]
+	if apply && !retired {
+		return fail("--apply 는 --retired 와 함께만 쓴다 (다른 gc 는 --dry-run 이 없으면 바로 접는다)")
+	}
+	fold, restore := parsed.list("fold"), parsed.list("restore")
+	if retired && (len(fold) > 0 || len(restore) > 0) {
+		return fail("--retired 는 --fold · --restore 와 같이 못 쓴다. 따로 친다")
 	}
 	repository, opened, err := openStore(parsed)
 	if err != nil {
 		return exitFor(err)
 	}
 	result, err := gc.Run(gc.Options{Store: opened, GC: repository.Config.GC,
-		DryRun: parsed.flags["dry-run"],
-		Fold:   parsed.list("fold"), Restore: parsed.list("restore")})
+		DryRun: parsed.flags["dry-run"] || (retired && !apply), Retired: retired,
+		Fold: fold, Restore: restore})
 	if err != nil {
 		return fail(err.Error())
 	}
@@ -43,8 +52,29 @@ func runGC(argv []string) int {
 		fmt.Println(string(data))
 		return exitOK
 	}
+	if retired {
+		printRetired(result)
+		return exitOK
+	}
 	printGC(result, "")
 	return exitOK
+}
+
+// printRetired 는 --retired 결과를 찍는다. 미리보기는 표, 접었으면 한 건씩.
+func printRetired(result *gc.Result) {
+	if stopped(result) {
+		return
+	}
+	if result.DryRun {
+		for _, line := range gc.RetiredLines(result) {
+			fmt.Println(line)
+		}
+		return
+	}
+	for _, line := range gc.ManualLines(result) {
+		fmt.Println(line)
+	}
+	fmt.Printf("%d건 중 %d건 접었다. 되돌리려면 mem gc --restore <id>\n", len(result.Retired), result.Cooled)
 }
 
 // printGC 는 결과를 한글로 찍는다. prefix 는 mem index 가 이어서 돌렸을 때

@@ -117,6 +117,27 @@ func checkValue(m *model.Memory, opt Options) []Finding {
 		"숫자·경로·날짜 하나와 결론 한 줄을 더해 다시 넣는다")}
 }
 
+// ValueFindings 는 B12 를 기억마다 돌린다. 답은 memories 와 같은 차례다. review 가
+// 부른다 — CheckRepo 는 B12 를 안 돌아서 `review --kind value` 가 늘 비었다 (점검·정리
+// 설계 4절). 모음 기억(observation)은 B12 를 안 받는다 (obsExemptRules 와 같은 자).
+//
+// normalized 는 비밀 꼴 정규식을 새로 짜므로 **한 번만** 하고 일꾼에게 나눠 준다 —
+// 기억마다 하면 1천 건에 정규식 묶음을 1천 번 짠다. 일꾼은 제 자리(found[at])만 쓴다.
+func ValueFindings(memories []*model.Memory, opt Options) [][]Finding {
+	opt = opt.normalized()
+	found := make([][]Finding, len(memories))
+	InParallel(len(memories), func(from, to int) {
+		for at := from; at < to; at++ {
+			m := memories[at]
+			if m == nil || m.Type == model.TypeObservation {
+				continue
+			}
+			found[at] = checkValue(m, opt)
+		}
+	})
+	return found
+}
+
 // hasPresentDeclarative 는 「지금 이렇게 한다」는 현재형 서술 종결이 있는지다.
 //
 // 한국어에서 결정문은 현재형으로 끝난다 — `자른다`·`않는다`·`쓴다`·`막는다`.

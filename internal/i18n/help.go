@@ -201,6 +201,9 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
   --fold <id>     그 기억 하나를 손으로 접는다 (쉼표로 여러 개). 바로 접는다
   --restore <id>  접은 본문을 아카이브에서 되돌린다 (쉼표로 여러 개)
   --dry-run       무엇을 옮길지만 보여준다 (--fold 에도 붙일 수 있다)
+  --retired       덮였거나(superseded_by) 무효(invalid_at 지남)인데 안 접힌 기억만 고른다.
+                  나이·건수 문턱이 없다. **다른 gc 와 달리 기본이 미리보기다**
+  --apply         --retired 와 함께 줘야 실제로 접는다 (원본은 아카이브, --restore 로 되돌림)
   --json          한 줄 JSON
   --repo <폴더>   저장소를 직접 가리킨다
 --fold 는 --dry-run 없이 바로 접는다. 되돌리려면 mem gc --restore <id> 를 친다.
@@ -221,17 +224,26 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
 	"review": `mem review — 사람이 판정할 것만 모아 보여준다 (도구는 판정하지 않는다)
 
 쓰는 법 : mem review [옵션]
-  --kind <갈래>   expired(다시 볼 날 지남) · basis(근거가 죽음) · conflict(모순 후보)
-                  stale(낡음 후보) · value(남길 값이 있나) · cold(차가움)
-                  link(링크 후보) · title(제목 없음)
-                  held(승격 대기 — add --hold 로 들어온 것)
-                  쉼표로 여러 개를 준다
-  --limit <수>    갈래마다 몇 줄까지 (기본 20)
+  --kind <갈래>   held(승격 대기 — add --hold 로 들어온 것)
+                  retired(덮였거나 무효인데 본문이 남음 — 처리는 mem gc --retired)
+                  expired(다시 볼 날 지남) · gone(실물이 사라짐) · basis(근거가 죽음)
+                  conflict(어느 쪽이 맞나) · contradict(서로 어긋날 수 있음)
+                  merge(합칠 만함) · stale(낡음 후보) · value(남길 값이 있나)
+                  cold(차가움) · link(링크 후보) · title(제목 없음)
+                  쉼표로 여러 개를 준다. auto 모드 allow 규칙에 맞게 **--kind 를 맨 앞에** 둔다
+  --scope <a,b>   그 scope 의 기억만 담는다 (검사는 저장소 전체로 돈다)
+  --limit <수>    갈래마다 몇 줄까지 (기본 20). --table 이면 (갈래, scope) 마다
+  --all           상한 없이 다 보여준다
+  --table         갈래마다 scope 별 표로 찍는다
+  --ids           AI 용 — 한 줄에 「갈래<TAB>규칙<TAB>id<TAB>같이 볼 id(쉼표)」, 꾸밈 없음
+  --nli           contradict 에 NLI 판정 서버(llm.toml 의 nli_url)도 묻는다
+                  안 주면 규칙 층만 돈다. 서버가 없으면 규칙 층만 보고 「못 본 것」에 적는다
+  --nli-pairs <수> NLI 에 물을 짝 상한 (기본 100 · scope 당 20)
   --promote <id>  자동으로 만들어진 기억(머리말 review: true)을 사람이 승격한다
                   **이 옵션만 auto 모드 allow 규칙 밖이라 승인 창이 뜬다**
   --reject <id>   보류 기억을 버린다. 지우지 않고 접는다 (gc --restore <id> 로 되돌린다)
                   --promote 처럼 allow 규칙 밖이다
-  --json          한 줄 JSON
+  --json          한 줄 JSON (줄마다 scope · 전체에 by_scope)
   --repo <폴더>   저장소를 직접 가리킨다
 종료 코드 : 0 정상 · 1 사용법 잘못 · 3 저장소 없음`,
 

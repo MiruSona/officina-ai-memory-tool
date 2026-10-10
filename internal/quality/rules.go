@@ -74,12 +74,21 @@ const (
 	RuleStaleConflictPair    = "stale-conflict-pair"    // C13
 	RuleStaleBasis           = "stale-basis"            // C14
 	RuleObsStale             = "obs-stale"              // C15 · 모음 기억의 근거가 바뀜 (B1)
+	// C16~C20 은 점검·정리 설계(2026-10-10) 의 새 검사다. 전부 후보 등급이다.
+	RuleCitedNotSuperseded = "cited-not-superseded" // C16 · 새 기억이 mem: 으로 옛 것을 고쳤는데 옛 것에 superseded_by 가 없다
+	RuleNewerSibling       = "newer-sibling"        // C17 · 같은 자리에 닮은 더 새 기억이 있다 (덮임 닮음)
+	RuleRetiredUnfolded    = "retired-unfolded"     // C18 · 덮였거나 무효인데 본문이 안 접혔다
+	RuleContradictCand     = "contradict-candidate" // C19 · 서로 어긋날 수 있는 짝 (review 에서만 난다)
+	RuleMergeCandidate     = "merge-candidate"      // C20 · 합칠 만한 짝 (중복에 못 미치게 닮음 · 쪼개짐)
 
 	// D 계열 — 링크·경로.
 	RuleDeadMemLink = "dead-mem-link" // D01
 	RuleDeadPath    = "dead-path"     // D02
 	RuleDeadCommit  = "dead-commit"   // D03
 	RuleLinkMissing = "link-missing"  // D04
+	// D05·D06 은 점검·정리 설계(2026-10-10) 의 새 검사다.
+	RuleDeadBodyPath     = "dead-body-path"     // D05 · 본문에 그냥 적은 경로가 없다
+	RuleNoArtifactSource = "no-artifact-source" // D06 · 근거가 mem:·note: 뿐이다
 
 	// E 계열 — 보안. 전부 거절이고 경고로 못 내린다.
 	RuleSecretPattern       = "secret-pattern"       // E01
@@ -243,11 +252,21 @@ var Catalog = []Rule{
 	// C15 는 모음 기억의 근거가 덮이거나·보류되거나·고쳐진 것이다 (자동쌓기설계 3-4).
 	// 다시 쓰기는 `mem consolidate --apply` 가 하니 사람은 큐에서 보기만 한다.
 	{RuleObsStale, "C15", "C", StageLint, GradeCandidate, "", true, []string{TypeStale}},
+	// C16~C20 은 사람이 큐에서 판정할 자리만 좁힌다 (점검·정리 설계 결정 2). 골든셋 유형을
+	// 안 단다 — 정밀도는 스튜디오 점검 표본으로 따로 잰다 (같은 설계 결정 14).
+	// C19 는 review 의 contradict.go 에서만 나지만 이름·강등표는 여기 한 곳에 둔다.
+	{RuleCitedNotSuperseded, "C16", "C", StageLint, GradeCandidate, "", true, nil},
+	{RuleNewerSibling, "C17", "C", StageLint, GradeCandidate, "", true, nil},
+	{RuleRetiredUnfolded, "C18", "C", StageLint, GradeCandidate, "", true, nil},
+	{RuleContradictCand, "C19", "C", StageLint, GradeCandidate, "", true, nil},
+	{RuleMergeCandidate, "C20", "C", StageLint, GradeCandidate, "", true, nil},
 
 	{RuleDeadMemLink, "D01", "D", StageBoth, GradeReject, "", true, nil},
 	{RuleDeadPath, "D02", "D", StageBoth, GradeWarn, "", true, nil},
 	{RuleDeadCommit, "D03", "D", StageLint, GradeWarn, "", true, nil},
 	{RuleLinkMissing, "D04", "D", StageLint, GradeCandidate, "", true, nil},
+	{RuleDeadBodyPath, "D05", "D", StageLint, GradeCandidate, "", true, nil},
+	{RuleNoArtifactSource, "D06", "D", StageLint, GradeCandidate, "", true, nil},
 
 	{RuleSecretPattern, "E01", "E", StageBoth, GradeReject, "", false, nil},
 	{RuleSecretEntropy, "E02", "E", StageBoth, GradeWarn, "", false, nil},

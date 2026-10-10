@@ -471,7 +471,12 @@ type Finder interface {
 // DuplicateFindings 는 이미 만들어 둔 닮음 표에 대고 중복 규칙 셋을 본다.
 // 저장소 전체를 훑는 lint 는 표를 한 번만 만들고 이 함수를 건별로 부른다.
 func DuplicateFindings(doc *Doc, table Finder, m *model.Memory, opt Options) []Finding {
-	matches := table.Nearest(doc, opt.Config.Quality.DupWarn, dupListMax)
+	return duplicateFindingsOf(table.Nearest(doc, opt.Config.Quality.DupWarn, dupListMax), m, opt)
+}
+
+// duplicateFindingsOf 는 이미 뽑은 닮은 것(Nearest)으로 중복 규칙 셋을 본다. 저장소
+// 훑기는 같은 matches 로 합치기 짝(C20 (가))도 골라야 해서 둘로 갈랐다.
+func duplicateFindingsOf(matches []Match, m *model.Memory, opt Options) []Finding {
 	if len(matches) == 0 {
 		return nil
 	}

@@ -2,7 +2,9 @@
 //
 // **판정은 안 한다.** 코드가 못 가리는 것은 「값이 있나」와 「어느 쪽이 지금
 // 맞나」 둘뿐이고, 그 둘만 사람에게 보낸다 (설계 결정 28). 규칙 검사는
-// `internal/quality` 가 하고, 여기는 그 결과를 네 가지 큐로 나눠 담기만 한다.
+// `internal/quality` 가 하고, 여기는 그 결과를 종류별 큐(Kinds 표)로 나눠 담기만 한다.
+// 예외는 하나다 — C19(모순 후보)는 판정 사다리(`internal/llm`)를 불러야 해서 quality 가
+// 아니라 여기(contradict.go)서 난다. lint·훅의 「LLM 0」 경계를 지키려는 자리다.
 package review
 
 import (
@@ -22,7 +24,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
 
-// 큐 네 가지 (`mem review --kind`).
+// 큐 종류 (`mem review --kind`). 차례는 아래 Kinds 표다.
 const (
 	// KindExpired 는 「다시 볼 날」이 지난 것이다 (C07).
 	KindExpired = "expired"
@@ -48,10 +50,22 @@ const (
 	// `review: true`). 검색·훅에 안 뜨니 이 큐가 없으면 사람이 **승격 대상을
 	// 목록으로 볼 길이 없다** (리뷰 D8).
 	KindHeld = "held"
+	// KindRetired 는 덮였거나 무효인데 본문이 안 접힌 것이다 (C18 · 점검·정리 설계 5절).
+	// 처리는 `mem gc --retired` 다.
+	KindRetired = "retired"
+	// KindGone 은 실물(근거 경로·커밋·본문 경로)이 사라진 것이다 (D02·D03·D05).
+	// 예전엔 stale 에 섞였다 — 거기는 규칙 여섯이 몰려 상한에 밀린다 (같은 설계 결정 7).
+	KindGone = "gone"
+	// KindContradict 는 서로 어긋날 수 있는 짝이다 (C13·C19).
+	KindContradict = "contradict"
+	// KindMerge 는 합칠 만한 짝이다 (C20) — 중복에 못 미치게 닮았거나, 한 내용이
+	// 두 기억으로 쪼개진 것. 합쳐 새로 쓰고 옛 둘을 `--by` 로 덮는다.
+	KindMerge = "merge"
 )
 
 // Kinds 는 화면에 찍는 차례다. 급한 것이 위다.
-var Kinds = []string{KindHeld, KindExpired, KindBasis, KindConflict, KindStale, KindValue, KindCold, KindLink, KindTitle}
+var Kinds = []string{KindHeld, KindRetired, KindExpired, KindGone, KindBasis, KindConflict,
+	KindContradict, KindMerge, KindStale, KindValue, KindCold, KindLink, KindTitle}
 
 // ruleKind 는 규칙 하나가 어느 큐로 가는지다. 여기 없는 규칙은 검토 큐가
 // 아니라 `mem lint` 가 말한다.
@@ -65,17 +79,25 @@ var ruleKind = map[string]string{
 	quality.RuleCold:                 KindCold,
 	quality.RuleOrphan:               KindCold,
 	// v0.3 에서 는 규칙들. 표에 없으면 큐에 한 건도 안 뜬다 (2D·2B 넘김).
-	quality.RuleStaleAge:          KindStale,
-	quality.RuleStaleConflictPair: KindStale,
-	quality.RuleNotationDrift:     KindStale,
-	quality.RuleNoValue:           KindValue,
-	// 근거 표류(D02·D03)도 「낡았을지 모르는 것」이다. lint 의 SourceMissing
-	// 갈고리가 채워져야 여기까지 온다 (결정 36 ③).
-	quality.RuleDeadPath:    KindStale,
-	quality.RuleDeadCommit:  KindStale,
-	quality.RuleLinkMissing: KindLink,
+	quality.RuleStaleAge:      KindStale,
+	quality.RuleNotationDrift: KindStale,
+	quality.RuleNoValue:       KindValue,
+	quality.RuleLinkMissing:   KindLink,
 	// C14 — 근거가 죽었다 (무효화 전파 설계).
 	quality.RuleStaleBasis: KindBasis,
+	// 점검·정리 설계(2026-10-10) 5절. 실물 사라짐(D02·D03)은 stale 에서 gone 으로,
+	// 숫자 어긋남(C13)은 stale 에서 contradict 로 옮겼다 (같은 설계 결정 7).
+	// D02·D03 은 lint 의 SourceMissing 갈고리가 채워져야 여기까지 온다 (결정 36 ③).
+	quality.RuleDeadPath:           KindGone,
+	quality.RuleDeadCommit:         KindGone,
+	quality.RuleDeadBodyPath:       KindGone,
+	quality.RuleStaleConflictPair:  KindContradict,
+	quality.RuleContradictCand:     KindContradict,
+	quality.RuleCitedNotSuperseded: KindConflict,
+	quality.RuleNewerSibling:       KindConflict,
+	quality.RuleRetiredUnfolded:    KindRetired,
+	quality.RuleMergeCandidate:     KindMerge,
+	quality.RuleNoArtifactSource:   KindValue,
 }
 
 // Item 은 사람이 볼 한 줄이다.
@@ -86,6 +108,8 @@ type Item struct {
 	Title string `json:"title"`
 	Type  string `json:"type"`
 	Date  string `json:"date"`
+	// Scope 는 걸린 기억의 scope 다. `--table` 이 이것으로 묶는다.
+	Scope string `json:"scope"`
 	Why   string `json:"why"`
 	// Related 는 같이 봐야 할 다른 기억이다 (모순 상대·바뀐 근거).
 	Related []string `json:"related,omitempty"`
@@ -97,9 +121,11 @@ type Item struct {
 type Report struct {
 	Checked int            `json:"checked"`
 	Counts  map[string]int `json:"counts"`
-	Items   []Item         `json:"items"`
-	Notes   []string       `json:"notes"`
-	Elapsed time.Duration  `json:"-"`
+	// ByScope 는 scope → 종류 → 기억 수다. Counts 를 scope 로 쪼갠 것이다.
+	ByScope map[string]map[string]int `json:"by_scope"`
+	Items   []Item                    `json:"items"`
+	Notes   []string                  `json:"notes"`
+	Elapsed time.Duration             `json:"-"`
 }
 
 // Options 는 검토 큐 한 번의 조건이다.
@@ -120,6 +146,17 @@ type Options struct {
 	// SourceMissing 은 근거가 이제 없는지다 (D02·D03 · 결정 36 ③). nil 이면
 	// 근거 표류를 건너뛴다.
 	SourceMissing quality.SourceMissing
+	// BodyMissing 은 본문에 적은 경로가 이제 없는지다 (D05). nil 이면 건너뛴다.
+	BodyMissing quality.BodyMissing
+	// Scopes 가 있으면 그 scope 의 기억만 큐에 담는다 (`--scope`). 검사는 저장소
+	// 전체로 돈다 — 근거(C14)·닮은 짝이 다른 scope 에 걸쳐 있을 수 있다.
+	Scopes []string
+	// ByScope 면 상한을 (종류, scope) 마다 건다 (`--table`). 아니면 종류마다다.
+	ByScope bool
+	// All 이면 상한을 없앤다 (`--all`). AI 가 한 번에 다 받을 때 쓴다.
+	All bool
+	// NLI 는 C19 의 NLI 단이다 (`--nli`). nil 이면 규칙 층만 돈다.
+	NLI *NLIOptions
 	// Near 는 STALE 모순 후보를 데려오는 임베딩이다. nil 이면 안 쓴다 (결정 15).
 	Near quality.Vectors
 	// Canon 은 mem.toml [canon] 대표말 표다. B08 의 norm·canon 대조에 쓴다. nil 이면 대조 없이 돈다.
@@ -139,8 +176,10 @@ func Prepare(options *Options) {
 	if options.SourceChanged == nil {
 		options.SourceChanged = lint.SourceChanged(options.Store.Dir)
 	}
-	if options.SourceMissing == nil {
-		options.SourceMissing = lint.SourceMissing(options.Store.Dir)
+	// 근거(D02·D03)와 본문 경로(D05)는 한 경로 집합으로 같이 만든다 — 프로젝트를
+	// 두 번 훑지 않는다 (lint.Missing).
+	if options.SourceMissing == nil && options.BodyMissing == nil {
+		options.SourceMissing, options.BodyMissing = lint.Missing(options.Store.Dir)
 	}
 }
 
@@ -160,17 +199,28 @@ func Run(options Options) (*Report, error) {
 	if err != nil {
 		return nil, err
 	}
-	report := Report{Checked: len(memories), Counts: map[string]int{}, Items: []Item{}, Notes: []string{}}
+	report := Report{Checked: len(memories), Counts: map[string]int{}, ByScope: map[string]map[string]int{},
+		Items: []Item{}, Notes: []string{}}
 	if options.Hits == nil {
 		report.note("조회 기록이 없어 차가운 기억은 안 봤다")
 	}
 	if options.SourceChanged == nil {
 		report.note("git 을 못 써서 근거가 바뀐 기억은 안 봤다")
 	}
-	found := quality.CheckRepo(memories, repoOptions(options))
-	report.fill(found, memories, options)
-	report.fillHeld(memories, options)
-	report.fillTitles(memories, options)
+	repo := repoOptions(options)
+	found := quality.CheckRepo(memories, repo)
+	byID := idTable(memories)
+	want := wanted(options.Kinds)
+	if want[KindValue] {
+		addValue(found.ByID, memories, repo.Options)
+	}
+	// 모순 후보는 merge 큐만 볼 때도 돈다 — 같은 짝의 merge 줄을 지우려면 C19 를 알아야 한다.
+	if want[KindContradict] || want[KindMerge] {
+		report.addContradicts(&found, byID, options)
+	}
+	dropShadowed(found.ByID)
+	report.fill(found, byID, options)
+	report.noteMissingScopes(options.Scopes, memories)
 	report.Elapsed = time.Since(started)
 	return &report, nil
 }
@@ -184,23 +234,93 @@ func repoOptions(options Options) quality.RepoOptions {
 		Options: quality.Options{Config: options.Config, Vocab: vocab, Now: options.Now,
 			Near: options.Near, Demoted: options.Demoted, Canon: options.Canon},
 		Hits: options.Hits, SourceChanged: options.SourceChanged,
-		SourceMissing: options.SourceMissing,
+		SourceMissing: options.SourceMissing, BodyMissing: options.BodyMissing,
 	}
+}
+
+// addValue 는 B12(값이 있나)를 기억마다 돌려 found 에 붙인다. B12 는 기억 하나씩
+// 보는 검사라 CheckRepo 에 없다 — 그래서 value 큐가 늘 비었다 (점검·정리 설계 4절).
+// 모음 기억(observation)은 ValueFindings 가 스스로 뺀다.
+func addValue(byID map[string][]quality.Finding, memories []*model.Memory, opt quality.Options) {
+	for at, list := range quality.ValueFindings(memories, opt) {
+		for _, one := range list {
+			if one.ID == "" {
+				one.ID = memories[at].ID
+			}
+			byID[memories[at].ID] = append(byID[memories[at].ID], one)
+		}
+	}
+}
+
+// dropShadowed 는 한 짝을 한 큐에만 보낸다. C13·C19(어긋남)에 걸린 짝의 C20(합치기)·
+// C17(덮임 닮음) 줄을 지운다 — 어긋난 둘을 합치면 틀린 쪽이 섞인다 (점검·정리 설계 ⑥).
+// C19 는 review 에서 나므로 이 정리도 review 가 한다.
+func dropShadowed(byID map[string][]quality.Finding) {
+	clash := map[[2]string]bool{}
+	for id, list := range byID {
+		for _, one := range list {
+			if one.Rule != quality.RuleStaleConflictPair && one.Rule != quality.RuleContradictCand {
+				continue
+			}
+			for _, other := range one.Related {
+				clash[pairKey(id, other)] = true
+			}
+		}
+	}
+	if len(clash) == 0 {
+		return
+	}
+	for id, list := range byID {
+		kept := list[:0]
+		for _, one := range list {
+			if (one.Rule == quality.RuleMergeCandidate || one.Rule == quality.RuleNewerSibling) &&
+				clashesWith(clash, id, one.Related) {
+				continue
+			}
+			kept = append(kept, one)
+		}
+		byID[id] = kept
+	}
+}
+
+func clashesWith(clash map[[2]string]bool, id string, related []string) bool {
+	for _, other := range related {
+		if clash[pairKey(id, other)] {
+			return true
+		}
+	}
+	return false
+}
+
+// pairKey 는 짝 하나의 열쇠다. 차례와 상관없이 (작은 id, 큰 id) 다.
+func pairKey(left, right string) [2]string {
+	if right < left {
+		left, right = right, left
+	}
+	return [2]string{left, right}
+}
+
+func idTable(memories []*model.Memory) map[string]*model.Memory {
+	byID := make(map[string]*model.Memory, len(memories))
+	for _, m := range memories {
+		byID[m.ID] = m
+	}
+	return byID
 }
 
 // fill 은 규칙 판정을 큐로 나눠 담는다. 큐마다 상한이 있고, 넘으면 몇 건이 더
 // 있는지 한 줄로 말한다 — 자른 것을 말없이 숨기지 않는다.
-func (r *Report) fill(found quality.RepoReport, memories []*model.Memory, options Options) {
-	byID := map[string]*model.Memory{}
-	for _, m := range memories {
-		byID[m.ID] = m
-	}
+func (r *Report) fill(found quality.RepoReport, byID map[string]*model.Memory, options Options) {
 	want := wanted(options.Kinds)
+	scopes := scopeSet(options.Scopes)
 	buckets := map[string][]Item{}
 	// 건수는 **기억 수**다. C09·C10 처럼 규칙 둘이 같은 기억에 걸리면 셈이
 	// 저장소 크기를 넘어 「206건 중 337건이 차갑다」가 된다 (N4).
 	counted := map[string]map[string]bool{}
 	for _, id := range sortedIDs(found.ByID) {
+		if !inScopes(scopes, byID[id]) {
+			continue
+		}
 		for _, one := range found.ByID[id] {
 			kind, ok := ruleKind[one.Rule]
 			if !ok || !want[kind] {
@@ -209,24 +329,60 @@ func (r *Report) fill(found quality.RepoReport, memories []*model.Memory, option
 			if counted[kind] == nil {
 				counted[kind] = map[string]bool{}
 			}
+			item := itemOf(kind, one, byID[id])
 			if !counted[kind][id] {
 				counted[kind][id] = true
-				r.Counts[kind]++
+				r.count(item)
 			}
-			buckets[kind] = append(buckets[kind], itemOf(kind, one, byID[id]))
+			buckets[kind] = append(buckets[kind], item)
 		}
 	}
 	for _, kind := range Kinds {
-		if !want[kind] {
-			continue
+		if want[kind] {
+			r.keep(kind, buckets[kind], options)
 		}
-		list := buckets[kind]
+	}
+	r.fillHeld(byID, scopes, options)
+	r.fillTitles(byID, scopes, options)
+}
+
+// count 는 한 기억을 종류·scope 셈에 넣는다. 같은 기억은 한 번만 부른다.
+func (r *Report) count(item Item) {
+	r.Counts[item.Kind]++
+	if r.ByScope[item.Scope] == nil {
+		r.ByScope[item.Scope] = map[string]int{}
+	}
+	r.ByScope[item.Scope][item.Kind]++
+}
+
+// keep 은 큐 하나를 정렬하고 상한대로 잘라 Items 에 붙인다. 상한은 기본이 종류마다,
+// `--table` 이면 (종류, scope) 마다다. `--all` 이면 안 자른다.
+func (r *Report) keep(kind string, list []Item, options Options) {
+	if len(list) == 0 {
+		return
+	}
+	if !options.ByScope {
 		sortItems(list)
-		if len(list) > options.Limit {
+		if !options.All && len(list) > options.Limit {
 			r.note(fmt.Sprintf("%s 는 %d줄 중 %d줄만 보여준다", kindName(kind), len(list), options.Limit))
 			list = list[:options.Limit]
 		}
 		r.Items = append(r.Items, list...)
+		return
+	}
+	groups := map[string][]Item{}
+	for _, item := range list {
+		groups[item.Scope] = append(groups[item.Scope], item)
+	}
+	for _, scope := range sortedKeys(groups) {
+		group := groups[scope]
+		sortItems(group)
+		if !options.All && len(group) > options.Limit {
+			r.note(fmt.Sprintf("%s · %s 는 %d줄 중 %d줄만 보여준다", kindName(kind), scopeName(scope),
+				len(group), options.Limit))
+			group = group[:options.Limit]
+		}
+		r.Items = append(r.Items, group...)
 	}
 }
 
@@ -237,53 +393,115 @@ func (r *Report) fill(found quality.RepoReport, memories []*model.Memory, option
 // 안 붙어서, `migrate` 는 「제목 안 채움 206건」이라 찍는데 큐에는 191건만
 // 떴다. 나머지 15건을 사람이 영영 못 봤다. 제목이 빈 기억은 어디서 왔든
 // 제목을 써야 한다.
-func (r *Report) fillTitles(memories []*model.Memory, options Options) {
+func (r *Report) fillTitles(byID map[string]*model.Memory, scopes map[string]bool, options Options) {
 	if !wanted(options.Kinds)[KindTitle] {
 		return
 	}
 	list := []Item{}
-	for _, m := range memories {
-		if m.Title != "" {
+	for _, id := range sortedKeys(byID) {
+		m := byID[id]
+		if m.Title != "" || !inScopes(scopes, m) {
 			continue
 		}
-		r.Counts[KindTitle]++
-		list = append(list, Item{Kind: KindTitle, Rule: "migrated-title", ID: m.ID,
-			Title: titleOf(m), Type: m.Type, Date: m.Date,
+		item := Item{Kind: KindTitle, Rule: "migrated-title", ID: m.ID,
+			Title: titleOf(m), Type: m.Type, Date: m.Date, Scope: scopeOf(m),
 			Why:  "제목이 비어 있다. 요약을 베끼지 말고 이 기억이 무엇을 말하는지 한 줄로 쓴다",
-			Next: []string{"mem show " + m.ID, "mem set " + m.ID + " --title <제목>"}})
+			Next: []string{"mem show " + m.ID, "mem set " + m.ID + " --title <제목>"}}
+		r.count(item)
+		list = append(list, item)
 	}
-	sortItems(list)
-	if len(list) > options.Limit {
-		r.note(fmt.Sprintf("%s 는 %d줄 중 %d줄만 보여준다", kindName(KindTitle), len(list), options.Limit))
-		list = list[:options.Limit]
-	}
-	r.Items = append(r.Items, list...)
+	r.keep(KindTitle, list, options)
 }
 
 // fillHeld 는 `add --hold` 로 들어와 승격을 기다리는 기억을 모은다 (리뷰 D8).
 // 규칙 위반이 아니라 **남은 일**이라 CheckRepo 를 안 거친다.
-func (r *Report) fillHeld(memories []*model.Memory, options Options) {
+func (r *Report) fillHeld(byID map[string]*model.Memory, scopes map[string]bool, options Options) {
 	if !wanted(options.Kinds)[KindHeld] {
 		return
 	}
 	list := []Item{}
-	for _, m := range memories {
+	for _, id := range sortedKeys(byID) {
+		m := byID[id]
 		// `review --reject` 로 버린 보류 기억은 접혀(cold) 있다. 다시 안 보인다.
-		if !m.Review || m.State == index.StateCold {
+		if !m.Review || m.State == index.StateCold || !inScopes(scopes, m) {
 			continue
 		}
-		r.Counts[KindHeld]++
-		list = append(list, Item{Kind: KindHeld, Rule: "held", ID: m.ID,
-			Title: titleOf(m), Type: m.Type, Date: m.Date,
+		item := Item{Kind: KindHeld, Rule: "held", ID: m.ID,
+			Title: titleOf(m), Type: m.Type, Date: m.Date, Scope: scopeOf(m),
 			Why:  "보류로 들어와 승격을 기다린다. 승격 전에는 검색·훅에 안 뜬다",
-			Next: []string{"mem show " + m.ID, "mem review --promote " + m.ID}})
+			Next: []string{"mem show " + m.ID, "mem review --promote " + m.ID}}
+		r.count(item)
+		list = append(list, item)
 	}
-	sortItems(list)
-	if len(list) > options.Limit {
-		r.note(fmt.Sprintf("%s 는 %d줄 중 %d줄만 보여준다", kindName(KindHeld), len(list), options.Limit))
-		list = list[:options.Limit]
+	r.keep(KindHeld, list, options)
+}
+
+// scopeSet 은 `--scope` 거름이다. 비면 nil — 다 담는다.
+func scopeSet(scopes []string) map[string]bool {
+	if len(scopes) == 0 {
+		return nil
 	}
-	r.Items = append(r.Items, list...)
+	set := map[string]bool{}
+	for _, scope := range scopes {
+		if trimmed := strings.TrimSpace(scope); trimmed != "" {
+			set[trimmed] = true
+		}
+	}
+	if len(set) == 0 {
+		return nil
+	}
+	return set
+}
+
+// noteMissingScopes 는 `--scope` 에 준 이름 중 기억이 하나도 없는 것을 「못 본 것」에
+// 적는다. 오타(`aimemory` ↔ `aimemorytool`)면 큐가 말없이 비어 「볼 것 없음」으로 읽힌다.
+func (r *Report) noteMissingScopes(scopes []string, memories []*model.Memory) {
+	asked := scopeSet(scopes)
+	if asked == nil {
+		return
+	}
+	have := map[string]bool{}
+	for _, m := range memories {
+		have[m.Scope] = true
+	}
+	for _, scope := range sortedKeys(asked) {
+		if !have[scope] {
+			r.note(fmt.Sprintf("scope `%s` 인 기억이 없다. 이름을 확인한다", safe.Summary(scope, titleRoom)))
+		}
+	}
+}
+
+// inScopes 는 기억이 거름을 지나는지다. 거름이 없으면 늘 참이다.
+func inScopes(scopes map[string]bool, m *model.Memory) bool {
+	if scopes == nil {
+		return true
+	}
+	return m != nil && scopes[m.Scope]
+}
+
+// scopeOf 는 화면에 찍을 scope 다. 머리말 글이라 safe 를 지난다.
+func scopeOf(m *model.Memory) string {
+	if m == nil {
+		return ""
+	}
+	return safe.Summary(m.Scope, titleRoom)
+}
+
+// scopeName 은 scope 묶음 머리에 찍는 이름이다. 빈 scope 도 이름이 있어야 표를 찾는다.
+func scopeName(scope string) string {
+	if scope == "" {
+		return "(scope 없음)"
+	}
+	return scope
+}
+
+func sortedKeys[V any](table map[string]V) []string {
+	out := make([]string, 0, len(table))
+	for key := range table {
+		out = append(out, key)
+	}
+	sort.Strings(out)
+	return out
 }
 
 // itemOf 는 큐 한 줄이다. `Why`·`Related` 는 기억의 요약·근거 글을 그대로 물고
@@ -292,7 +510,7 @@ func itemOf(kind string, found quality.Finding, m *model.Memory) Item {
 	item := Item{Kind: kind, Rule: found.Rule, ID: found.ID, Why: safe.Summary(found.Reason, whyRoom),
 		Related: safeList(found.Related), Next: nextFor(kind, found)}
 	if m != nil {
-		item.Title, item.Type, item.Date = titleOf(m), m.Type, m.Date
+		item.Title, item.Type, item.Date, item.Scope = titleOf(m), m.Type, m.Date, scopeOf(m)
 	}
 	return item
 }
@@ -323,8 +541,30 @@ func nextFor(kind string, found quality.Finding) []string {
 	case KindValue:
 		// 「값이 있나」는 코드가 못 가린다 (결정 28). 남길 값이 없으면 접는다.
 		return []string{"mem show " + id, "mem set " + id + " --body <숫자·경로·결론을 넣어 다시>"}
+	case KindRetired:
+		// 덮음·무효는 사람이 이미 정했다. 접기만 남았다 (점검·정리 설계 7절).
+		return []string{"mem show " + id, "mem gc --retired   (미리보기 · 접으려면 --apply)"}
+	case KindGone:
+		return []string{"mem show " + id, "mem set " + id + " --sources <고친 근거>",
+			"mem set " + id + " --by-new   (실물과 함께 지웠다면)"}
+	case KindContradict:
+		other := firstRelated(found)
+		return []string{"mem show " + id, "mem show " + other, "mem set " + id + " --by " + other + "   (한쪽을 고치거나 덮는다)"}
+	case KindMerge:
+		// 합쳐 새로 쓴 뒤 옛 둘을 덮는다 (기억 쓰기 규칙 넷 ①). `mem set` 은 id 하나씩 받는다.
+		other := firstRelated(found)
+		return []string{"mem show " + id, "mem show " + other, "mem add …   (둘을 합쳐 새로 쓴다)",
+			"mem set " + id + " --by <새 id>", "mem set " + other + " --by <새 id>"}
 	}
 	return []string{"mem show " + id, "mem gc --fold " + id}
+}
+
+// firstRelated 는 같이 볼 첫 기억이다. 없으면 자리표를 준다.
+func firstRelated(found quality.Finding) string {
+	if len(found.Related) == 0 {
+		return "<id>"
+	}
+	return found.Related[0]
 }
 
 // relatedIDs 는 링크 후보로 나온 기억 id 들이다. 사람이 그대로 복사해 칠 수
@@ -360,7 +600,7 @@ func wanted(kinds []string) map[string]bool {
 	return want
 }
 
-// KnownKind 는 --kind 값이 넷 안인지다. cmd 가 모르는 값을 거절하는 데 쓴다.
+// KnownKind 는 --kind 값이 Kinds 표 안인지다. cmd 가 모르는 값을 거절하는 데 쓴다.
 func KnownKind(kind string) bool {
 	for _, known := range Kinds {
 		if known == kind {
@@ -388,6 +628,14 @@ func kindName(kind string) string {
 		return "링크로 이을지 봐야 하는 것"
 	case KindBasis:
 		return "근거가 죽은 것"
+	case KindRetired:
+		return "덮였거나 무효인데 본문이 남은 것"
+	case KindGone:
+		return "실물이 사라진 것"
+	case KindContradict:
+		return "서로 어긋날 수 있는 것"
+	case KindMerge:
+		return "합칠 만한 것"
 	}
 	return "아무도 안 보는 것"
 }
@@ -502,4 +750,65 @@ func withNotes(text string, report *Report) string {
 		return text
 	}
 	return text + "\n못 본 것 :\n- " + strings.Join(report.Notes, "\n- ") + "\n"
+}
+
+// Table 은 `--table` 화면이다. 큐마다 `## 종류 (n건)` 아래 scope 별 `### scope (n건)` 과
+// 표 한 벌을 찍는다. n 은 자르기 전 기억 수다 — 잘린 줄 수는 「못 본 것」이 말한다.
+func Table(report *Report) string {
+	out := strings.Builder{}
+	out.WriteString(fmt.Sprintf("검토 큐 — 기억 %d건에서 사람이 볼 것 %d줄 (%.2f초)\n",
+		report.Checked, len(report.Items), report.Elapsed.Seconds()))
+	out.WriteString("판정은 사람이 한다. 도구는 아무것도 안 고친다.\n")
+	if len(report.Items) == 0 {
+		out.WriteString("\n볼 것이 없다.\n")
+		return withNotes(out.String(), report)
+	}
+	lastKind, lastScope := "", ""
+	for at, item := range report.Items {
+		newKind := at == 0 || item.Kind != lastKind
+		if newKind {
+			lastKind = item.Kind
+			out.WriteString(fmt.Sprintf("\n## %s (%d건)\n", kindName(item.Kind), report.Counts[item.Kind]))
+		}
+		if newKind || item.Scope != lastScope {
+			lastScope = item.Scope
+			out.WriteString(fmt.Sprintf("\n### %s (%d건)\n\n", scopeName(item.Scope), report.ByScope[item.Scope][item.Kind]))
+			out.WriteString("| 날짜 | id | 제목 | 까닭 | 같이 볼 것 | 다음 |\n")
+			out.WriteString("| --- | --- | --- | --- | --- | --- |\n")
+		}
+		out.WriteString("| " + strings.Join([]string{cell(item.Date), cell(item.ID), cell(item.Title),
+			cell(item.Why), cell(IDLine(item.Related)), cell(strings.Join(item.Next, " ; "))}, " | ") + " |\n")
+	}
+	return withNotes(out.String(), report)
+}
+
+// cell 은 표 칸 하나다. 글은 이미 safe 를 지났고, 칸을 깨는 `|` 만 막는다.
+func cell(text string) string {
+	return strings.ReplaceAll(text, "|", `\|`)
+}
+
+// IDs 는 `--ids` 화면이다. 한 줄에 `종류<TAB>규칙<TAB>id<TAB>같이 볼 것(쉼표)` 이고
+// 머리말·꾸밈·「못 본 것」은 없다 — AI 세션이 줄 단위로 읽는다.
+func IDs(report *Report) string {
+	out := strings.Builder{}
+	for _, item := range report.Items {
+		related := make([]string, 0, len(item.Related))
+		for _, one := range item.Related {
+			related = append(related, plainField(one))
+		}
+		out.WriteString(strings.Join([]string{plainField(item.Kind), plainField(item.Rule),
+			plainField(item.ID), strings.Join(related, ",")}, "\t") + "\n")
+	}
+	return out.String()
+}
+
+// plainField 는 `--ids` 한 칸이다. 칸 가름(탭)·줄 가름·쉼표가 끼면 줄 꼴이 깨지니 공백으로 바꾼다.
+func plainField(text string) string {
+	return strings.Map(func(letter rune) rune {
+		switch letter {
+		case '\t', '\n', '\r', ',':
+			return ' '
+		}
+		return letter
+	}, text)
 }

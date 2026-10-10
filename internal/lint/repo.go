@@ -79,7 +79,14 @@ func repoReport(memories []*model.Memory, options *Options, watcher *gitWatcher,
 	}
 	// 근거 표류(D02·D03)를 CheckRepo 도 보게 한다. 안 꽂으면 `mem review` 의
 	// STALE 큐에 한 건도 안 온다 (결정 36 ③).
-	repo.SourceMissing = newMissing(options.Store.Dir, watcher).ask
+	// 본문 경로(D05)도 같은 경로 집합으로 본다. 본문 링크의 D02 는 lint 가 제
+	// 눈으로 따로 내므로 dropOwnRules 가 CheckRepo 쪽을 뺀다.
+	found := newMissing(options.Store.Dir, watcher)
+	repo.SourceMissing = found.ask
+	repo.BodyMissing = found.bodyAsk
+	if !found.full {
+		report.note(fmt.Sprintf("프로젝트 폴더에 파일이 %d개를 넘어 본문 경로(D05)는 안 봤다", pathSetLimit))
+	}
 	return quality.CheckRepo(memories, repo)
 }
 

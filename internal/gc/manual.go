@@ -50,8 +50,18 @@ func runManual(database *index.DB, options Options, result *Result) error {
 	return nil
 }
 
-// foldOne 은 기억 하나의 본문을 접는다. 머리말은 남고 원본은 아카이브로 간다.
+// foldOne 은 기억 하나의 본문을 접고 log.md 에 `(gc --fold)` 를 적는다.
 func foldOne(worker *mover, options Options, id string) Manual {
+	done := foldQuiet(worker, options, id)
+	if done.Done() && !options.DryRun {
+		store.AppendLog(options.Store.Dir, options.Now, store.LogFolded, fmt.Sprintf("%s (gc --fold)", id))
+	}
+	return done
+}
+
+// foldQuiet 는 기억 하나의 본문을 접는다. 머리말은 남고 원본은 아카이브로 간다.
+// log.md 는 부른 쪽이 적는다 — `--retired` 는 모아서 한 번에 쓴다 (A8).
+func foldQuiet(worker *mover, options Options, id string) Manual {
 	done := Manual{ID: id, Step: StepFold}
 	path, err := pathOf(worker.db, options.Store, id)
 	if err != nil {
@@ -75,7 +85,6 @@ func foldOne(worker *mover, options Options, id string) Manual {
 		done.Why = err.Error()
 		return done
 	}
-	store.AppendLog(options.Store.Dir, options.Now, store.LogFolded, fmt.Sprintf("%s (gc --fold)", id))
 	return done
 }
 
@@ -97,9 +106,9 @@ func restoreOne(worker *mover, options Options, id string) Manual {
 	if options.DryRun {
 		return done
 	}
-	// 접기 전 판을 그대로 되돌린다. 접힘 표시만 지운다.
-	saved.State = index.StateHot
-	saved.Archived = ""
+	// 접기 전 판을 그대로 되돌린다. 아카이브 판에는 접힘 표시(state: cold)가
+	// 없으니 그대로 쓰면 바이트까지 같다. 예전처럼 state: hot 을 박으면 원래
+	// 없던 줄이 생긴다 (gc --retired 시험 C18).
 	if err := options.Store.WriteMemory(saved); err != nil {
 		done.Why = err.Error()
 		return done
@@ -107,6 +116,14 @@ func restoreOne(worker *mover, options Options, id string) Manual {
 	if err := worker.refreshRow(Item{ID: id, Path: path}, saved); err != nil {
 		done.Why = err.Error()
 		return done
+	}
+	// 파일에 state 칸이 없으면 색인은 hot 으로 둔다 (index.stateOr 와 같은 뜻).
+	// 파일 해시는 위에서 실제 바이트로 맞췄으니 색인 칸만 고친다.
+	if saved.State == "" {
+		if _, err := worker.db.SQL().Exec("UPDATE memories SET state = ? WHERE id = ?", index.StateHot, id); err != nil {
+			done.Why = err.Error()
+			return done
+		}
 	}
 	store.AppendLog(options.Store.Dir, options.Now, store.LogFolded, fmt.Sprintf("%s 되돌림 (gc --restore)", id))
 	return done
