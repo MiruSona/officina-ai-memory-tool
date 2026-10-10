@@ -171,9 +171,9 @@ timeout_ms = 5000               # 한 요청 제한 시간 (1~60000)
 판정은 싼 단부터 묻고 앞 단이 확신하면 멈춘다 (자체판정프로그램설계 2026-10-08 · 1~3절).
 **규칙 단은 `llm.toml` 이 없어도 늘 돈다.**
 **NLI 단은 기본으로 꺼져 있다** — `nli_url` 을 비워 두면 건너뛰어, 실제 사다리는 「규칙 → SemIf → 보류」다.
-NLI 서버는 JudgeTool 의 응답 꼴을 따르는 HTTP 서버다 — `POST /judge {"evidence","claim"}` → `{"a","b","c","model","ms"}` (a 지지 · b 반대 · c 무관 확률, model 은 가중치 SHA 앞 8자).
-옛 Laya 단(`laya-v2`, 2026-10-08 game90 0.757 미달로 접음)의 `judge-laya/` 폴더는 지웠다(2026-10-09) — 판정 서버는 JudgeTool 로 옮겼다.
-JudgeTool 의 첫 모델 `nli-studio-v1` 은 2026-10-09 game90 미달이었지만, 같은 날 `nli-studio-v2` 가 blind 통과해 메인 PC 에서는 켜 둔다(값은 JudgeTool README).
+NLI 서버는 JudgeModel 의 응답 꼴을 따르는 HTTP 서버다 — `POST /judge {"evidence","claim"}` → `{"a","b","c","model","ms"}` (a 지지 · b 반대 · c 무관 확률, model 은 가중치 SHA 앞 8자).
+옛 Laya 단(`laya-v2`, 2026-10-08 game90 0.757 미달로 접음)의 `judge-laya/` 폴더는 지웠다(2026-10-09) — 판정 서버는 JudgeModel 로 옮겼다.
+JudgeModel 의 첫 모델 `nli-studio-v1` 은 2026-10-09 game90 미달이었지만, 같은 날 `nli-studio-v2` 가 blind 통과해 메인 PC 에서는 켜 둔다(값은 JudgeModel README).
 
 | 단 | `stage` · `prompt` | 하는 일 | 멈추는 때 |
 | --- | --- | --- | --- |

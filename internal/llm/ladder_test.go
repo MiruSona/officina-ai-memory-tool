@@ -51,7 +51,7 @@ func nliFor(address string, timeoutMS int) *NLIClient {
 	return NewNLI(config.LLMConfig{NLIURL: address, NLITimeoutMS: timeoutMS, NLISure: 0.70, NLISureSupport: 0.80})
 }
 
-// 응답 꼴은 JudgeTool 서버 그대로다 — ms 는 소수로 온다. nliFor 의 문턱은 지지 0.80 · 반대·무관 0.70.
+// 응답 꼴은 JudgeModel 서버 그대로다 — ms 는 소수로 온다. nliFor 의 문턱은 지지 0.80 · 반대·무관 0.70.
 const (
 	nliSure   = `{"a": 0.85, "b": 0.1, "c": 0.05, "model": "abcd1234", "ms": 40.2}`
 	nliUnsure = `{"a": 0.55, "b": 0.4, "c": 0.05, "model": "abcd1234", "ms": 40.0}`

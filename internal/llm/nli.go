@@ -14,7 +14,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 )
 
-// NLI 판정 서버(판정 사다리 ② 단)에 HTTP 손님으로 붙는다. 서버는 이 툴 밖에 있고 JudgeTool 의
+// NLI 판정 서버(판정 사다리 ② 단)에 HTTP 손님으로 붙는다. 서버는 이 툴 밖에 있고 JudgeModel 의
 // 응답 꼴을 따른다 — POST /judge {"evidence","claim"} → {"a","b","c","model","ms"}
 // (a 지지 · b 반대 · c 무관 확률, model 은 가중치 SHA 앞 8자).
 
