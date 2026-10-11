@@ -8,6 +8,7 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -20,7 +21,7 @@ import (
 )
 
 var reviewBools = []string{"json", "table", "ids", "all", "nli"}
-var reviewValues = []string{"kind", "limit", "repo", "promote", "reject", "scope", "nli-pairs"}
+var reviewValues = []string{"kind", "limit", "repo", "promote", "reject", "scope", "nli-pairs", "nli-per-scope"}
 
 func init() {
 	register(command{name: "review", run: runReview, bools: reviewBools, values: reviewValues})
@@ -50,9 +51,13 @@ func runReview(argv []string) int {
 			return fail(i18n.T(i18n.UnknownOption, "--kind "+kind))
 		}
 	}
-	pairs, ok := nliPairsOf(parsed)
+	pairs, ok := nliCountOf(parsed, "nli-pairs")
 	if !ok {
 		return fail(i18n.T(i18n.UnknownOption, "--nli-pairs "+parsed.text("nli-pairs")))
+	}
+	perScope, ok := nliCountOf(parsed, "nli-per-scope")
+	if !ok {
+		return fail(i18n.T(i18n.UnknownOption, "--nli-per-scope "+parsed.text("nli-per-scope")))
 	}
 	repository, opened, err := openStore(parsed)
 	if err != nil {
@@ -64,7 +69,7 @@ func runReview(argv []string) int {
 		Canon: canonOf(repository), Scopes: parsed.list("scope"), ByScope: parsed.flags["table"],
 		All: parsed.flags["all"]}
 	if parsed.flags["nli"] {
-		options.NLI = reviewNLI(repository, pairs)
+		options.NLI = reviewNLI(repository, pairs, perScope)
 	}
 	review.Prepare(&options)
 	report, err := review.Run(options)
@@ -84,6 +89,10 @@ func runReview(argv []string) int {
 	switch {
 	case parsed.flags["ids"]:
 		fmt.Print(review.IDs(report))
+		// --ids 는 줄 꼴만 낸다. NLI 셈 한 줄은 stderr 로 따로 낸다.
+		if line := review.NLILine(report); line != "" {
+			fmt.Fprintln(os.Stderr, line)
+		}
 	case parsed.flags["table"]:
 		fmt.Print(review.Table(report))
 	default:
@@ -95,20 +104,20 @@ func runReview(argv []string) int {
 // reviewNLI 는 C19 의 NLI 단이다 (`--nli`). 판정 기록 폴더와 비밀 꼴 거절은 mem judge 와
 // 같은 것을 쓰고, SemIf 는 안 부른다. nli_url 이 없으면 Judge 가 nil 이라 review 가
 // 「못 본 것」에 한 줄 남긴다.
-func reviewNLI(repository *config.Repository, pairs int) *review.NLIOptions {
+func reviewNLI(repository *config.Repository, pairs, perScope int) *review.NLIOptions {
 	settings := loadLLM()
 	scanner := scannerFor(repository.Config.Secret)
 	refuse := func(text string) bool { return scanner.ScanText(text) != nil }
 	return &review.NLIOptions{Judge: review.NLIJudge(llm.NewNLI(settings), judgeDir(repository), refuse),
-		Health: review.HealthOf(settings.NLIURL), Pairs: pairs}
+		Health: review.HealthOf(settings.NLIURL), Pairs: pairs, PerScope: perScope}
 }
 
-// nliPairsOf 는 --nli-pairs 다. 안 주면 0(기본값)이고, 수가 아니거나 1 아래면 거절한다.
-func nliPairsOf(parsed *options) (int, bool) {
-	if !parsed.has("nli-pairs") {
+// nliCountOf 는 --nli-pairs · --nli-per-scope 다. 안 주면 0(기본값)이고, 수가 아니거나 1 아래면 거절한다.
+func nliCountOf(parsed *options, name string) (int, bool) {
+	if !parsed.has(name) {
 		return 0, true
 	}
-	value, err := strconv.Atoi(strings.TrimSpace(parsed.text("nli-pairs")))
+	value, err := strconv.Atoi(strings.TrimSpace(parsed.text(name)))
 	if err != nil || value < 1 {
 		return 0, false
 	}

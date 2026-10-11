@@ -228,6 +228,7 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
                   retired(덮였거나 무효인데 본문이 남음 — 처리는 mem gc --retired)
                   expired(다시 볼 날 지남) · gone(실물이 사라짐) · basis(근거가 죽음)
                   conflict(어느 쪽이 맞나) · contradict(서로 어긋날 수 있음)
+                  fold(다른 기억에 다 담겨 접을 만함 — --nli 일 때만 찬다)
                   merge(합칠 만함) · stale(낡음 후보) · value(남길 값이 있나)
                   cold(차가움) · link(링크 후보) · title(제목 없음)
                   쉼표로 여러 개를 준다. auto 모드 allow 규칙에 맞게 **--kind 를 맨 앞에** 둔다
@@ -236,9 +237,16 @@ JSON 이 들어왔는데 cwd 가 비면 (어느 저장소인지 몰라) 아무�
   --all           상한 없이 다 보여준다
   --table         갈래마다 scope 별 표로 찍는다
   --ids           AI 용 — 한 줄에 「갈래<TAB>규칙<TAB>id<TAB>같이 볼 id(쉼표)」, 꾸밈 없음
-  --nli           contradict 에 NLI 판정 서버(llm.toml 의 nli_url)도 묻는다
-                  안 주면 규칙 층만 돈다. 서버가 없으면 규칙 층만 보고 「못 본 것」에 적는다
-  --nli-pairs <수> NLI 에 물을 짝 상한 (기본 100 · scope 당 20)
+  --nli           NLI 판정 서버(llm.toml 의 nli_url)도 묻는다. 안 주면 규칙 층만 돈다
+                  contradict : 규칙 층이 못 가른 짝을 한 방향으로 물어 확신 반대면 올린다
+                  fold : 닮은 짝을 두 방향으로 물어 한쪽 기억의 문장이 다 확신 지지면 「담김」
+                  merge : 줄 앞에 「NLI 계열」(같은 계열) · 「NLI 무관」(맨 뒤로) 표시, 문턱 밖 계열 짝 보탬
+                  retired·value : 담는 기억이 있으면 「담김 → id」 표시
+                  보내기 전에 줄 머리의 꼬리표(왜 : · 무엇을 : 따위)를 뗀다 (JudgeModel 과 같은 규칙)
+                  3칸 서버(nli-v1)면 fold 와 「NLI 무관」은 끈다 — 「못 본 것」에 까닭 한 줄
+                  서버가 없으면 규칙 층만 보고 「못 본 것」에 적는다. 끝에 칸 수·호출 수·시간 한 줄
+  --nli-pairs <수> NLI 에 물을 짝 상한 (기본 100 · 위 큐가 나눠 쓴다. 접기는 짝당 2~12번 묻는다)
+  --nli-per-scope <수> scope 하나가 쓸 짝 상한 (기본 20)
   --promote <id>  자동으로 만들어진 기억(머리말 review: true)을 사람이 승격한다
                   **이 옵션만 auto 모드 allow 규칙 밖이라 승인 창이 뜬다**
   --reject <id>   보류 기억을 버린다. 지우지 않고 접는다 (gc --restore <id> 로 되돌린다)

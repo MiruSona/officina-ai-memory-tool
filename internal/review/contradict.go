@@ -97,17 +97,18 @@ var contradictTypes = map[string]bool{
 // 큰 id 를 넣는다 (C20 과 같은 꼴).
 func (r *Report) addContradicts(found *quality.RepoReport, byID map[string]*model.Memory, options Options) {
 	// 서버 확인은 짝이 없어도 시작할 때 한 번 한다 — `--nli` 를 준 사람은 서버가 죽었는지 알아야 한다.
-	nli := r.nliFor(options.NLI)
+	run := r.nliFor(options)
 	pairs := contradictPairs(found.Near, byID, scopeSet(options.Scopes), options.Now)
-	pairCap, scopeCap := nliCaps(options.NLI)
-	asked, skipped, failed := 0, 0, 0
-	perScope := map[string]int{}
 	for _, pair := range pairs {
 		left, right := byID[pair.Left], byID[pair.Right]
-		evidence, claim := pair.LeftText, pair.RightText
+		// 문장마다 꼬리표(`왜 :` 따위)를 떼고 판정한다 — NLI 학습·측정이 뗀 글로 했다. 까닭 줄에는 원문을 보인다.
+		evidence, claim := quality.StripTags(pair.LeftText), quality.StripTags(pair.RightText)
 		// 근거 = 옛 기억 쪽 문장, 주장 = 새 기억 쪽 문장 (설계 ⑤).
 		if right.Date < left.Date {
 			evidence, claim = claim, evidence
+		}
+		if strings.TrimSpace(evidence) == "" || strings.TrimSpace(claim) == "" {
+			continue
 		}
 		label, reason, ok := llm.RuleJudge(evidence, claim)
 		if ok {
@@ -117,35 +118,96 @@ func (r *Report) addContradicts(found *quality.RepoReport, byID map[string]*mode
 			// 무관(C)도 규칙이 확신한 답이라 NLI 에 다시 안 묻는다.
 			continue
 		}
-		if nli == nil {
+		if run == nil || !run.take(left.Scope) {
 			continue
 		}
-		if asked >= pairCap || perScope[left.Scope] >= scopeCap {
-			skipped++
-			continue
-		}
-		asked++
-		perScope[left.Scope]++
-		verdict, err := nli.Support(evidence, claim)
+		verdict, err := run.ask(evidence, claim)
 		if err != nil {
-			failed++
 			continue
 		}
 		if verdict.Letter == llm.LetterContradict && !verdict.Unsure {
 			addContradict(found, pair, fmt.Sprintf("NLI 반대 %.2f", verdict.Prob))
 		}
 	}
-	if skipped > 0 {
-		r.note(fmt.Sprintf("NLI 상한(전체 %d쌍 · scope 당 %d쌍)에 걸려 %d쌍은 규칙 층만 봤다", pairCap, scopeCap, skipped))
+	r.noteNLILimits()
+}
+
+// nliRun 은 review 한 번의 NLI 묻기다 — 상한(짝 수 · scope 당 짝 수)과 호출 셈을 한곳에 둔다.
+type nliRun struct {
+	judge             *llm.Judge
+	pairCap, scopeCap int
+	perScope          map[string]int
+	summary           *NLISummary
+}
+
+// NLISummary 는 review 한 번에 NLI 를 얼마나 물었는지다. `--nli` 를 줬고 서버가 살아 있을 때만 생긴다.
+type NLISummary struct {
+	// Pairs 는 상한에서 쓴 짝 수, Calls 는 /judge 를 부른 횟수다.
+	Pairs int `json:"pairs"`
+	Calls int `json:"calls"`
+	// Skipped 는 상한에 걸려 못 물은 짝, Failed 는 답을 못 받은 물음 수다.
+	Skipped int `json:"skipped"`
+	Failed  int `json:"failed"`
+}
+
+// take 는 짝 하나를 상한에서 뗀다. 상한에 걸리면 거짓이고 못 물은 짝으로 센다.
+func (n *nliRun) take(scope string) bool {
+	if n.summary.Pairs >= n.pairCap || n.perScope[scope] >= n.scopeCap {
+		n.summary.Skipped++
+		return false
 	}
-	if failed > 0 {
-		r.note(fmt.Sprintf("NLI 가 %d쌍에 답을 못 줘 그 짝은 규칙 층만 봤다", failed))
+	n.summary.Pairs++
+	n.perScope[scope]++
+	return true
+}
+
+// ask 는 한 번 묻는다. 부른 횟수와 못 받은 수를 센다.
+func (n *nliRun) ask(evidence, claim string) (llm.Verdict, error) {
+	n.summary.Calls++
+	verdict, err := n.judge.Support(evidence, claim)
+	if err != nil {
+		n.summary.Failed++
+	}
+	return verdict, err
+}
+
+// noteNLILimits 는 상한·실패를 「못 본 것」에 남긴다. 큐마다 부르면 같은 줄이 겹치니 마지막 값으로
+// 한 번만 둔다.
+func (r *Report) noteNLILimits() {
+	if r.run == nil {
+		return
+	}
+	summary := r.run.summary
+	kept := r.Notes[:0]
+	for _, note := range r.Notes {
+		if !strings.HasPrefix(note, nliCapNote) && !strings.HasPrefix(note, nliFailNote) {
+			kept = append(kept, note)
+		}
+	}
+	r.Notes = kept
+	if summary.Skipped > 0 {
+		r.note(fmt.Sprintf("%s(전체 %d쌍 · scope 당 %d쌍)에 걸려 %d쌍은 규칙 층만 봤다 (NLI 에 안 물었다)",
+			nliCapNote, r.run.pairCap, r.run.scopeCap, summary.Skipped))
+	}
+	if summary.Failed > 0 {
+		r.note(fmt.Sprintf("%s %d번 답을 못 줬다 (그 짝은 규칙 층만 봤다)", nliFailNote, summary.Failed))
 	}
 }
 
-// nliFor 는 이번 판에 쓸 NLI 판정기다. `--nli` 를 안 줬으면 조용히 nil 이고, 줬는데 못 쓰면
-// 「못 본 것」에 한 줄 남기고 nil 이다. /health 는 여기서 한 번만 묻는다.
-func (r *Report) nliFor(options *NLIOptions) *llm.Judge {
+// 「못 본 것」 줄 머리 — noteNLILimits 가 옛 줄을 찾아 바꾸는 열쇠다.
+const (
+	nliCapNote  = "NLI 상한"
+	nliFailNote = "NLI 가"
+)
+
+// nliFor 는 이번 판에 쓸 NLI 묻기다. `--nli` 를 안 줬으면 조용히 nil 이고, 줬는데 못 쓰면
+// 「못 본 것」에 한 줄 남기고 nil 이다. /health 는 첫 부름에서 한 번만 묻는다 — 뒤 큐는 같은 답을 쓴다.
+func (r *Report) nliFor(review Options) *nliRun {
+	if r.runAsked {
+		return r.run
+	}
+	r.runAsked = true
+	options := review.NLI
 	if options == nil {
 		return nil
 	}
@@ -159,7 +221,16 @@ func (r *Report) nliFor(options *NLIOptions) *llm.Judge {
 			return nil
 		}
 	}
-	return options.Judge
+	pairCap, scopeCap := nliCaps(options)
+	// `--scope` 로 scope 하나만 볼 때는 scope 당 상한이 지킬 다른 scope 가 없다 — 전체 상한만 건다.
+	// 안 그러면 scope 하나를 볼 때도 전체 상한(100)이 아니라 scope 당 상한(20)에서 멈춘다.
+	if len(scopeSet(review.Scopes)) == 1 && options.PerScope <= 0 {
+		scopeCap = pairCap
+	}
+	r.NLI = &NLISummary{}
+	r.run = &nliRun{judge: options.Judge, pairCap: pairCap, scopeCap: scopeCap, perScope: map[string]int{},
+		summary: r.NLI}
+	return r.run
 }
 
 func nliCaps(options *NLIOptions) (int, int) {

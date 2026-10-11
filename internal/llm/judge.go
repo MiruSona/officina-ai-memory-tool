@@ -9,6 +9,8 @@ import (
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 )
 
 // 근거 지지 판정(R3 · 모음 기억 줄 검증 3-6)의 물음이다. 선택지 순서는 하나만 쓴다 —
@@ -275,7 +277,12 @@ func ruleVerdict(evidence, claim string) Verdict {
 // nli_sure 아래면 Unsure 다 — 지지에만 높은 선을 걸어 거짓 지지를 막고 B·C 확정은 덜 잃는다
 // (길1 NLI 설계 7절). 판정 기록은 남기기만 한다 — 모델 이름(Profile)을 응답에서야 알아 묻기 전에
 // 기록을 찾을 수 없고, 1초 안쪽(p95 ≤ 1.0초)이라 다시 물어도 싸다.
+//
+// 보내기 전에 근거·주장에서 기억 본문 꼬리표(`왜 :` 따위, quality.StripTags)를 뗀다 — 서버는 안 떼고
+// 학습·측정은 뗀 글로 했다. 문장을 이어 붙여 보내는 쪽은 잇기 전에 문장마다 뗀다. 기록에는 보낸(뗀)
+// 글을 남긴다.
 func (j *Judge) askNLI(evidence, claim string) (Verdict, error) {
+	evidence, claim = quality.StripTags(evidence), quality.StripTags(claim)
 	choice, model, err := j.NLI.Judge(evidence, claim)
 	if err != nil {
 		return Verdict{}, err

@@ -126,6 +126,11 @@ type Report struct {
 	Items   []Item                    `json:"items"`
 	Notes   []string                  `json:"notes"`
 	Elapsed time.Duration             `json:"-"`
+	// NLI 는 `--nli` 로 NLI 를 물었을 때의 셈이다 (짝 · 호출). 안 물었으면 nil 이다.
+	NLI *NLISummary `json:"nli,omitempty"`
+	// run 은 이번 판의 NLI 묻기다. runAsked 는 /health 를 이미 물었는지다 (nil 이라도 다시 안 묻는다).
+	run      *nliRun
+	runAsked bool
 }
 
 // Options 는 검토 큐 한 번의 조건이다.
@@ -746,10 +751,24 @@ func IDLine(ids []string) string {
 func relatedLine(ids []string) string { return IDLine(ids) }
 
 func withNotes(text string, report *Report) string {
-	if len(report.Notes) == 0 {
-		return text
+	if len(report.Notes) > 0 {
+		text += "\n못 본 것 :\n- " + strings.Join(report.Notes, "\n- ") + "\n"
 	}
-	return text + "\n못 본 것 :\n- " + strings.Join(report.Notes, "\n- ") + "\n"
+	if line := NLILine(report); line != "" {
+		text += "\n" + line + "\n"
+	}
+	return text
+}
+
+// NLILine 은 `--nli` 판의 끝 한 줄이다 — 걸린 시간 · 짝 · 호출 수. NLI 를 안 물었으면
+// 빈 글이다. `--ids` 는 머리말이 없어 cmd 가 이 줄을 stderr 로 낸다.
+func NLILine(report *Report) string {
+	summary := report.NLI
+	if summary == nil {
+		return ""
+	}
+	return fmt.Sprintf("NLI : 물은 짝 %d · 부른 횟수 %d · 못 받음 %d · 상한에 밀림 %d · 전체 %.2f초",
+		summary.Pairs, summary.Calls, summary.Failed, summary.Skipped, report.Elapsed.Seconds())
 }
 
 // Table 은 `--table` 화면이다. 큐마다 `## 종류 (n건)` 아래 scope 별 `### scope (n건)` 과
