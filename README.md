@@ -179,7 +179,8 @@ NLI 서버는 JudgeModel 의 응답 꼴 `nli-v2` 를 따르는 HTTP 서버다 �
 d 는 지지가 아니다 — R3·`mem judge` 에서는 무관(C)과 같은 거절이다. 판정 기록의 판 이름은 받은 꼴대로 적는다 — d 가 오면 `nli-v2`, 옛 3칸이면 `nli-v1` 이라 두 기록이 안 섞인다.
 **보내기 전에 손님이 꼬리표를 뗀다** (2026-10-11) — 줄 머리의 `왜 :` · `무엇을 :` · `근거 :` 같은 기억 본문 꼬리표다. 서버는 안 떼고, JudgeModel 의 학습·측정은 뗀 글로 했다. 낱말 목록과 꼴은 JudgeModel `train/data_prep.py` 의 `strip_tags` 와 같다(`internal/quality/tags.go` · 같은 입력 23개로 시험). 여러 문장을 이어 붙이는 접기 근거 글은 잇기 전에 문장마다 뗀다.
 옛 Laya 단(`laya-v2`, 2026-10-08 game90 0.757 미달로 접음)의 `judge-laya/` 폴더는 지웠다(2026-10-09) — 판정 서버는 JudgeModel 로 옮겼다.
-JudgeModel 의 첫 모델 `nli-studio-v1` 은 2026-10-09 game90 미달이었지만, 같은 날 `nli-studio-v2` 가 blind 통과해 메인 PC 에서는 켜 둔다(값은 JudgeModel README).
+JudgeModel 의 첫 모델 `nli-studio-v1` 은 2026-10-09 game90 미달이었고, 같은 날 `nli-studio-v2` 가 blind 통과했다.
+**기본 판정 서버는 JudgeModel v1.1.0(`nli-studio-v4` · 3칸 · 가중치 앞 8자 `14d0d520`)이다** (2026-10-11 교체) — 메인 PC `127.0.0.1:8092`, `JudgeModel/run/serve-studio.ps1` 이 띄우고 로그온 작업 `JudgeModel-NLI` 가 저절로 띄운다. 문턱은 `nli_sure` .50 · `nli_sure_support` .83 (2026-10-12 결정). 판정 기록의 `profile` 칸이 `14d0d520` 이면 이 모델이 답한 것이다.
 
 | 단 | `stage` · `prompt` | 하는 일 | 멈추는 때 |
 | --- | --- | --- | --- |
