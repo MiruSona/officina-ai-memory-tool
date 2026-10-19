@@ -481,8 +481,13 @@ func ensureRules(path, backupDir string, dryRun bool) (Step, error) {
 		return step, nil
 	}
 	// 옛 판이 붙인 블록은 우리 것이라 갈아 끼운다. 문안이 바뀌었는데 그대로
-	// 두면 AI 가 옛 명령 이름을 계속 쓴다 (설계 5-5).
-	old := hasRulesBlock(text)
+	// 두면 AI 가 옛 명령 이름을 계속 쓴다. 단 알려진 옛 문안일 때만이다 —
+	// 사람이 고친 블록은 안 덮고 알리기만 한다 (2026-10-19 사용자 결정).
+	kind := classifyRulesBlock(text)
+	if kind == blockCurrent || kind == blockEdited {
+		return keptRulesStep(step, kind), nil
+	}
+	old := kind == blockOld
 	step.Now = i18n.T(i18n.InitStateNoBlock)
 	step.Todo = i18n.T(i18n.InitTodoLines, lineCount(i18n.InstallRulesBlock))
 	switch {

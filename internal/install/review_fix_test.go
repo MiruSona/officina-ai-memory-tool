@@ -82,7 +82,8 @@ func TestRulesKeepBOM(t *testing.T) {
 
 // 옛 블록만 CRLF 로 든 AGENTS.md 를 갈아 끼우면 결과도 CRLF 다.
 func TestRulesOldBlockOnlyKeepsCRLF(t *testing.T) {
-	old := i18n.InstallBlockOpen + "\r\n옛 문안\r\n" + i18n.InstallBlockClose + "\r\n"
+	// 알려진 옛 문안이어야 갈아 끼운다 — 모르는 글은 사람이 고친 것으로 본다 (10-19).
+	old := strings.ReplaceAll(i18n.InstallOldRulesBlocks[len(i18n.InstallOldRulesBlocks)-1], "\n", "\r\n")
 	path := filepath.Join(t.TempDir(), "AGENTS.md")
 	if err := os.WriteFile(path, []byte(old), 0o644); err != nil {
 		t.Fatal(err)

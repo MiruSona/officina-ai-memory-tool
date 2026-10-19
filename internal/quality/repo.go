@@ -186,6 +186,18 @@ func unlinked(matches []Match, m *model.Memory, byID map[string]*model.Memory) [
 	return out
 }
 
+// storedDuplicates 는 저장소 검사에서 닮음 거절(C01)을 경고로 내린다. 이미 들어간
+// 기억끼리 닮은 것은 막을 것이 없고 사람이 볼 일이다 — 10-10 실데이터 10건이 다
+// 다른 내용이었다 (사용자 결정 10-19). add 관문(checkDuplicate)은 그대로 거절한다.
+func storedDuplicates(found []Finding) []Finding {
+	for at, one := range found {
+		if one.Rule == RuleDuplicateHard && one.Level == GradeReject {
+			found[at].Level = GradeWarn
+		}
+	}
+	return found
+}
+
 // rivalSpot 은 결정 경쟁(C05)이 견주는 자리다. LiveDecisionRivals 는 종류·scope 가 다르면 안 본다.
 type rivalSpot struct{ kind, scope string }
 
@@ -273,7 +285,7 @@ func findDuplicates(memories []*model.Memory, opt RepoOptions) duplicateResult {
 			// (점검·정리 1단) 닮은 짝(near)도 **같은 후보 뽑기**에서 받는다. 후보는
 			// 세션이 바로 앞 것을 되쓰므로 Nearest 와 아래 정렬 걸음이 한 번만 뽑는다.
 			matches := session.Nearest(docs[at], opt.Config.Quality.DupWarn, dupListMax)
-			found[at] = duplicateFindingsOf(unlinked(matches, memories[at], byID), memories[at], opt.Options)
+			found[at] = storedDuplicates(duplicateFindingsOf(unlinked(matches, memories[at], byID), memories[at], opt.Options))
 			clash[at], near[at] = clashAndNear(docs[at], session, matches, byID, opt)
 		}
 	})

@@ -52,6 +52,8 @@ type Step struct {
 	Todo    string
 	Changed bool
 	Manual  bool
+	// Note 는 표 아래에 붙일 안내 한 줄이다. 비어 있으면 안 붙인다.
+	Note string
 }
 
 // Report 는 한 번 돌린 결과다.
@@ -289,6 +291,9 @@ func collect(report *Report, steps []func() (Step, error)) error {
 		report.add(step)
 		if step.Manual {
 			report.note(i18n.T(i18n.InitManualHook, step.What))
+		}
+		if step.Note != "" {
+			report.note(step.Note)
 		}
 	}
 	return nil

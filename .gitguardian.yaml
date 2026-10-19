@@ -1,0 +1,6 @@
+# 시험용 가짜 웹훅·토큰 글이 있어 GitGuardian 비밀값 검사에서 뺀다 (2026-10-19)
+version: 2
+secret:
+  ignored_paths:
+    - internal/secret/redact_test.go
+    - cmd/mem/feedback_1019_test.go

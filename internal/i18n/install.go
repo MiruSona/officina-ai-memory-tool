@@ -19,6 +19,7 @@ const (
 	InitStateNoBlock      Key = "init-state-no-block"
 	InitStateHasBlock     Key = "init-state-has-block"
 	InitStateOldBlock     Key = "init-state-old-block"
+	InitStateEditedBlock  Key = "init-state-edited-block"
 	InitStateHooks        Key = "init-state-hooks"
 	InitStateMemHook      Key = "init-state-mem-hook"
 	InitStateMemPartial   Key = "init-state-mem-partial"
@@ -44,6 +45,7 @@ const (
 	InitTodoKeep           Key = "init-todo-keep"
 	InitTodoRemove         Key = "init-todo-remove"
 	InitTodoReplace        Key = "init-todo-replace"
+	InitTodoKeepEdited     Key = "init-todo-keep-edited"
 	InitTodoManual         Key = "init-todo-manual"
 	InitTodoLines          Key = "init-todo-lines"
 	InitTodoHook           Key = "init-todo-hook"
@@ -66,6 +68,7 @@ const (
 	UndoDoneCount       Key = "undo-done-count"
 	UndoKeepsMemory     Key = "undo-keeps-memory"
 	InitManualHook      Key = "init-manual-hook"
+	InitRulesEditedNote Key = "init-rules-edited-note"
 	InitPathFound       Key = "init-path-found"
 	InitPathMissing     Key = "init-path-missing"
 	InitSoloNote        Key = "init-solo-note"
@@ -124,6 +127,7 @@ var installMessages = map[Key]string{
 	InitStateNoBlock:             "mem 블록 없음",
 	InitStateHasBlock:            "mem 블록 있음",
 	InitStateOldBlock:            "옛 mem 블록 있음",
+	InitStateEditedBlock:         "손으로 고친 mem 블록 있음",
 	InitStateHooks:               "훅 %d개 있음 (mem 아님)",
 	InitStateMemHook:             "mem 훅 있음",
 	InitStateMemPartial:          "mem 훅 %d개 있음 · 빠진 mem 훅 %d개",
@@ -147,6 +151,7 @@ var installMessages = map[Key]string{
 	InitTodoKeep:           "그대로",
 	InitTodoRemove:         "뺌",
 	InitTodoReplace:        "새 문안으로 갈아 끼움",
+	InitTodoKeepEdited:     "그대로 (안 덮음)",
 	InitTodoManual:         "손으로 (건너뜀)",
 	InitTodoLines:          "%d줄 덧붙임",
 	InitTodoHook:           "%d번째로 덧붙임 (기존 %d개 그대로)",
@@ -167,6 +172,8 @@ var installMessages = map[Key]string{
 	UndoDoneNothing:     "뗄 것이 없었다.",
 	UndoDoneCount:       "%d 가지를 뗐다.",
 	UndoKeepsMemory:     "Memory/ 와 .gitignore 는 그대로 뒀다. 기억은 툴보다 오래 산다. 지우려면 사람이 폴더를 지워라.",
+	InitRulesEditedNote: "%s 의 mem 블록이 손으로 고쳐져 있어 안 덮었다. 새 문안을 받으려면 표식 사이 블록을 지우고\n" +
+		"  `mem init` 을 다시 돌린 뒤, 고쳤던 줄을 다시 넣어라.",
 	InitManualHook: "%s 을 못 읽어서 손대지 않았다. 아래 첫 줄을 hooks.SessionStart 배열에,\n" +
 		"  둘째 줄을 hooks.SubagentStart 배열에 손으로 넣어라.\n" +
 		`  {"matcher": "startup|resume|clear|compact|fork", "hooks": [{"type": "command", ` +

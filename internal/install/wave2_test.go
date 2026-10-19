@@ -180,14 +180,14 @@ func TestInitWritesLogOnce(t *testing.T) {
 func TestRulesBlockIsReplaced(t *testing.T) {
 	root := newProject(t)
 	rules := filepath.Join(root, "AGENTS.md")
-	oldBlock := i18n.InstallBlockOpen + "\n" + i18n.InstallRulesHeading + "\n\n- 옛 문안 한 줄.\n" +
-		i18n.InstallBlockClose + "\n"
+	// v0.2 다섯 줄 판 — 알려진 옛 문안이라 갈아 끼운다 (10-19 사용자 결정).
+	oldBlock := i18n.InstallOldRulesBlocks[len(i18n.InstallOldRulesBlocks)-1]
 	if err := os.WriteFile(rules, []byte("# 규칙\n\n"+oldBlock), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	mustInit(t, Options{Root: root})
 	text := readFile(t, rules)
-	if strings.Contains(text, "옛 문안 한 줄") {
+	if !strings.Contains(text, "`mem add --hold`") {
 		t.Fatalf("옛 블록이 남았다 :\n%s", text)
 	}
 	if !strings.Contains(text, "개인 취향·말투는 Claude 내장 기억에 둔다") {
