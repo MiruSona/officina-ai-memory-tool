@@ -98,6 +98,8 @@ var ruleKind = map[string]string{
 	quality.RuleRetiredUnfolded:    KindRetired,
 	quality.RuleMergeCandidate:     KindMerge,
 	quality.RuleNoArtifactSource:   KindValue,
+	// review --nli 가 내는 obs-cite-nli (obscite.go). quality 규칙표 밖이라 여기서만 잇는다.
+	RuleObsCiteNLI: KindBasis,
 }
 
 // Item 은 사람이 볼 한 줄이다.
@@ -115,6 +117,8 @@ type Item struct {
 	Related []string `json:"related,omitempty"`
 	// Next 는 사람이 그다음에 칠 명령이다. **도구가 대신 치지 않는다.**
 	Next []string `json:"next"`
+	// order 는 큐 안 자리다 — NLI 답으로 앞(반대)·뒤(무관)로 옮긴 줄만 0 이 아니다 (near.go).
+	order int
 }
 
 // Report 는 검토 큐 한 번이다.
@@ -131,6 +135,10 @@ type Report struct {
 	// run 은 이번 판의 NLI 묻기다. runAsked 는 /health 를 이미 물었는지다 (nil 이라도 다시 안 묻는다).
 	run      *nliRun
 	runAsked bool
+	// pending 은 C19 규칙 층이 넘긴 NLI 물음이다. sieveNear 가 다른 자리와 몫을 나눠 묻는다.
+	pending []nliAsk
+	// order 는 NLI 답으로 큐 안 자리를 옮긴 걸림이다. 비면 지금처럼 날짜 순이다.
+	order map[orderKey]int
 }
 
 // Options 는 검토 큐 한 번의 조건이다.
@@ -223,6 +231,8 @@ func Run(options Options) (*Report, error) {
 	if want[KindContradict] || want[KindMerge] {
 		report.addContradicts(&found, byID, options)
 	}
+	// `--nli` 일 때만 돈다 — C19 물음과 C13·C20·obs 물음을 몫으로 나눠 묻는다 (near.go).
+	report.sieveNear(&found, byID, options)
 	dropShadowed(found.ByID)
 	report.fill(found, byID, options)
 	report.noteMissingScopes(options.Scopes, memories)
@@ -335,6 +345,7 @@ func (r *Report) fill(found quality.RepoReport, byID map[string]*model.Memory, o
 				counted[kind] = map[string]bool{}
 			}
 			item := itemOf(kind, one, byID[id])
+			item.order = r.order[orderKeyOf(one)]
 			if !counted[kind][id] {
 				counted[kind][id] = true
 				r.count(item)
@@ -524,6 +535,9 @@ func itemOf(kind string, found quality.Finding, m *model.Memory) Item {
 // 쥐여 준다 (설계 3-1의 반려 경로와 같은 생각).
 func nextFor(kind string, found quality.Finding) []string {
 	id := found.ID
+	if found.Rule == RuleObsCiteNLI {
+		return []string{"mem show " + id, "mem show " + firstRelated(found), "mem set " + id + " --stdin   (고친 본문 전체를 넣는다)"}
+	}
 	switch kind {
 	case KindExpired:
 		return []string{"mem show " + id, "mem set " + id + " --stale-after <YYYY-MM-DD>"}
@@ -581,9 +595,13 @@ func relatedIDs(found quality.Finding) string {
 	return strings.Join(found.Related, ",")
 }
 
-// sortItems 는 오래된 것부터 놓는다. 오래 묵을수록 판정이 급하다.
+// sortItems 는 오래된 것부터 놓는다. 오래 묵을수록 판정이 급하다. NLI 가 앞·뒤로 옮긴 줄은
+// 그 자리(order)가 날짜보다 먼저다.
 func sortItems(items []Item) {
 	sort.SliceStable(items, func(a, b int) bool {
+		if items[a].order != items[b].order {
+			return items[a].order < items[b].order
+		}
 		if items[a].Date != items[b].Date {
 			return items[a].Date < items[b].Date
 		}

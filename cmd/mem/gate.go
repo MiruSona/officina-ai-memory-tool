@@ -14,6 +14,7 @@ import (
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
+	"github.com/mirusona/officina-ai-memory-tool/internal/llm"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
@@ -84,13 +85,54 @@ func demotedOf(repository *config.Repository) map[string]quality.Grade {
 
 // gateOptions 는 관문 한 번의 조건이다.
 func gateOptions(repository *config.Repository, opened *store.Store, parsed *options) quality.Options {
-	return quality.Options{
+	gate := quality.Options{
 		Config: repository.Config, Vocab: vocabOf(repository), Now: time.Now(),
 		Repo: &gateRepo{opened: opened}, Demoted: demotedOf(repository),
 		Near:           nearOf(vectorsFor(repository.Dir)),
 		AllowDuplicate: parsed.flags["new"], SupersedeOf: parsed.text("by"),
 		Lookup: lookupOf(opened), Canon: canonOf(repository),
 	}
+	attachRivalJudge(&gate, repository)
+	return gate
+}
+
+// pinAutoRival 은 자동 기억 길의 C04 NLI 안내를 hint 로 묶는다. pass 가 켜져 있어도 자동 기억이
+// NLI 답만으로 C04 를 지나가면 안 된다. 판정기가 없으면 그대로 둔다.
+func pinAutoRival(gate *quality.Options) {
+	if gate.RivalJudge != nil {
+		gate.RivalMode = quality.RivalHintAuto
+	}
+}
+
+// attachRivalJudge 는 C04 거절문에 NLI 안내를 붙이는 판정기를 꽂는다. mem.toml
+// decision_gate_nli 가 off 이거나 llm.toml 에 nli_url 이 없으면 아무것도 안 꽂는다 —
+// 그러면 거절문이 지금과 같다. 꼬리표 떼기·비밀 꼴 거절·판정 기록은 llm.Judge 가 한다.
+func attachRivalJudge(gate *quality.Options, repository *config.Repository) {
+	mode := repository.Config.Quality.DecisionGateNLI
+	if mode == config.DecisionGateOff {
+		return
+	}
+	settings, _ := config.LoadLLM(config.LLMPath())
+	nli := llm.NewNLI(settings)
+	if nli == nil {
+		return
+	}
+	scanner := scannerFor(repository.Config.Secret)
+	judge := &llm.Judge{NLI: nli, Dir: judgeDir(repository), Only: []string{llm.StageNLI},
+		Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
+	gate.RivalJudge = func(evidence, claim string) (quality.RivalVerdict, error) {
+		verdict, err := judge.Support(evidence, claim)
+		if err != nil {
+			return quality.RivalVerdict{}, err
+		}
+		return quality.RivalVerdict{Letter: verdict.Letter, Prob: verdict.Prob, Unsure: verdict.Unsure,
+			LabelSet: verdict.LabelSet}, nil
+	}
+	gate.RivalMode = quality.RivalHint
+	if mode == config.DecisionGatePass {
+		gate.RivalMode = quality.RivalPassMode
+	}
+	gate.RivalPass = repository.Config.Quality.DecisionGatePass
 }
 
 // canonOf 는 mem.toml [canon] 대표말 표다. B08 이 norm·canon 대조에 쓴다.

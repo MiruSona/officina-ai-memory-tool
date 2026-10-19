@@ -123,6 +123,8 @@ type Verdict struct {
 	// Unsure 는 「모른다」다 — 최고 확률이 UnsureBelow 아래거나 1·2등이 동점. 글자는 그대로
 	// 두되(판정 갈래에 안 넣는다) 부르는 쪽이 경고로 흘린다 (사용자 결정 2026-10-08).
 	Unsure bool `json:"unsure,omitempty"`
+	// LabelSet 은 NLI 서버가 답한 응답 꼴(nli3 · nli4)이다. 다른 단은 비어 있다.
+	LabelSet string `json:"label_set,omitempty"`
 }
 
 // Supported 는 「지지」 글자를 골랐는지다. 「반대」·「무관」은 거절이다 (자동쌓기설계 2-3 R3).
@@ -290,7 +292,7 @@ func (j *Judge) askNLI(evidence, claim string) (Verdict, error) {
 	hash := hashOf(KindSupport, NLIVersion, model, evidence, claim)
 	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: NLIVersion, Profile: model, Stage: StageNLI,
 		Letter: choice.Letter, Prob: choice.Prob, Probs: choice.Probs, MS: choice.MS,
-		At: time.Now().Format(time.RFC3339), Evidence: evidence, Claim: claim,
+		At: time.Now().Format(time.RFC3339), Evidence: evidence, Claim: claim, LabelSet: choice.LabelSet,
 		Unsure: unsureOf(choice) || choice.Prob < j.NLI.sureFor(choice.Letter)}
 	if model != "-" {
 		j.write(verdict)

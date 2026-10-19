@@ -352,6 +352,11 @@ type QualityConfig struct {
 	// (설계 결정 14).
 	PrecisionDemote float64
 	PrecisionOff    float64
+	// DecisionGateNLI 는 C04 거절문에 NLI 안내를 붙일지다 — hint(기본) · pass · off.
+	// nli_url 이 없으면 무엇이든 off 와 같다 (적용 설계 2절).
+	DecisionGateNLI string
+	// DecisionGatePass 는 pass 모드가 거절을 경고로 낮추는 무관(c) 확률 선이다.
+	DecisionGatePass float64
 }
 
 // 품질 문턱 기본값 (설계 3-2 문턱 한 표).
@@ -382,6 +387,16 @@ const (
 	DefaultColdDays        = 180
 	DefaultPrecisionDemote = 0.80
 	DefaultPrecisionOff    = 0.60
+	// DefaultDecisionGateNLI 는 C04 NLI 안내 기본값이다. 안내 글만 붙고 거절은 그대로다.
+	DefaultDecisionGateNLI  = "hint"
+	DefaultDecisionGatePass = 0.90
+)
+
+// C04 NLI 안내 모드 값이다 (`[quality] decision_gate_nli`).
+const (
+	DecisionGateHint = "hint"
+	DecisionGatePass = "pass"
+	DecisionGateOff  = "off"
 )
 
 // 훅 상한 (설계 결정 23). 10,000자가 아니라 UTF-8 8,000바이트에서 우리가 먼저
@@ -464,7 +479,8 @@ func Default(name string) Config {
 			TagMin: DefaultTagMin, TagMax: DefaultTagMax,
 			TagBroadRatio: DefaultTagBroadRatio, ScopeSkewRatio: DefaultScopeSkewRatio,
 			ColdDays: DefaultColdDays, PrecisionDemote: DefaultPrecisionDemote,
-			PrecisionOff: DefaultPrecisionOff},
+			PrecisionOff: DefaultPrecisionOff, DecisionGateNLI: DefaultDecisionGateNLI,
+			DecisionGatePass: DefaultDecisionGatePass},
 		Stopword: StopwordConfig{Words: DefaultStopwords()},
 		Hook: HookConfig{UserPrompt: false, MaxBytes: DefaultHookMaxBytes,
 			LinesPerSection: DefaultHookLinesPerSection, SubagentStart: true,
@@ -702,6 +718,9 @@ func Parse(text string) (Config, error) {
 	config.Quality.ColdDays = file.intOr("quality", "cold_days", config.Quality.ColdDays)
 	config.Quality.PrecisionDemote = file.floatOr("quality", "precision_demote", config.Quality.PrecisionDemote)
 	config.Quality.PrecisionOff = file.floatOr("quality", "precision_off", config.Quality.PrecisionOff)
+	config.Quality.DecisionGateNLI = strings.ToLower(strings.TrimSpace(
+		file.stringOr("quality", "decision_gate_nli", config.Quality.DecisionGateNLI)))
+	config.Quality.DecisionGatePass = file.floatOr("quality", "decision_gate_pass", config.Quality.DecisionGatePass)
 	config.Stopword.Words = file.listOr("stopword", "words", config.Stopword.Words)
 	config.Hook.UserPrompt = file.boolOr("hook", "user_prompt", config.Hook.UserPrompt)
 	config.Hook.MaxBytes = file.intOr("hook", "max_bytes", config.Hook.MaxBytes)
@@ -846,6 +865,14 @@ func Encode(config Config) []byte {
 	writeInt(&out, "cold_days", config.Quality.ColdDays)
 	writeFloat(&out, "precision_demote", config.Quality.PrecisionDemote)
 	writeFloat(&out, "precision_off", config.Quality.PrecisionOff)
+	// C04 NLI 안내 두 칸은 기본값이면 안 적는다 — 옛 저장소의 mem.toml 이 그대로 남는다.
+	if config.Quality.DecisionGateNLI != DefaultDecisionGateNLI {
+		out.WriteString("# decision_gate_nli 는 C04 거절문에 NLI 안내를 붙일지다 (hint · pass · off).\n")
+		out.WriteString("decision_gate_nli = " + quote(config.Quality.DecisionGateNLI) + "\n")
+	}
+	if config.Quality.DecisionGatePass != DefaultDecisionGatePass {
+		writeFloat(&out, "decision_gate_pass", config.Quality.DecisionGatePass)
+	}
 	// 기본값 그대로면 안 적는다 — init 이 빠진 키를 채우며 다시 쓸 때 `[retain]` 이
 	// 모든 저장소에 퍼지지 않고, 사람이 바꾼 값은 살아남는다.
 	if config.Retain != Default("").Retain {
@@ -972,10 +999,16 @@ func (c Config) Problems() []string {
 	if c.Quality.PrecisionOff > c.Quality.PrecisionDemote {
 		out = append(out, "[quality] precision_off 가 precision_demote 보다 크다.")
 	}
+	switch c.Quality.DecisionGateNLI {
+	case DecisionGateHint, DecisionGatePass, DecisionGateOff:
+	default:
+		out = append(out, "[quality] decision_gate_nli 는 hint · pass · off 중 하나여야 한다. hint 로 본다.")
+	}
 	for _, pair := range []struct {
 		name  string
 		value float64
 	}{{"[quality] dup_reject", c.Quality.DupReject}, {"[quality] dup_warn", c.Quality.DupWarn},
+		{"[quality] decision_gate_pass", c.Quality.DecisionGatePass},
 		{"[search] abstain_floor", c.Search.AbstainFloor}, {"[embed] floor", c.Embed.Floor}} {
 		if pair.value < 0 || pair.value > 1 {
 			out = append(out, pair.name+" 은 0~1 이어야 한다.")

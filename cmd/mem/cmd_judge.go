@@ -24,7 +24,7 @@ import (
 )
 
 var judgeBools = []string{"json", "fresh", "apply"}
-var judgeValues = []string{"evidence", "claim", "file", "repo", "older", "prompt", "stage"}
+var judgeValues = []string{"evidence", "claim", "file", "repo", "older", "prompt", "stage", "scope", "pairs"}
 
 // judgeDirName 은 판정 기록 폴더다. Memory/local 아래라 git 에 안 들어간다.
 const judgeDirName = "judge"
@@ -54,6 +54,8 @@ func runJudge(argv []string) int {
 		return judgeSupport(parsed)
 	case "clean":
 		return judgeClean(parsed)
+	case "report":
+		return judgeReport(parsed)
 	}
 	return fail(i18n.T(i18n.JudgeUsage))
 }

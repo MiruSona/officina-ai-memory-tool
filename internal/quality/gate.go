@@ -174,9 +174,40 @@ type Options struct {
 	// Canon 은 mem.toml [canon] 대표말 표다. B08 이 norm·canon 대조에 쓴다 —
 	// 검색과 같은 표다. nil 이면 norm 만 탄다.
 	Canon *token.Canon
+	// RivalJudge 는 C04 상대를 NLI 에 묻는 함수다 (근거 = 상대 요약, 주장 = 새 요약). nil 이면
+	// 안 묻고 거절문이 지금과 같다. quality 는 llm 을 들여오지 않으므로 cmd 가 꽂는다.
+	RivalJudge func(evidence, claim string) (RivalVerdict, error)
+	// RivalMode 는 RivalJudge 답을 어떻게 쓸지다 — RivalHint(빈 값과 같다) · RivalPass.
+	RivalMode string
+	// RivalPass 는 pass 모드에서 무관(C)으로 통과시키는 확률 선이다.
+	RivalPass float64
 	// addStage 는 Gate(add 단계)가 부를 때만 참이다. B08 거절은 add 에서만 문다.
 	addStage bool
 }
+
+// RivalVerdict 는 C04 상대 하나에 대한 NLI 답이다. Letter 는 A 지지 · B 반대 · C 무관이고
+// Unsure 면 글자를 안 믿는다. LabelSet 은 서버가 답한 응답 꼴(nli3 · nli4)이다.
+type RivalVerdict struct {
+	Letter   string
+	Prob     float64
+	Unsure   bool
+	LabelSet string
+}
+
+// C04 NLI 글자와 모드다. 글자는 llm 의 A·B·C 와 같은 값이다.
+const (
+	RivalSupport    = "A"
+	RivalContradict = "B"
+	RivalUnrelated  = "C"
+	RivalHint       = "hint"
+	RivalPassMode   = "pass"
+	// RivalHintAuto 는 자동 기억 길(`add --origin`)의 hint 다. pass 를 안 켜고, 「무관 — `--new`」 꼬리도 안 붙인다.
+	RivalHintAuto = "hint-auto"
+	// rivalAskMax 는 C04 가 NLI 에 묻는 상대 수 상한이다. 서버가 매달려도 지연을 묶는다.
+	rivalAskMax = 3
+	// rivalPassLabelSet 은 pass 모드가 켜지는 응답 꼴이다. 3칸 서버의 c 에는 「같은 대상」이 섞인다.
+	rivalPassLabelSet = "nli4"
+)
 
 // types 는 이 저장소의 기억 종류 표다. vocab.toml 이 늘릴 수 있다.
 func (o Options) types() model.TypeTable { return o.Vocab.TypeTable() }
@@ -564,8 +595,13 @@ func decisionGate(m *model.Memory, existing []*model.Memory, opt Options) []Find
 	if len(ids) > dupListMax {
 		ids = ids[:dupListMax]
 	}
-	return []Finding{{Rule: RuleDecisionGate, Level: opt.grade(RuleDecisionGate, m), ID: m.ID,
-		Reason:  rivalReason(m, top),
+	level, note := opt.grade(RuleDecisionGate, m), rivalNote(m, rivals, opt)
+	// pass 는 거절을 경고로 낮추기만 한다. 설정이 이미 경고·끔으로 둔 등급은 안 건드린다.
+	if note.pass && level == GradeReject {
+		level = GradeWarn
+	}
+	return []Finding{{Rule: RuleDecisionGate, Level: level, ID: m.ID,
+		Reason:  rivalReason(m, top) + note.text,
 		Related: ids,
 		// `--new` 가 먼저다. 덮기(`--by`)가 첫 줄이면 가장 쉬운 길이 남의 멀쩡한
 		// 결정을 무효로 만드는 길이 된다 (사용 피드백 2026-09-21 떡아이콘·손님그림).
@@ -600,6 +636,94 @@ func rivalReason(m *model.Memory, rival *model.Memory) string {
 	return fmt.Sprintf("같은 자리(scope %s)에 살아 있는 결정이 있다 — `%s` 「%s」 · 요약 닮음 %.3f (문턱 %.3f) · 겹친 태그 %s",
 		m.Scope, rival.ID, safe.Summary(rival.DisplayTitle(), rivalTitleRoom),
 		summarySim(m, rival), gateSummaryCut, strings.Join(commonTags(m.Tags, rival.Tags), "·"))
+}
+
+// rivalNoteResult 는 C04 거절문 뒤에 붙일 NLI 안내다. pass 면 거절을 경고로 낮춘다.
+type rivalNoteResult struct {
+	text string
+	pass bool
+}
+
+// rivalNote 는 상대를 요약 닮음 순으로 최대 rivalAskMax 개 NLI 에 묻고 안내 한 마디를 고른다.
+// 첫 부름이 오류면 더 안 묻는다(서버가 죽었을 때 지연을 한 번으로 묶는다). 반대 확신이 나오면 멈춘다.
+// 차례는 반대 → 지지 → 모두 무관이고, 보류·오류면 아무것도 안 붙인다 (적용 설계 2절).
+func rivalNote(m *model.Memory, rivals []*model.Memory, opt Options) rivalNoteResult {
+	if opt.RivalJudge == nil {
+		return rivalNoteResult{}
+	}
+	asked := rivalsBySim(m, rivals)
+	if len(asked) > rivalAskMax {
+		asked = asked[:rivalAskMax]
+	}
+	claim := rivalText(m)
+	var support *RivalVerdict
+	supportID := ""
+	unrelated, labelSet4, lowest := 0, true, 1.0
+	for _, other := range asked {
+		verdict, err := opt.RivalJudge(rivalText(other), claim)
+		if err != nil {
+			return rivalNoteResult{}
+		}
+		if verdict.Unsure {
+			continue
+		}
+		switch verdict.Letter {
+		case RivalContradict:
+			return rivalNoteResult{text: fmt.Sprintf(" · NLI 반대 %.2f — `%s` 를 뒤집는 결정이면 `--by %s`",
+				verdict.Prob, other.ID, other.ID)}
+		case RivalSupport:
+			if support == nil {
+				one := verdict
+				support, supportID = &one, other.ID
+			}
+		case RivalUnrelated:
+			unrelated++
+			labelSet4 = labelSet4 && verdict.LabelSet == rivalPassLabelSet
+			lowest = min(lowest, verdict.Prob)
+		}
+	}
+	if support != nil {
+		return rivalNoteResult{text: fmt.Sprintf(" · NLI 지지 %.2f — `%s` 와 같은 결정을 다시 적은 것일 수 있다(넣지 않거나 그 기억을 고친다)",
+			support.Prob, supportID)}
+	}
+	if unrelated == 0 || unrelated < len(asked) {
+		return rivalNoteResult{}
+	}
+	if opt.RivalMode == RivalHintAuto {
+		// 자동 기억 길은 `--new` 를 못 쓴다 — 못 쓰는 수를 안내하지 않는다.
+		return rivalNoteResult{}
+	}
+	if opt.RivalMode != RivalPassMode {
+		return rivalNoteResult{text: " · NLI 무관 — 다른 주제면 `--new`"}
+	}
+	if !labelSet4 {
+		return rivalNoteResult{text: " · NLI 무관 — 다른 주제면 `--new` (pass 는 지금 판에서는 켜지지 않는다 — pass 가 nli4 를 요청하는 길은 다음 판 · 이번엔 hint 로 봤다)"}
+	}
+	if len(rivals) > rivalAskMax || lowest < opt.RivalPass {
+		return rivalNoteResult{text: " · NLI 무관 — 다른 주제면 `--new`"}
+	}
+	return rivalNoteResult{text: fmt.Sprintf(" · NLI 무관 확신이라 통과 (무관 %.2f 이상)", opt.RivalPass), pass: true}
+}
+
+// rivalsBySim 은 상대를 요약 닮음이 큰 차례로 놓는다. 같으면 id 차례다 (closestRival 과 같은 자).
+func rivalsBySim(m *model.Memory, rivals []*model.Memory) []*model.Memory {
+	sorted := append([]*model.Memory{}, rivals...)
+	sort.SliceStable(sorted, func(a, b int) bool {
+		left, right := summarySim(m, sorted[a]), summarySim(m, sorted[b])
+		if left != right {
+			return left > right
+		}
+		return sorted[a].ID < sorted[b].ID
+	})
+	return sorted
+}
+
+// rivalText 는 NLI 에 보낼 결정 글이다. 요약이 비면 제목을 쓴다.
+func rivalText(m *model.Memory) string {
+	if strings.TrimSpace(m.Summary) != "" {
+		return m.Summary
+	}
+	return m.DisplayTitle()
 }
 
 // commonTags 는 두 태그 목록이 같이 가진 것을 내 쪽 차례로 준다.

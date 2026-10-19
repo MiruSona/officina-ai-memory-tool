@@ -91,7 +91,10 @@ func contradictCount(found quality.RepoReport) int {
 
 func runContradicts(found *quality.RepoReport, byID map[string]*model.Memory, nli *NLIOptions) *Report {
 	report := &Report{Counts: map[string]int{}, ByScope: map[string]map[string]int{}}
-	report.addContradicts(found, byID, Options{Now: now, NLI: nli})
+	options := Options{Now: now, NLI: nli, Kinds: []string{KindContradict, KindMerge}}
+	report.addContradicts(found, byID, options)
+	// 규칙 층이 넘긴 NLI 물음은 sieveNear 가 몫을 나눠 묻는다.
+	report.sieveNear(found, byID, options)
 	return report
 }
 

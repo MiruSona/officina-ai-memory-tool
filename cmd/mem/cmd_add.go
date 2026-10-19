@@ -85,6 +85,7 @@ func runAdd(argv []string) int {
 		// 판정을 봐야 한다. `--by` 자체는 R5 가 따로 거절한다 (코드리뷰 10-05).
 		gate.AllowDuplicate = false
 		gate.SupersedeOf = ""
+		pinAutoRival(&gate)
 		return runAddAuto(parsed, repository, opened, request,
 			quality.Gate(memoryOf(request), gate), origin)
 	}

@@ -38,6 +38,14 @@ const (
 	JudgeCleanNothing   Key = "judge-clean-nothing"
 	JudgeCleanFailed    Key = "judge-clean-failed"
 	JudgeCleanLinked    Key = "judge-clean-linked"
+
+	JudgeReportUsage     Key = "judge-report-usage"
+	JudgeReportNoClaims  Key = "judge-report-no-claims"
+	JudgeReportNeedScope Key = "judge-report-need-scope"
+	JudgeReportNoServer  Key = "judge-report-no-server"
+	JudgeReportLine      Key = "judge-report-line"
+	JudgeReportCount     Key = "judge-report-count"
+	JudgeReportTooBig    Key = "judge-report-too-big"
 )
 
 var llmMessages = map[Key]string{
@@ -53,7 +61,7 @@ var llmMessages = map[Key]string{
 	JudgeNoHit:          "판정 없음 — 규칙에 안 걸렸고 다음 단의 답도 없다 (모른다)",
 	JudgeStageMark:      " · %s 단",
 
-	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> [--prompt v2|v3|v3-strict] [--stage rules,nli,semif] | mem judge clean [--older <일>] [--apply]",
+	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> [--prompt v2|v3|v3-strict] [--stage rules,nli,semif] | mem judge clean [--older <일>] [--apply] | mem judge report --file <보고.md | -> [--scope <scope>] [--pairs <수>]",
 	JudgeSupportUsage:   "support 는 --evidence 와 --claim 을 같이 주거나, --file 하나만 준다.",
 	JudgeOff:            "LLM 주소 없음 — 건너뜀 (설정 파일 : %s)",
 	JudgeConfigLine:     "설정 파일 : %s\n주소 : %s\n판정 프로필 : %s · 생성 프로필 : %s\n제한 시간 : %dms · 키 : %s",
@@ -76,6 +84,14 @@ var llmMessages = map[Key]string{
 	JudgeCleanNothing:   "%d일 넘은 판정 기록이 없다.",
 	JudgeCleanFailed:    "판정 기록 %d건은 못 지웠다 (다른 프로그램이 쥐고 있을 수 있다).",
 	JudgeCleanLinked:    "판정 기록 폴더가 링크다. 따라가지 않고 멈춘다 : %s",
+
+	JudgeReportUsage:     "쓰는 법 : mem judge report --file <보고.md | -> [--scope <scope>] [--pairs <수>] [--json] — --pairs 는 1 이상 정수다.",
+	JudgeReportNoClaims:  "결정 문장 없음 — 대조 안 함",
+	JudgeReportNeedScope: "보고에서 scope 하나를 못 골랐다 (본 scope : %s). --scope 를 준다.",
+	JudgeReportNoServer:  "NLI 서버 없음 — 대조 안 함",
+	JudgeReportLine:      "어긋날 수 있다 — 보고 「%s」 ↔ `%s` 「%s」 반대 %s",
+	JudgeReportTooBig:    "보고 글이 %d MiB 를 넘는다 — 보고 한 편만 준다.",
+	JudgeReportCount:     "대조 끝 (scope %s · 문장 %d) — 물음 %d · 반대 %d · 지지 %d · 무관 %d · 보류 %d · 실패 %d · 상한에 밀림 %d",
 }
 
 func init() {
@@ -88,10 +104,18 @@ func init() {
           mem judge support --evidence <근거> --claim <주장> [--fresh] [--json]
           mem judge support --file <쌍.jsonl> [--fresh] [--prompt v2|v3|v3-strict] [--stage <단,…>]
           mem judge clean [--older <일>] [--apply] [--json]
+          mem judge report --file <보고.md | -> [--scope <scope>] [--pairs <수>] [--json]
   config            이 기계의 llm.toml 자리와 읽은 값을 보인다. 서버에는 안 묻는다. 키는 있음/없음만
   support           (근거, 주장) 쌍이 지지(A)·반대(B)·무관(C) 중 무엇인지 글자 하나로 판정한다
                     add --origin 의 R3 와 같은 물음 · 같은 판정 기록(Memory/local/judge/)을 쓴다
   clean             판정 기록 중 --older 일(기본 30) 넘은 것을 고른다. 미리보기가 기본 · --apply 로 지운다
+  report            서브에이전트 보고 속 결정 문장을 같은 scope 의 살아 있는 결정(문장마다 위 3개)과
+                    NLI 로 대조한다. 확신 반대만 「어긋날 수 있다」 줄로 찍고 끝에 셈 한 줄을 낸다
+                    결정 문장 : 머리에 「결정」·「정한」 칸이 있거나 제목이 「정한 것」인 표의 줄 ·
+                    「정함 :」 줄 · mem add --type decision 의 --summary (8~200자 · 12개까지)
+                    --file - 이면 표준입력을 읽는다. 서버가 없으면 「NLI 서버 없음」 한 줄 + 종료 0
+  --scope <scope>   report 가 견줄 scope. 안 주면 보고에 나온 mem id 들의 scope 가 하나일 때 그것
+  --pairs <수>      report 가 물을 쌍 상한 (기본 36 ≈ 7초)
   --evidence <글>   근거 문장
   --claim <글>      주장 (자동 관문에서는 기억 요약)
   --file <파일>     한 줄에 {"id","evidence","claim","want"} 인 jsonl. 순차로 묻고 줄마다 JSON 을 낸다
@@ -107,5 +131,6 @@ func init() {
   --repo <폴더>     저장소를 직접 가리킨다
 llm.toml 자리 : ~/.aimemory/llm.toml (환경 변수 MEM_LLM_CONFIG 로 바꿀 수 있다). 없어도 규칙 단은 돈다
 비밀 꼴이 든 글은 서버로 보내지 않는다. 재시도는 없다
-종료 코드 : 0 정상 · 1 사용법 잘못 · 2 판정을 못 받음(서버 안 닿음 · 시간 넘김 · 확률 없음) · 3 저장소 없음`
+종료 코드 : 0 정상 · 1 사용법 잘못 · 2 판정을 못 받음(서버 안 닿음 · 시간 넘김 · 확률 없음) · 3 저장소 없음
+report 는 안내일 뿐이라 서버가 없어도 0 이다. scope 를 못 고르면 2`
 }

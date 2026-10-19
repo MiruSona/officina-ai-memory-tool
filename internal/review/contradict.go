@@ -93,8 +93,9 @@ var contradictTypes = map[string]bool{
 	model.TypeDecision: true, model.TypeCaution: true, model.TypeFact: true, model.TypeHowto: true,
 }
 
-// addContradicts 는 C19 걸림을 found.ByID 에 붙인다. 걸림은 작은 id 쪽에 달고 Related 에
-// 큰 id 를 넣는다 (C20 과 같은 꼴).
+// addContradicts 는 C19 의 규칙 층을 돌려 걸림을 found.ByID 에 붙이고, 규칙이 답을 못 낸 짝은
+// NLI 물음으로 r.pending 에 쌓는다. 묻기는 sieveNear 가 C13·C20·obs 와 몫을 나눠 한 번에 한다.
+// 걸림은 작은 id 쪽에 달고 Related 에 큰 id 를 넣는다 (C20 과 같은 꼴).
 func (r *Report) addContradicts(found *quality.RepoReport, byID map[string]*model.Memory, options Options) {
 	// 서버 확인은 짝이 없어도 시작할 때 한 번 한다 — `--nli` 를 준 사람은 서버가 죽었는지 알아야 한다.
 	run := r.nliFor(options)
@@ -118,26 +119,28 @@ func (r *Report) addContradicts(found *quality.RepoReport, byID map[string]*mode
 			// 무관(C)도 규칙이 확신한 답이라 NLI 에 다시 안 묻는다.
 			continue
 		}
-		if run == nil || !run.take(left.Scope) {
+		if run == nil {
 			continue
 		}
-		verdict, err := run.ask(evidence, claim)
-		if err != nil {
-			continue
-		}
-		if verdict.Letter == llm.LetterContradict && !verdict.Unsure {
-			addContradict(found, pair, fmt.Sprintf("NLI 반대 %.2f", verdict.Prob))
-		}
+		asked := pair
+		r.pending = append(r.pending, nliAsk{key: pairKey(pair.Left, pair.Right), scope: left.Scope,
+			evidence: evidence, claim: claim, apply: func(verdict llm.Verdict) {
+				if verdict.Letter == llm.LetterContradict && !verdict.Unsure {
+					addContradict(found, asked, fmt.Sprintf("NLI 반대 %.2f", verdict.Prob))
+				}
+			}})
 	}
-	r.noteNLILimits()
 }
 
-// nliRun 은 review 한 번의 NLI 묻기다 — 상한(짝 수 · scope 당 짝 수)과 호출 셈을 한곳에 둔다.
+// nliRun 은 review 한 번의 NLI 묻기다 — 상한(짝 수 · scope 당 짝 수 · 자리별 몫)과 호출 셈을 한곳에 둔다.
 type nliRun struct {
 	judge             *llm.Judge
 	pairCap, scopeCap int
 	perScope          map[string]int
 	summary           *NLISummary
+	// place 는 지금 묻는 자리, limit 은 그 자리까지 쓸 수 있는 누적 짝 수다 (앞 자리가 남긴 몫이 넘어온다).
+	place *NLIPlace
+	limit int
 }
 
 // NLISummary 는 review 한 번에 NLI 를 얼마나 물었는지다. `--nli` 를 줬고 서버가 살아 있을 때만 생긴다.
@@ -148,15 +151,27 @@ type NLISummary struct {
 	// Skipped 는 상한에 걸려 못 물은 짝, Failed 는 답을 못 받은 물음 수다.
 	Skipped int `json:"skipped"`
 	Failed  int `json:"failed"`
+	// Places 는 자리별(C19 · C13 · C20 · obs) 몫과 쓴 짝 · 밀린 짝이다.
+	Places []NLIPlace `json:"places,omitempty"`
+}
+
+// NLIPlace 는 NLI 를 묻는 자리 하나의 셈이다.
+type NLIPlace struct {
+	Name    string `json:"name"`
+	Quota   int    `json:"quota"`
+	Pairs   int    `json:"pairs"`
+	Skipped int    `json:"skipped"`
 }
 
 // take 는 짝 하나를 상한에서 뗀다. 상한에 걸리면 거짓이고 못 물은 짝으로 센다.
 func (n *nliRun) take(scope string) bool {
-	if n.summary.Pairs >= n.pairCap || n.perScope[scope] >= n.scopeCap {
+	if n.summary.Pairs >= n.limit || n.perScope[scope] >= n.scopeCap {
 		n.summary.Skipped++
+		n.place.Skipped++
 		return false
 	}
 	n.summary.Pairs++
+	n.place.Pairs++
 	n.perScope[scope]++
 	return true
 }
@@ -180,7 +195,8 @@ func (r *Report) noteNLILimits() {
 	summary := r.run.summary
 	kept := r.Notes[:0]
 	for _, note := range r.Notes {
-		if !strings.HasPrefix(note, nliCapNote) && !strings.HasPrefix(note, nliFailNote) {
+		if !strings.HasPrefix(note, nliCapNote) && !strings.HasPrefix(note, nliFailNote) &&
+			!strings.HasPrefix(note, nliPlaceNote) {
 			kept = append(kept, note)
 		}
 	}
@@ -192,12 +208,21 @@ func (r *Report) noteNLILimits() {
 	if summary.Failed > 0 {
 		r.note(fmt.Sprintf("%s %d번 답을 못 줬다 (그 짝은 규칙 층만 봤다)", nliFailNote, summary.Failed))
 	}
+	if len(summary.Places) > 0 {
+		parts := make([]string, 0, len(summary.Places))
+		for _, place := range summary.Places {
+			parts = append(parts, fmt.Sprintf("%s %d/%d/%d", place.Name, place.Pairs, place.Skipped, place.Quota))
+		}
+		r.note(nliPlaceNote + strings.Join(parts, " · "))
+	}
 }
 
 // 「못 본 것」 줄 머리 — noteNLILimits 가 옛 줄을 찾아 바꾸는 열쇠다.
 const (
 	nliCapNote  = "NLI 상한"
 	nliFailNote = "NLI 가"
+	// nliPlaceNote 는 자리별 셈 줄 머리다. 값은 「물은 짝/밀린 짝/몫」이다.
+	nliPlaceNote = "NLI 자리별 물은/밀린/몫 — "
 )
 
 // nliFor 는 이번 판에 쓸 NLI 묻기다. `--nli` 를 안 줬으면 조용히 nil 이고, 줬는데 못 쓰면

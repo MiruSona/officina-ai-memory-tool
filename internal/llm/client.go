@@ -96,6 +96,8 @@ type Choice struct {
 	Prob   float64            `json:"prob"`
 	Probs  map[string]float64 `json:"probs"`
 	MS     int64              `json:"ms"`
+	// LabelSet 은 NLI 서버가 답한 응답 꼴(nli3 · nli4)이다. SemIf 답에는 없다.
+	LabelSet string `json:"label_set,omitempty"`
 }
 
 // chatRequest 는 SemIf 요청 꼴이다. 생각 끄기는 llama.cpp 의 chat_template_kwargs 로 준다.

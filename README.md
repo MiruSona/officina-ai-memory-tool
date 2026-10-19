@@ -158,6 +158,7 @@ SemIf 는 모델이 아니라 묻는 법이다 — 어떤 생성 LLM 이든 글�
 - 규칙 관문에 이미 걸린 후보 · 비밀 꼴이 든 글은 서버에 안 보낸다.
 - 판정은 `Memory/local/judge/<해시>.json` 에 남기고 **같은 입력은 다시 묻지 않는다** (같은 입력도 확률이 흔들려서다).
 - `mem judge config` 로 설정을 보고, `mem judge support --evidence … --claim …` · `--file <쌍.jsonl>` 로 직접 재 본다.
+- `mem judge report --file <보고.md | -> [--scope X]` 는 서브에이전트 보고 속 결정 문장을 기존 결정과 NLI 로 대조한다 — 아래 「v1.2 적용」 절.
 - 확인한 서버 : 로컬 llama.cpp `llama-server`(2026-10-05 실측). 다른 OpenAI 호환 서버는 `logprobs`·`top_logprobs` 를 돌려주면 된다.
 
 ```toml
@@ -220,6 +221,21 @@ nli_sure_related = 0.80   # 비슷한 계열(D) 확정 문턱 · 0.34~0.99 · 4�
 - **3칸 서버(`/health` 에 `letters` 넷이 없다)면 C21 접기와 「NLI 무관」 표시를 끈다** (2026-10-11) — 「못 본 것」에 「3칸 서버라 접기 안 함」 한 줄. 「NLI 계열」 표시·보탬·retired 표시는 그대로 낸다.
 - 끝에 한 줄 : `NLI : 서버 N칸 · 물은 짝 · 부른 횟수 · 접기 짝 (두 번에 끝남 · 한 짝 최대) · 못 받음 · 상한에 밀림 · 전체 초`. `--ids` 면 stderr, `--json` 이면 `nli` 칸.
 - **옛 3칸 서버(`nli-studio-v2`)로 잰 첫 판(2026-10-10 밤)에서 접기가 너무 많이 나왔다** — 다른 주제 짝이 「양쪽 담김」으로 오른다. 3칸 모델의 지지는 「일부만 받쳐도 지지」라 문장마다 쉽게 지지가 나온다. 4칸 모델·`fold40` 측정 전에는 fold 큐를 **참고로만** 본다.
+
+### v1.2 적용 — C04 안내 · 자리별 몫 · 보고 대조 (2026-10-19)
+
+JudgeModel v1.2.0 을 네 자리에 더 붙였다 (설계 스튜디오 `Docs/History/JudgeModel/Design/2026-10-19-v1.2-적용다섯자리설계.md`). **서버가 없으면 모두 지금과 똑같이 돈다.**
+
+| 자리 | 하는 일 | 끄기 |
+| --- | --- | --- |
+| 요청 꼴 | NLI 요청에 늘 `label_set:"nli3"` 를 싣는다. 응답의 `label_set` · `labels` · `model_version` 덧칸을 받고, `label_set` 은 판정 기록에 남는다 | — |
+| `add` C04 decision-gate | 거절 까닭 끝에 NLI 안내를 한 토막 붙인다. 닮은 상대를 닮음 순 3개까지 묻는다. 확신 반대 → 「`--by id`」, 확신 지지 → 「같은 결정을 다시 적은 것일 수 있다」, 모두 확신 무관 → 「다른 주제면 `--new`」. **거절 · 등급 · 다음 수 차례는 안 바뀐다** | `mem.toml [quality] decision_gate_nli = "off"` |
+| `review --nli` | C19 에 더해 **C13**(stale-conflict 짝) · **C20**(merge 짝) · **obs**(모음 기억 번호 줄 ↔ 인용 기억)를 묻는다. 몫은 C19 45 · C13 20 · C20 20 · obs 15 %(basis 큐를 안 볼 땐 50 · 25 · 25), 안 쓴 몫은 다른 자리로 넘긴다. merge 짝이 확신 반대면 contradict 로 옮기고, 확신 무관이면 줄 앞에 「NLI 무관」을 달고 맨 뒤로 보낸다. C13 짝은 까닭 앞에 「NLI 반대/지지/무관」을 단다. 모음 기억 줄이 인용 기억과 확신 반대면 basis 큐에 경고 `obs-cite-nli`(거절 아님). consolidate 가 베낀 줄은 안 묻는다. 「못 본 것」에 `NLI 자리별 물은/밀린/몫` 한 줄 | `--nli` 를 안 준다 |
+| `mem judge report` | 보고에서 결정 문장을 뽑아(결정 칸 표 · `정함 :` 줄 · `mem add --type decision` 의 `--summary` · 8~200자 · 12개까지) 같은 scope 의 살아 있는 결정 위 3개와 묻는다. **확신 반대만** 「어긋날 수 있다 — …」 줄로 찍고 끝에 셈 한 줄. scope 는 `--scope` → 보고 속 mem id 들의 scope 가 하나일 때 그것 → 못 고르면 종료 2. 쌍 상한 `--pairs`(기본 36). 서버가 없으면 「NLI 서버 없음 — 대조 안 함」 + 종료 0 | 안 돌린다 |
+
+- `decision_gate_nli = "pass"` 는 **지금 판에서는 켜지지 않는다** — mem 이 늘 `nli3` 를 요청해 응답이 `nli4` 가 될 수 없다. pass 가 `nli4` 를 요청하는 길은 다음 판이다. 그 판에서는 상대가 3개 이하이고 모두 무관 확률 ≥ `decision_gate_pass`(기본 .90)일 때만 거절을 경고로 낮춘다. 지금은 hint 와 같게 돌고 그 사실을 안내에 한 번 적는다.
+- 자동 기억 길(`add --origin`)은 설정과 상관없이 hint 로 돌고 「다른 주제면 `--new`」 꼬리를 안 붙인다 — 자동 기억은 `--new` 를 못 쓴다.
+- 문장 뽑기는 JudgeModel `measure/use_sites/reports.py` 의 `extract_claims` 를 옮긴 것이다. 같은 보고 셋 3개로 결과가 같은지 시험이 견준다.
 
 - 옛 `laya_url` · `laya_timeout_ms` · `laya_sure` 는 받지 않는다. 적혀 있으면 읽지 않고 경고 한 줄을 낸다 — 옛 값은 다른 모델에 맞춘 문턱이다.
 
