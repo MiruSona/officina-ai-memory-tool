@@ -161,6 +161,9 @@ type RetainConfig struct {
 	PerDay     int
 	// QueueDays 는 PreCompact·SessionEnd 큐 표를 받아 줄 날 수다 (A2 몫).
 	QueueDays int
+	// MaxChunks·ChunkChars 는 retain 이 한 세션에서 생성에 보낼 토막 수와 토막 하나의 글자 수 상한이다.
+	MaxChunks  int
+	ChunkChars int
 }
 
 // 자동 쌓기 기본값. 2주 실사용 뒤 숫자로 다시 정한다 (자동쌓기설계 2-6).
@@ -171,6 +174,8 @@ const (
 	DefaultRetainPerSession = 5
 	DefaultRetainPerDay     = 20
 	DefaultRetainQueueDays  = 14
+	DefaultRetainMaxChunks  = 6
+	DefaultRetainChunkChars = 36000
 )
 
 // PinConfig caps how many memories may stay pinned at once.
@@ -487,7 +492,7 @@ func Default(name string) Config {
 			SubagentMaxBytes: DefaultSubagentMaxBytes, SubagentSkip: []string{}},
 		Retain: RetainConfig{Nudge: true, NudgeEdits: DefaultNudgeEdits, NudgeTurns: DefaultNudgeTurns,
 			NudgeMax: DefaultNudgeMax, PerSession: DefaultRetainPerSession, PerDay: DefaultRetainPerDay,
-			QueueDays: DefaultRetainQueueDays},
+			QueueDays: DefaultRetainQueueDays, MaxChunks: DefaultRetainMaxChunks, ChunkChars: DefaultRetainChunkChars},
 		Synonym: DefaultSynonyms(),
 		// 대표말 표는 비어서 시작한다. 비면 정규화가 항등이고 아무것도 안
 		// 거절한다 - vocab 의 「배우는 중」과 같은 정신이다 (결정 25 · P12).
@@ -735,6 +740,8 @@ func Parse(text string) (Config, error) {
 	config.Retain.PerSession = file.intOr("retain", "per_session", config.Retain.PerSession)
 	config.Retain.PerDay = file.intOr("retain", "per_day", config.Retain.PerDay)
 	config.Retain.QueueDays = file.intOr("retain", "queue_days", config.Retain.QueueDays)
+	config.Retain.MaxChunks = file.intOr("retain", "max_chunks", config.Retain.MaxChunks)
+	config.Retain.ChunkChars = file.intOr("retain", "chunk_chars", config.Retain.ChunkChars)
 	config.Synonym = mergeSynonyms(config.Synonym, file.mapOfLists("synonym"))
 	config.Canon = file.mapOf("canon")
 	config.Scope = file.mapOf("scope")
@@ -920,6 +927,8 @@ func RetainBlock(retain RetainConfig) string {
 	writeInt(&out, "per_session", retain.PerSession)
 	writeInt(&out, "per_day", retain.PerDay)
 	writeInt(&out, "queue_days", retain.QueueDays)
+	writeInt(&out, "max_chunks", retain.MaxChunks)
+	writeInt(&out, "chunk_chars", retain.ChunkChars)
 	return out.String()
 }
 

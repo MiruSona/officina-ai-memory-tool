@@ -18,7 +18,8 @@ import (
 
 var setBools = []string{"stdin", "pin", "unpin", "done", "by-new"}
 var setValues = []string{"summary", "scope", "title", "severity", "status", "todo-status",
-	"invalid-at", "by", "stale-after", "tags", "links", "link", "body", "importance", "repo", "keys"}
+	"invalid-at", "by", "stale-after", "tags", "links", "link", "body", "importance", "repo", "keys",
+	"sources", "source"}
 
 func init() {
 	register(command{name: "set", run: runSet, bools: setBools, values: setValues})
@@ -201,7 +202,7 @@ func refuseSecretSet(repository *config.Repository, set map[string]any, body str
 			return refuse(i18n.T(i18n.SecretFoundIn, field, found.Rule))
 		}
 	}
-	return exitOK
+	return refuseSecretSources(repository, set)
 }
 
 // changesOf 는 준 옵션만 모은다. 안 준 칸은 건드리지 않는다. 값은 여기서 바로
@@ -235,6 +236,13 @@ func changesOf(parsed *options, id string) (map[string]any, error) {
 			return nil, problems[0]
 		}
 		set["keys"] = toAny(keys)
+	}
+	sources, given, err := sourcesOf(parsed)
+	if err != nil {
+		return nil, err
+	}
+	if given {
+		set["sources"] = toAny(sources)
 	}
 	// `--links` 는 통째 교체, `--link` 는 한 개 더하기다. 더하기는 지금 파일을
 	// 읽어야 해서 여기서 안 하고 addLink 가 한다.

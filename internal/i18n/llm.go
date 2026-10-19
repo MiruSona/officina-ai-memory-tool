@@ -1,10 +1,9 @@
 package i18n
 
-// 바깥 LLM 판정(K)이 쓰는 말이다 — llm.toml 읽기, R3 경고, `mem judge` (자동쌓기설계 5절 K).
+// 바깥 서버 판정(K)이 쓰는 말이다 — llm.toml 읽기, R3 경고, `mem judge` (자동쌓기설계 5절 K).
 
 const (
 	LLMBadURL           Key = "llm-bad-url"
-	LLMBadTimeout       Key = "llm-bad-timeout"
 	AutoJudgeSkippedWhy Key = "auto-judge-skipped-why"
 	LLMBadNLIURL        Key = "llm-bad-nli-url"
 	LLMBadNLITimeout    Key = "llm-bad-nli-timeout"
@@ -27,9 +26,7 @@ const (
 	JudgeSupport        Key = "judge-support"
 	JudgeContradict     Key = "judge-contradict"
 	JudgeUnrelated      Key = "judge-unrelated"
-	JudgeCached         Key = "judge-cached"
 	JudgeUnsure         Key = "judge-unsure"
-	JudgePromptUsage    Key = "judge-prompt-usage"
 	JudgeYes            Key = "judge-yes"
 	JudgeNo             Key = "judge-no"
 	JudgeCleanUsage     Key = "judge-clean-usage"
@@ -46,36 +43,41 @@ const (
 	JudgeReportLine      Key = "judge-report-line"
 	JudgeReportCount     Key = "judge-report-count"
 	JudgeReportTooBig    Key = "judge-report-too-big"
+
+	LLMBadGenerateURL     Key = "llm-bad-generate-url"
+	LLMBadGenerateTimeout Key = "llm-bad-generate-timeout"
+	LLMProfileRemoved     Key = "llm-profile-removed"
 )
 
 var llmMessages = map[Key]string{
-	LLMBadURL:           "llm.toml 의 url 이 http(s) 주소가 아니다. 바깥 LLM 을 끈 것으로 친다.",
-	LLMBadTimeout:       "llm.toml 의 timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
+	LLMBadGenerateURL:     "llm.toml 의 generate_url 이 http(s) 주소가 아니다. 생성(retain)을 끈 것으로 친다.",
+	LLMBadGenerateTimeout: "llm.toml 의 generate_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
+	LLMProfileRemoved:     "llm.toml 의 %s 은 안 쓰는 칸이다 — 지워도 된다. 생성은 generate_url · generate_model · generate_timeout_ms, 판정은 nli_url 을 쓴다.",
+
+	LLMBadURL:           "llm.toml 의 url 이 http(s) 주소가 아니다. 생성(retain)을 끈 것으로 친다. url 은 generate_url 로 옮긴다.",
 	AutoJudgeSkippedWhy: "근거 지지 판정(R3)을 못 받아 건너뛰었다 (%s).",
 	LLMBadNLIURL:        "llm.toml 의 nli_url 이 http(s) 주소가 아니다. NLI 단을 끈 것으로 친다.",
 	LLMBadNLITimeout:    "llm.toml 의 nli_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
 	LLMBadNLISure:       "llm.toml 의 %s(%.2f)는 %.2f~%.2f 여야 한다. 기본 %.2f 로 읽었다.",
 	LLMLayaRemoved:      "llm.toml 의 laya_* 는 없어졌다 — 읽지 않는다. nli_url · nli_sure · nli_sure_support 를 쓴다.",
 	LLMNLISureInverted:  "llm.toml 의 nli_sure_support(%.2f)가 nli_sure(%.2f)보다 낮다 — 지지를 더 쉽게 확정한다. 값은 그대로 읽었다.",
-	JudgeStageUsage:     "--stage 는 rules · nli · semif 를 쉼표로 이은 것이다 (예 rules,nli).",
+	JudgeStageUsage:     "--stage 는 rules · nli 를 쉼표로 이은 것이다 (예 rules,nli).",
 	JudgeNoHit:          "판정 없음 — 규칙에 안 걸렸고 다음 단의 답도 없다 (모른다)",
 	JudgeStageMark:      " · %s 단",
 
-	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> [--prompt v2|v3|v3-strict] [--stage rules,nli,semif] | mem judge clean [--older <일>] [--apply] | mem judge report --file <보고.md | -> [--scope <scope>] [--pairs <수>]",
+	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> [--stage rules,nli] | mem judge clean [--older <일>] [--apply] | mem judge report --file <보고.md | -> [--scope <scope>] [--pairs <수>]",
 	JudgeSupportUsage:   "support 는 --evidence 와 --claim 을 같이 주거나, --file 하나만 준다.",
-	JudgeOff:            "LLM 주소 없음 — 건너뜀 (설정 파일 : %s)",
-	JudgeConfigLine:     "설정 파일 : %s\n주소 : %s\n판정 프로필 : %s · 생성 프로필 : %s\n제한 시간 : %dms · 키 : %s",
+	JudgeOff:            "서버 주소 없음 — 건너뜀 (설정 파일 : %s)",
+	JudgeConfigLine:     "설정 파일 : %s\ngenerate_url : %s · generate_model : %s · 제한 시간 : %dms · 키 : %s\nnli_url : %s · 제한 시간 : %dms · 문턱 지지 %.2f · 반대·무관 %.2f",
 	JudgeFailed:         "판정을 못 받았다 (%s). 재시도는 안 한다.",
 	JudgeVerdictLine:    "%s (%s) 확률 %.3f · %s · %dms%s",
 	JudgeFileUnreadable: "판정할 쌍 파일을 못 읽었다 : %s",
 	JudgeBadLine:        "%d번째 줄이 {\"evidence\":…, \"claim\":…} 꼴의 JSON 이 아니다.",
-	JudgeFileSummary:    "판정 %d쌍 · 받음 %d · 못 받음 %d · 맞힘 %d/%d · 모른다 %d · 지연 p50 %dms · p95 %dms (새로 물은 %d쌍 기준)",
+	JudgeFileSummary:    "판정 %d쌍 · 받음 %d · 못 받음 %d · 맞힘 %d/%d · 모른다 %d · 지연 p50 %dms · p95 %dms (NLI 에 물은 %d쌍 기준)",
 	JudgeSupport:        "지지",
 	JudgeContradict:     "반대",
 	JudgeUnrelated:      "무관",
-	JudgeCached:         " · 기록에서 읽음",
 	JudgeUnsure:         " · 모른다 (확률이 낮거나 동점)",
-	JudgePromptUsage:    "--prompt 는 v2 · v3 · v3-strict 중 하나다.",
 	JudgeYes:            "있음",
 	JudgeNo:             "없음",
 	JudgeCleanUsage:     "쓰는 법 : mem judge clean [--older <일>] [--apply] [--json] — --older 는 1 이상 정수다.",
@@ -98,16 +100,16 @@ func init() {
 	for key, text := range llmMessages {
 		messages[key] = text
 	}
-	commandHelp["judge"] = `mem judge — 바깥 LLM 판정(SemIf 방식)을 직접 불러 본다 (K · 측정용)
+	commandHelp["judge"] = `mem judge — 근거 지지 판정(규칙 → JudgeModel NLI)을 직접 불러 본다 (K · 측정용)
 
 쓰는 법 : mem judge config [--json]
-          mem judge support --evidence <근거> --claim <주장> [--fresh] [--json]
-          mem judge support --file <쌍.jsonl> [--fresh] [--prompt v2|v3|v3-strict] [--stage <단,…>]
+          mem judge support --evidence <근거> --claim <주장> [--json]
+          mem judge support --file <쌍.jsonl> [--stage <단,…>]
           mem judge clean [--older <일>] [--apply] [--json]
           mem judge report --file <보고.md | -> [--scope <scope>] [--pairs <수>] [--json]
-  config            이 기계의 llm.toml 자리와 읽은 값을 보인다. 서버에는 안 묻는다. 키는 있음/없음만
+  config            이 기계의 llm.toml 자리와 읽은 값(generate_* · nli_*)을 보인다. 서버에는 안 묻는다. 키는 있음/없음만
   support           (근거, 주장) 쌍이 지지(A)·반대(B)·무관(C) 중 무엇인지 글자 하나로 판정한다
-                    add --origin 의 R3 와 같은 물음 · 같은 판정 기록(Memory/local/judge/)을 쓴다
+                    add --origin 의 R3 와 같은 판정 · 같은 판정 기록(Memory/local/judge/)을 쓴다
   clean             판정 기록 중 --older 일(기본 30) 넘은 것을 고른다. 미리보기가 기본 · --apply 로 지운다
   report            서브에이전트 보고 속 결정 문장을 같은 scope 의 살아 있는 결정(문장마다 위 3개)과
                     NLI 로 대조한다. 확신 반대만 「어긋날 수 있다」 줄로 찍고 끝에 셈 한 줄을 낸다
@@ -120,17 +122,14 @@ func init() {
   --claim <글>      주장 (자동 관문에서는 기억 요약)
   --file <파일>     한 줄에 {"id","evidence","claim","want"} 인 jsonl. 순차로 묻고 줄마다 JSON 을 낸다
                     want(A·B·C 또는 support·contradict·unrelated)가 있으면 맞힘을 센다. 요약은 stderr
-  --fresh           판정 기록을 안 읽고 다시 묻는다 (새 결과로 기록을 덮는다)
-  --prompt <판>     물음 글 판을 고른다 (측정용 · v2 · v3 · v3-strict). 안 주면 기본 판(support-v3)
-                    최고 확률이 0.40 아래거나 동점이면 「모른다」 꼬리표가 붙는다 (글자는 그대로)
-  --stage <단,…>    판정 사다리에서 돌 단을 고른다 (rules · nli · semif 를 쉼표로). 안 주면 전체
-                    규칙(rules) → NLI(nli_url) → SemIf(url) 차례로 묻고 앞 단이 확신하면 멈춘다
-                    NLI 확신 문턱은 지지 nli_sure_support · 반대·무관 nli_sure
-                    마지막 단도 확신이 없으면 「모른다」 · 규칙에 안 걸린 쌍은 글자가 빈 「모른다」
+  --stage <단,…>    판정 사다리에서 돌 단을 고른다 (rules · nli 를 쉼표로). 안 주면 전체
+                    규칙(rules) → NLI(nli_url · JudgeModel) 차례로 묻고 규칙이 확정하면 멈춘다
+                    NLI 확신 문턱은 지지 nli_sure_support · 반대·무관 nli_sure. 그 아래면 「모른다」
+                    규칙에 안 걸리고 NLI 도 없으면 글자가 빈 「모른다」
   --json            결과를 JSON 으로
   --repo <폴더>     저장소를 직접 가리킨다
 llm.toml 자리 : ~/.aimemory/llm.toml (환경 변수 MEM_LLM_CONFIG 로 바꿀 수 있다). 없어도 규칙 단은 돈다
 비밀 꼴이 든 글은 서버로 보내지 않는다. 재시도는 없다
-종료 코드 : 0 정상 · 1 사용법 잘못 · 2 판정을 못 받음(서버 안 닿음 · 시간 넘김 · 확률 없음) · 3 저장소 없음
+종료 코드 : 0 정상 · 1 사용법 잘못 · 2 판정을 못 받음(서버 안 닿음 · 시간 넘김 · 답 꼴 틀림) · 3 저장소 없음
 report 는 안내일 뿐이라 서버가 없어도 0 이다. scope 를 못 고르면 2`
 }

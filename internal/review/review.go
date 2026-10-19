@@ -270,6 +270,8 @@ func addValue(byID map[string][]quality.Finding, memories []*model.Memory, opt q
 // dropShadowed 는 한 짝을 한 큐에만 보낸다. C13·C19(어긋남)에 걸린 짝의 C20(합치기)·
 // C17(덮임 닮음) 줄을 지운다 — 어긋난 둘을 합치면 틀린 쪽이 섞인다 (점검·정리 설계 ⑥).
 // C19 는 review 에서 나므로 이 정리도 review 가 한다.
+// 한 기억에 C08 이 있으면 C05 줄도 지운다 — 둘 다 「산 결정이 둘」이라 conflict 큐에
+// 같은 기억이 두 줄로 와서 줄 수만 두 배가 된다 (점검·정리 피드백).
 func dropShadowed(byID map[string][]quality.Finding) {
 	clash := map[[2]string]bool{}
 	for id, list := range byID {
@@ -282,12 +284,13 @@ func dropShadowed(byID map[string][]quality.Finding) {
 			}
 		}
 	}
-	if len(clash) == 0 {
-		return
-	}
 	for id, list := range byID {
+		hasC08 := hasRule(list, quality.RuleSupersedeMissing)
 		kept := list[:0]
 		for _, one := range list {
+			if hasC08 && one.Rule == quality.RuleDecisionConflictLive {
+				continue
+			}
 			if (one.Rule == quality.RuleMergeCandidate || one.Rule == quality.RuleNewerSibling) &&
 				clashesWith(clash, id, one.Related) {
 				continue
@@ -296,6 +299,15 @@ func dropShadowed(byID map[string][]quality.Finding) {
 		}
 		byID[id] = kept
 	}
+}
+
+func hasRule(list []quality.Finding, rule string) bool {
+	for _, one := range list {
+		if one.Rule == rule {
+			return true
+		}
+	}
+	return false
 }
 
 func clashesWith(clash map[[2]string]bool, id string, related []string) bool {
@@ -550,8 +562,11 @@ func nextFor(kind string, found quality.Finding) []string {
 	case KindStale:
 		return []string{"mem show " + id, "mem set " + id + " --by-new"}
 	case KindBasis:
-		// 사람이 고르는 둘이 그대로 두 줄이다 — 덮음 · 그대로 둠. 문구는
-		// quality 한 곳에 있다.
+		// 문구는 quality 한 곳에 있다. links 로 걸린 C14 는 quality 가 `--links` 바꿔
+		// 끼우기 줄까지 Next 에 채워 주니 그것을 그대로 쓴다.
+		if len(found.Next) > 0 {
+			return found.Next
+		}
 		return quality.BasisNext(id)
 	case KindLink:
 		// 기계가 찾은 링크 후보다. 머리말 `links` 로 올리는 것은 사람이 한다
@@ -573,7 +588,8 @@ func nextFor(kind string, found quality.Finding) []string {
 		// 합쳐 새로 쓴 뒤 옛 둘을 덮는다 (기억 쓰기 규칙 넷 ①). `mem set` 은 id 하나씩 받는다.
 		other := firstRelated(found)
 		return []string{"mem show " + id, "mem show " + other, "mem add …   (둘을 합쳐 새로 쓴다)",
-			"mem set " + id + " --by <새 id>", "mem set " + other + " --by <새 id>"}
+			"mem set " + id + " --by <새 id>", "mem set " + other + " --by <새 id>",
+			"mem set " + id + " --link " + other + "   (주제가 다르면 잇기만)"}
 	}
 	return []string{"mem show " + id, "mem gc --fold " + id}
 }

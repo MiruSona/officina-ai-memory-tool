@@ -264,7 +264,7 @@ func anyKnown(bases []string, root, target string, known map[string]bool) bool {
 		if slashed == ".." || strings.HasPrefix(slashed, "../") {
 			return true
 		}
-		if known[slashed] {
+		if knownPath(known, slashed) {
 			return true
 		}
 	}
@@ -285,7 +285,7 @@ func isRelativePath(target string) bool {
 // 크면 못 다 봤다고 말한다.
 func pathSet(root string) (map[string]bool, bool) {
 	known := map[string]bool{}
-	full := true
+	full, count := true, 0
 	filepath.WalkDir(root, func(path string, entry fs.DirEntry, err error) error {
 		if err != nil {
 			return nil
@@ -297,8 +297,9 @@ func pathSet(root string) (map[string]bool, bool) {
 		if err != nil {
 			return nil
 		}
-		known[filepath.ToSlash(relative)] = true
-		if len(known) > pathSetLimit {
+		addKnown(known, filepath.ToSlash(relative))
+		count++
+		if count > pathSetLimit {
 			full = false
 			return filepath.SkipAll
 		}

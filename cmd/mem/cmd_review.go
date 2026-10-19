@@ -102,7 +102,7 @@ func runReview(argv []string) int {
 }
 
 // reviewNLI 는 C19 의 NLI 단이다 (`--nli`). 판정 기록 폴더와 비밀 꼴 거절은 mem judge 와
-// 같은 것을 쓰고, SemIf 는 안 부른다. nli_url 이 없으면 Judge 가 nil 이라 review 가
+// 같은 것을 쓰고, NLI 단만 돈다. nli_url 이 없으면 Judge 가 nil 이라 review 가
 // 「못 본 것」에 한 줄 남긴다.
 func reviewNLI(repository *config.Repository, pairs, perScope int) *review.NLIOptions {
 	settings := loadLLM()

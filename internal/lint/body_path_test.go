@@ -3,6 +3,7 @@ package lint
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
@@ -122,4 +123,53 @@ func problemsOf(report *Report, rule string) []Problem {
 		}
 	}
 	return found
+}
+
+// TestLintSkipsTornAndPatternPaths 는 피드백 2026-10-10 의 D05 오탐 꼴이 안 걸리는지 본다.
+// `<…>`·URL 이 잘린 `/index.html`, 꼴 자리표(`vNN`·`NN-날짜`), 대소문자만 다른 실재 경로.
+func TestLintSkipsTornAndPatternPaths(t *testing.T) {
+	if !bodyHookWired() {
+		t.Skip("quality 의 staleBodyPaths 가 아직 BodyMissing 을 안 부른다")
+	}
+	opened := newRepo(t)
+	root := filepath.Dir(opened.Dir)
+	putToolA(t, root)
+	for _, name := range []string{"Build/itch/Game-v13.apk", "Docs/a.md", "Prototypes/a.txt"} {
+		full := filepath.Join(root, filepath.FromSlash(name))
+		if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte("x"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	body := "시안은 Prototypes/<날짜>-<이름>/index.html 에 둔다.\n" +
+		"그림 주소는 https://example.com/<id>/image.png 꼴이다.\n" +
+		"빌드는 Build/x-vNN.apk · 기록은 Docs/NN-날짜.md 꼴로 쓴다.\n"
+	if runtime.GOOS == "windows" {
+		body += "받은 파일은 Build/itch/game-v13.apk 이다.\n"
+	}
+	writeMemoryFile(t, opened, "20260820-b0d50021", goodMemory("20260820-b0d50021", "", body))
+	if dead := problemsOf(runOn(t, opened, false), quality.RuleDeadBodyPath); len(dead) != 0 {
+		t.Fatalf("오탐 꼴에 D05 가 걸렸다 : %+v", dead)
+	}
+	// 대조군 : 정말 없는 경로는 그대로 걸린다.
+	writeMemoryFile(t, opened, "20260820-b0d50022", goodMemory("20260820-b0d50022", "",
+		"고친 자리는 ToolA/internal/y.go 이다.\n한 줄 더 적어 본문 하한을 채운다.\n"))
+	dead := problemsOf(runOn(t, opened, false), quality.RuleDeadBodyPath)
+	if len(dead) != 1 || dead[0].ID != "20260820-b0d50022" {
+		t.Fatalf("대조군의 없는 경로 하나만 걸려야 한다 : %+v", dead)
+	}
+}
+
+// TestHasPlaceholder 는 꼴 자리표와 보통 대문자 이름을 가른다.
+func TestHasPlaceholder(t *testing.T) {
+	for target, want := range map[string]bool{
+		"Build/x-vNN.apk": true, "Docs/NN-날짜.md": true, "Docs/YYYY-MM-DD.md": true,
+		"README.md": false, "ASSETS/a.png": false, "Docs/LLM.md": false, "ToolA/internal/y.go": false,
+	} {
+		if got := hasPlaceholder(target); got != want {
+			t.Errorf("%q : %v 를 바랐는데 %v", target, want, got)
+		}
+	}
 }

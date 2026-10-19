@@ -54,6 +54,8 @@ const (
 	LintLevelWarn    Key = "lint-level-warn"
 	LintMissLogUsed  Key = "lint-miss-log-used"
 	LintPathSetLimit Key = "lint-path-set-limit"
+
+	LintFixMisplaced Key = "lint-fix-misplaced"
 )
 
 // gc.
@@ -187,6 +189,8 @@ var qualityMessages = map[Key]string{
 	StatusNone:               "없음",
 	StatusBadPattern:         " · 못 읽는 패턴 %d개",
 	StatusHealthBad:          "색인 건강에 문제가 있다. 위 줄을 봐라.",
+
+	LintFixMisplaced: "파일 이름·자리가 id 와 달라(손으로 옮긴다)",
 }
 
 func init() {

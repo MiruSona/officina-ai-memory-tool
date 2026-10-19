@@ -45,7 +45,7 @@ var nameLetters = map[string]string{wantSupport: "A", wantContradict: "B", wantU
 func runMerge(args []string, stdout io.Writer) error {
 	flags := flag.NewFlagSet("merge", flag.ContinueOnError)
 	candidatesPath := flags.String("candidates", "", "make2 의 candidates.jsonl")
-	agentPath := flags.String("agent", "", "agent 표 (mem judge support --file … --stage semif 결과)")
+	agentPath := flags.String("agent", "", "agent 표 (mem judge support --file … --stage nli 결과)")
 	rulesPath := flags.String("rules", "", "규칙 표 (--stage rules 결과 · 없으면 건너뛴다)")
 	out := flags.String("out", "", "출력 폴더 (agreed.jsonl · opus/)")
 	batch := flags.Int("batch", 50, "Opus 묶음 하나의 쌍 수")

@@ -64,9 +64,11 @@ type Tally struct {
 
 // line 은 대화 기록 JSONL 한 줄에서 우리가 보는 칸만이다.
 type line struct {
-	Type    string `json:"type"`
-	IsMeta  bool   `json:"isMeta"`
-	Message struct {
+	Type   string `json:"type"`
+	IsMeta bool   `json:"isMeta"`
+	// IsCompactSummary 는 문맥을 줄인 뒤 하네스가 넣는 요약 줄이다 — 사람이 한 말이 아니다.
+	IsCompactSummary bool `json:"isCompactSummary"`
+	Message          struct {
 		Role    string          `json:"role"`
 		Content json.RawMessage `json:"content"`
 	} `json:"message"`
@@ -139,6 +141,17 @@ var wholeRoom int64 = wholeLimit
 // **끝** 상한만큼 읽는다 — 근거는 대개 최근 글에 있다. 줄 중간에서 시작한 첫 토막은
 // 버린다 (리뷰 2026-10-05).
 func ReadWhole(path string) (*Tally, error) {
+	data, err := readEnd(path)
+	if err != nil {
+		return nil, err
+	}
+	tally := &Tally{}
+	tally.add(data)
+	return tally, nil
+}
+
+// readEnd 는 대화 기록의 끝 wholeRoom 만큼을 읽는다. 줄 중간에서 시작한 첫 토막은 버린다.
+func readEnd(path string) ([]byte, error) {
 	file, info, err := openTranscript(path)
 	if err != nil {
 		return nil, err
@@ -163,9 +176,7 @@ func ReadWhole(path string) (*Tally, error) {
 			data = data[cut+1:]
 		}
 	}
-	tally := &Tally{}
-	tally.add(data)
-	return tally, nil
+	return data, nil
 }
 
 // add 는 줄마다 갈라 센다. 못 읽는 줄은 건너뛴다 — 모르는 꼴은 침묵이다.

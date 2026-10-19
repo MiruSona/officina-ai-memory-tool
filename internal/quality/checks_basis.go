@@ -162,3 +162,28 @@ func basisRelated(found []deadBasis) []string {
 	}
 	return out
 }
+
+// relinkNext 는 links 로 걸린 C14 에 붙이는 한 줄이다 — links 의 죽은 id 를 덮은
+// 새 id 로 바꾼 목록을 `mem set --links` 꼴로 준다. 바꿔 끼우기는 사람이 친다 (I5).
+// 덮은 기억이 없는(무효만 된) id 는 바꿀 곳이 없어 그대로 둔다.
+func relinkNext(m *model.Memory, byID map[string]*model.Memory, opt RepoOptions) []string {
+	changed := false
+	seen := map[string]bool{}
+	ids := []string{}
+	for _, id := range m.Links {
+		next := id
+		if old := byID[id]; old != nil && isDead(old, opt) && old.SupersededBy != "" && old.SupersededBy != m.ID {
+			next = old.SupersededBy
+			changed = true
+		}
+		if !seen[next] {
+			seen[next] = true
+			ids = append(ids, next)
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return []string{fmt.Sprintf("mem set %s --links %s   (links 의 옛 id 를 덮은 새 id 로 바꾼다)",
+		m.ID, strings.Join(ids, ","))}
+}

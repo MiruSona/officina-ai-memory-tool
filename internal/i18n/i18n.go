@@ -230,6 +230,7 @@ var messages = map[Key]string{
   auto     자동으로 들어온 기억을 보고 한꺼번에 되돌린다
   consolidate  여러 기억을 모음 기억 카드로 묶는다 (--plan · --apply)
   judge    바깥 LLM 판정을 불러 본다 (llm.toml 이 있을 때 · 측정용)
+  retain   알림 못 받은 세션 기록에서 기억 후보를 뽑아 자동 관문에 건다 (손으로 · 서버 둘)
   tags     태그 표준 목록을 보고 손본다 (mem tags --list)
   eval     골든셋으로 검색·문서 품질을 잰다
   status   저장소 자리·건수·품질·환경을 보여준다

@@ -45,6 +45,7 @@ type autoReportJSON struct {
 	Queued       int            `json:"queued"`
 	Missed       int            `json:"missed"`
 	MissedBy     map[string]int `json:"missed_by_reason"`
+	Retained     int            `json:"retained"`
 	R3Rejects    int            `json:"r3_rejects"`
 	R3Skipped    int            `json:"r3_skipped"`
 	WarnSince    string         `json:"warn_since"`
@@ -78,7 +79,7 @@ func autoReport(parsed *options, filter autoFilter) int {
 	}
 	report.Undone, report.AutoCount = reportUndo(opened.Dir, filter, matched)
 	report.UndoRate = ratio(report.Undone, report.AutoCount)
-	report.Queued, report.Missed, report.MissedBy = reportMissed(opened.Dir, filter)
+	report.Queued, report.Missed, report.Retained, report.MissedBy = reportMissed(opened.Dir, filter)
 	report.Sample = reportSample(matched, sample, seed)
 	if parsed.flags["json"] {
 		return printJSON(report)
@@ -244,14 +245,15 @@ func reportUndo(dir string, filter autoFilter, matched []*model.Memory) (int, in
 	return len(undone), total
 }
 
-// reportMissed 는 기간 안 큐 항목 수와 covered 아닌 것의 사유별 수다.
-func reportMissed(dir string, filter autoFilter) (int, int, map[string]int) {
+// reportMissed 는 기간 안 큐 항목 수와 covered 아닌 것의 사유별 수다. `mem retain` 이 done_at 을
+// 단 항목은 놓친 것이 아니라 A2 가 처리한 것이라 retained 로 따로 센다.
+func reportMissed(dir string, filter autoFilter) (int, int, int, map[string]int) {
 	byReason := map[string]int{}
 	entries, err := os.ReadDir(retain.QueueDir(dir))
 	if err != nil {
-		return 0, 0, byReason
+		return 0, 0, 0, byReason
 	}
-	queued, missed := 0, 0
+	queued, missed, retained := 0, 0, 0
 	for _, entry := range entries {
 		if entry.IsDir() || filepath.Ext(entry.Name()) != ".json" {
 			continue
@@ -262,12 +264,16 @@ func reportMissed(dir string, filter autoFilter) (int, int, map[string]int) {
 			continue
 		}
 		queued++
+		if one.DoneAt != "" {
+			retained++
+			continue
+		}
 		if !one.Covered {
 			missed++
 			byReason[one.Reason]++
 		}
 	}
-	return queued, missed, byReason
+	return queued, missed, retained, byReason
 }
 
 // reportSample 은 id 순으로 줄 세운 뒤 씨앗으로 섞어 앞 N 건을 고른다. 같은 씨앗이면 같은 목록이다.
@@ -327,6 +333,9 @@ func printAutoReport(report autoReportJSON) {
 	fmt.Println(i18n.T(i18n.AutoReportRejects, countsLine(report.Rejects)))
 	fmt.Println(i18n.T(i18n.AutoReportUndo, report.Undone, report.AutoCount, percent(report.UndoRate, 1)))
 	fmt.Println(i18n.T(i18n.AutoReportMissed, report.Queued, report.Missed, countsLine(report.MissedBy)))
+	if report.Retained > 0 {
+		fmt.Println(i18n.T(i18n.AutoReportRetained, report.Retained))
+	}
 	fmt.Println(i18n.T(i18n.AutoReportR3, report.R3Rejects, report.R3Skipped, report.WarnSince))
 	fmt.Println(i18n.T(i18n.AutoReportHook))
 	fmt.Println(i18n.T(i18n.AutoReportSearch))

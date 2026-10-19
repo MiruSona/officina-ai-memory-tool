@@ -223,7 +223,7 @@ func TestJudgeReportPrintsOnlyContradictions(t *testing.T) {
 	}
 	// --pairs 1 이면 하나만 묻고 나머지는 「밀림」으로 센다. --json 은 쌍을 다 싣는다.
 	out, code = capture(t, func() int {
-		return run([]string{"judge", "report", "--scope", "aimemorytool", "--file", path, "--pairs", "1", "--json", "--fresh"})
+		return run([]string{"judge", "report", "--scope", "aimemorytool", "--file", path, "--pairs", "1", "--json"})
 	})
 	var row judgeReportJSON
 	if code != exitOK || json.Unmarshal([]byte(out), &row) != nil || row.Counts.Asked != 1 || row.Counts.Skipped != 1 ||

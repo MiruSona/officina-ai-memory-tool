@@ -40,6 +40,7 @@ func applyFixes(scans []*scanned, options *Options, report *Report) error {
 			continue
 		}
 		if model.StorePath(item.Memory.ID) != item.Path {
+			report.Held = append(report.Held, Fix{Path: item.Path, What: i18n.T(i18n.LintFixMisplaced), Note: true})
 			continue
 		}
 		if extra := unknownFields(item.Text); len(extra) > 0 {

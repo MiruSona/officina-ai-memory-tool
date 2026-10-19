@@ -39,9 +39,9 @@ bin\mem.exe install --apply        # 실제로 적용한다 (PATH 는 새 터미
 
 `build.ps1 -Install` 로 2·3 을 한 번에 해도 된다. 인터넷이 없으면 `build.ps1 -Install -Bundle <꾸러미폴더>`.
 
-**바깥 LLM 판정은 선택 사항이다.** `mem` 은 서버 없이 그대로 다 돈다. 근거 판정(R3)의 **규칙 단은 서버 없이 늘 돈다.**
-OpenAI 호환 서버(llama.cpp `llama-server` 같은 것, `logprobs` 를 돌려주는 것)가 있으면 `~/.aimemory/llm.toml` 하나로 붙인다 — 그러면 규칙에 안 걸린 쌍을 서버(SemIf)에 묻는다. 없으면 그 단만 건너뛴다.
-설정 꼴과 확인 명령(`mem judge config`)은 아래 「바깥 LLM 판정 K」 절.
+**바깥 서버 판정은 선택 사항이다.** `mem` 은 서버 없이 그대로 다 돈다. 근거 판정(R3)의 **규칙 단은 서버 없이 늘 돈다.**
+JudgeModel NLI 서버가 있으면 `~/.aimemory/llm.toml` 의 `nli_url` 하나로 붙인다 — 그러면 규칙에 안 걸린 쌍을 JudgeModel 로 판정한다. 없으면 그 단만 건너뛴다.
+설정 꼴과 확인 명령(`mem judge config`)은 아래 「바깥 판정 K」 절.
 
 **소스를 받은 뒤(서브모듈 갱신 포함)에는 `.\build.ps1` 로 다시 빌드한다** — `bin\` 은 git 에 안 올라가
 옛 판이 그대로 남는다. 「고쳤는데 그대로다」의 태반이 이것이다.
@@ -114,7 +114,8 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 | `tags` | 태그·scope 표준 목록을 손본다 (`--add` · `--add-scope` · `--alias` · `--rename` · `--check`) | **`--suggest`** (동의어·대표말 후보 제안 · 아무것도 안 고친다) |
 | `eval` | 골든셋으로 **검색 품질**과 **문서 품질**(`--quality`)을 잰다. `--tune-dup` · `--golden` · `--repo` | **골든셋이 없으면 종료 코드 3** |
 | `status` | 저장소 자리·건수·색인 건강. `--quality` · `--db` · `--doctor` · `--log` | **`--embed`** (지금 어느 모드인지 · 벡터 몇 건인지) |
-| `judge` | 바깥 LLM 판정(SemIf)을 직접 불러 본다. `config` · `support` (아래 K 절) | K 에서 새로 |
+| `judge` | 근거 지지 판정(규칙 → JudgeModel NLI)을 직접 불러 본다. `config` · `support` · `clean` · `report` (아래 K 절) | K 에서 새로 |
+| `retain` | 알림 못 받은 세션(큐)의 대화 기록을 생성 서버(Strata)에 보내 기억 후보를 뽑고, 후보마다 자식 `mem add --origin retain:strata` 로 자동 관문(R1~R8 · R3 는 NLI 필수)에 건다. 서버 둘 중 하나라도 안 닿으면 한 줄 + 종료 0. `--session` · `--max`(기본 3) · `--dry-run` · `--prune [--apply]` · `--json`. 기록은 `Memory/local/retain-log/<날짜>.jsonl`. 설계 `Docs/Design/2026-10-19-A2-retain설계.md` | A2 에서 새로 (2026-10-19) |
 | `help` | 한글 도움말. `mem help <명령>` 은 `mem <명령> --help` 와 같다 | — |
 
 옵션은 `mem help <명령>` 으로 본다. 메시지는 전부 한글이다.
@@ -145,36 +146,33 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 | `mem auto redo --apply` | undo 기록대로 되살린다 |
 | `mem review --reject <id>` | 보류 기억을 버린다 — 지우지 않고 접는다 (`gc --restore` 로 되돌림) |
 
-R3(근거 판정)는 아래 「판정 사다리」 절대로 돈다 — 규칙 단은 늘, 서버 단(SemIf)은 K 절의 `llm.toml` 이 있을 때만.
+R3(근거 판정)는 아래 「판정 사다리」 절대로 돈다 — 규칙 단은 늘, NLI 단은 K 절의 `llm.toml` 에 `nli_url` 이 있을 때만.
 
-## 바깥 LLM 판정 K (2026-10-05)
+## 바깥 판정 K (2026-10-05 · 2026-10-19 JudgeModel 로 판정)
 
-`add --origin` 의 R3 가 **근거 문장이 요약을 정말 뒷받침하나**를 바깥 LLM(OpenAI 호환 서버)에 글자 하나로 묻는다 — 지지(A) · 반대(B) · 무관(C), 「지지」만 통과.
-SemIf 방식이다: 생각 끔 · `max_tokens 1` · 첫 토큰 위 20개 확률에서 글자만 읽는다. 글을 안 만들게 하니 지어낼 자리가 없다.
-SemIf 는 모델이 아니라 묻는 법이다 — 어떤 생성 LLM 이든 글자 하나로 답하게 하고 그 글자의 확률만 읽는다. 그래서 특정 모델에 묶이지 않는다.
+`add --origin` 의 R3 가 **근거 문장이 요약을 정말 뒷받침하나**를 JudgeModel NLI 서버에 묻는다 — 지지(A) · 반대(B) · 무관(C), 「지지」만 통과.
+첫 판(2026-10-05)은 생성 LLM 의 첫 글자 확률을 읽는 SemIf 방식이었다. 2026-10-19 에 지웠다 — 판정은 JudgeModel 하나로 한다 (A2 retain 설계 11절).
 
 - **기계 설정 `~/.aimemory/llm.toml` 이 없으면 서버 단만 꺼진다** (기본 꺼짐). 규칙 단은 그래도 돈다 (아래 「판정 사다리」). `mem` 은 서버를 띄우지 않는다.
-- 서버가 안 닿거나 · 시간을 넘기거나 · 확률을 안 주면 **R3 만 경고 한 줄로 건너뛰고** 저장은 그대로 한다. 재시도는 없다.
+- 서버가 안 닿거나 · 시간을 넘기거나 · 답 꼴이 틀리면 **R3 만 경고 한 줄로 건너뛰고** 저장은 그대로 한다 (retain:* 은 거절). 재시도는 없다.
 - 규칙 관문에 이미 걸린 후보 · 비밀 꼴이 든 글은 서버에 안 보낸다.
-- 판정은 `Memory/local/judge/<해시>.json` 에 남기고 **같은 입력은 다시 묻지 않는다** (같은 입력도 확률이 흔들려서다).
+- 판정은 `Memory/local/judge/<해시>.json` 에 남긴다. NLI 는 1초 안쪽이라 같은 입력도 다시 묻는다.
 - `mem judge config` 로 설정을 보고, `mem judge support --evidence … --claim …` · `--file <쌍.jsonl>` 로 직접 재 본다.
 - `mem judge report --file <보고.md | -> [--scope X]` 는 서브에이전트 보고 속 결정 문장을 기존 결정과 NLI 로 대조한다 — 아래 「v1.2 적용」 절.
-- 확인한 서버 : 로컬 llama.cpp `llama-server`(2026-10-05 실측). 다른 OpenAI 호환 서버는 `logprobs`·`top_logprobs` 를 돌려주면 된다.
 
 ```toml
 # ~/.aimemory/llm.toml — 이 기계만 (git 밖)
-url = "http://127.0.0.1:8080"   # 서버 뿌리 · /v1 · /v1/chat/completions 셋 다 된다
-key = ""                        # 있으면 Bearer 로 보낸다
-judge_profile = "flashnext"     # 요청의 model 칸 · 판정 기록에 적는 이름
-generate_profile = "flashnext"  # B2·A2 몫 (아직 안 쓴다)
-timeout_ms = 5000               # 한 요청 제한 시간 (1~60000)
+key = ""                        # 있으면 생성 요청에 Bearer 로 보낸다
 ```
 
-### 판정 사다리 — 규칙 → NLI → SemIf (2026-10-08 · ② 단은 2026-10-09 NLI 로 바뀜)
+옛 칸 `judge_profile` · `generate_profile` · `timeout_ms` 는 안 쓴다 — 적혀 있으면 읽지 않고 「안 쓰는 칸 — 지워도 된다」 경고 한 줄을 낸다.
+옛 `url` 은 이번 판만 `generate_url` 이 없을 때 생성 주소로 대신 읽는다 (다음 판에 지운다).
 
-판정은 싼 단부터 묻고 앞 단이 확신하면 멈춘다 (자체판정프로그램설계 2026-10-08 · 1~3절).
+### 판정 사다리 — 규칙 → NLI (2026-10-08 · ② 단은 2026-10-09 NLI 로 바뀜 · ③ SemIf 는 2026-10-19 지움)
+
+판정은 싼 단부터 묻고 규칙이 확정하면 멈춘다 (자체판정프로그램설계 2026-10-08 · 1~3절).
 **규칙 단은 `llm.toml` 이 없어도 늘 돈다.**
-**NLI 단은 기본으로 꺼져 있다** — `nli_url` 을 비워 두면 건너뛰어, 실제 사다리는 「규칙 → SemIf → 보류」다.
+**NLI 단은 기본으로 꺼져 있다** — `nli_url` 을 비워 두면 건너뛰어, 실제 사다리는 「규칙 → 보류」다.
 NLI 서버는 JudgeModel 의 응답 꼴 `nli-v2` 를 따르는 HTTP 서버다 — `POST /judge {"evidence","claim"}` → `{"a","b","c","d","model","ms"}` (a 지지 · b 반대 · c 무관 · d 비슷한 계열 확률, model 은 가중치 SHA 앞 8자).
 **d 가 없는 옛 3칸 꼴(`nli-v1`)도 그대로 받는다** — 칸 수는 응답에서 읽고, 합 검사(1±0.02)는 받은 칸 전부로 한다. `/health` 의 `letters` 길이가 칸 수다(없으면 3칸).
 d 는 지지가 아니다 — R3·`mem judge` 에서는 무관(C)과 같은 거절이다. 판정 기록의 판 이름은 받은 꼴대로 적는다 — d 가 오면 `nli-v2`, 옛 3칸이면 `nli-v1` 이라 두 기록이 안 섞인다.
@@ -188,21 +186,30 @@ JudgeModel 의 첫 모델 `nli-studio-v1` 은 2026-10-09 game90 미달이었고,
 | --- | --- | --- | --- |
 | ① 규칙 | `rules` · `rules-v1` | R-부정 → R-숫자 → R-무관. 반대(B)·무관(C)만 낸다 · 까닭은 `reason` (`neg:한다→안 한다` · `num:5초≠12초` · `unrelated:j0.02/b0.05`) | `mem judge` 는 B·C, retain(R3)은 **B 만** |
 | ② NLI | `nli` · `nli-v2` | `POST {nli_url}/judge` → A·B·C(·D) 확률. 안 닿음·시간 넘김·200 아님이면 건너뛴다 (`nli:timeout`) | 답이 지지(A)면 확률 ≥ `nli_sure_support`, 반대·무관(B·C)이면 ≥ `nli_sure`, 계열(D)이면 ≥ `nli_sure_related` |
-| ③ SemIf | `semif` · `support-v3` | 위 K 그대로 | 「모른다」가 아니면 |
-| ④ 보류 | — | 마지막 답에 `unsure: true` | 늘 |
+| ③ 보류 | — | 마지막 답에 `unsure: true` | 늘 |
 
-- NLI 문턱이 둘인 까닭 : 막을 실수는 거짓 지지 하나다. 지지에만 높은 선을 걸면 반대·무관 확정은 덜 잃는다. 확신 아래면 SemIf 로 넘기고, SemIf 도 없으면 보류다.
+- NLI 문턱이 둘인 까닭 : 막을 실수는 거짓 지지 하나다. 지지에만 높은 선을 걸면 반대·무관 확정은 덜 잃는다. 확신 아래면 보류다.
 - retain 에서 규칙 C 는 다음 단에 묻고, 다음 단이 없으면 「판정 못 받음」 경고다. 규칙에 안 걸렸고 물을 단도 없으면 경고 없이 넘긴다.
 - 비밀 꼴 검사는 ② 앞에서 한다. 규칙 단은 프로세스 밖으로 안 나가 비밀 꼴이어도 돈다.
-- `mem judge support … --stage rules,nli,semif` (쉼표 묶음)로 고른 단만 돈다. 결과 jsonl 에 `stage` · `reason` 이 찍혀 단마다 몇 쌍을 잡았는지 센다.
+- `mem judge support … --stage rules,nli` (쉼표 묶음)로 고른 단만 돈다. 결과 jsonl 에 `stage` · `reason` 이 찍혀 단마다 몇 쌍을 잡았는지 센다.
 
 ```toml
 nli_url = ""              # 예 "http://127.0.0.1:8092" · 비면 NLI 단을 건너뛴다
 nli_timeout_ms = 1000     # 1~5000
-nli_sure = 0.70           # 반대·무관 확정 문턱 · 0.34~0.99 · 이 확률 아래면 다음 단으로 넘긴다
+nli_sure = 0.70           # 반대·무관 확정 문턱 · 0.34~0.99 · 이 확률 아래면 보류(모른다)다
 nli_sure_support = 0.90   # 지지 확정 문턱 · 0.34~0.99 · 보통 nli_sure 보다 높다
 nli_sure_related = 0.80   # 비슷한 계열(D) 확정 문턱 · 0.34~0.99 · 4칸 서버에서만 쓰인다
 ```
+
+`mem retain`(A2) 이 쓰는 생성 서버 칸이다. 키는 위 `key` 를 같이 쓴다.
+
+```toml
+generate_url = ""             # 예 "http://<미니PC>:8080" (뿌리 · /v1 · /v1/chat/completions 셋 다 된다) · 비면 retain 은 「생성 주소 없음 — 건너뜀」 (이번 판만 비면 url 을 대신 읽는다)
+generate_model = ""           # 요청의 model 칸 (Strata 모델 id) · 비면 안 보낸다
+generate_timeout_ms = 180000  # 생성 한 요청 제한 시간 (1~600000)
+```
+
+`mem.toml [retain]` 의 `max_chunks`(기본 6) · `chunk_chars`(기본 36000) 가 세션 하나에서 생성에 보낼 토막 수와 토막 글자 수 상한이다.
 
 ### review --nli — 접기·합치기 2차 (2026-10-10 밤)
 
@@ -428,6 +435,7 @@ AI 는 세션 시작에 훅이 밀어 넣는 요약만 읽으면 된다. 여기 
 | 다른 말로도 찾히게 | `--keys a,b` — 글에 없는 같은 뜻 말·영한 짝을 0~6개 단다 (선택, C1). `mem set <id> --keys …` 로 갈아 끼운다 |
 | 찾을 때 | `mem search 낱말 낱말` · 본문은 `mem show <id>` |
 | 고칠 때 | 본문·요약은 파일을 고치고 `mem index`. 결정이 뒤집혔으면 `mem set <옛id> --by <새id>` |
+| 근거를 바꿀 때 | `mem set <id> --sources file:…,commit:…` — 근거를 **통째로** 갈아 끼운다 (별칭 `--source`). 꼴이 틀리면 종료 2 |
 | 목록을 늘릴 때 | `mem tags --add <태그>` · `mem tags --add-scope <이름>` · 지금 뭐가 밖인지는 `mem tags --check` |
 | **확신이 없을 때** | `mem add … --hold` — 보류로 들어가 검색·훅에 안 뜬다. **사람이** `mem review --promote <id>` 로 연다 |
 | 언제 넣나 | **작업 완료 보고를 쓰기 직전에 "남길 것 있나" 를 한 번 본다.** 한 세션에 보통 0~3건 |

@@ -13,94 +13,19 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
 )
 
-// 근거 지지 판정(R3 · 모음 기억 줄 검증 3-6)의 물음이다. 선택지 순서는 하나만 쓴다 —
-// 정·역 평균은 지연이 두 배인데 50문항 중 한 문항만 더 맞혔다 (판정모델 실측 2-2).
+// 근거 지지 판정(R3 · 모음 기억 줄 검증 3-6)의 답 글자와 「모른다」 선이다.
 const (
 	KindSupport = "support"
-	// PromptVersion 은 기본 물음 글의 판이다 (DefaultPrompt.Version 과 같다). 물음 글 자체가
-	// 해시에 들어가 옛 판정과 섞이지 않는다. 이 판 번호는 기록의 Prompt 라벨을 구분하려고 올린다.
-	// v2 (2026-10-08) : v1 은 「근거에 없는 말을 덧붙이면 지지 아님」이라 요약(늘 본문 한 문장보다
-	// 넓다)을 통째로 무관으로 밀어 지지 갈래가 2/16 이었다 (Docs/Research/2026-10-08-K실물판정측정.md).
-	// v3 (2026-10-08) : v2 는 근거가 주장의 **일부**만 받치는 꼴을 무관으로 밀어 지지 7/16 이었다.
-	// 사용자 결정(10-08 낮) — 일부만 받쳐도 지지로 친다 · 최고 확률 0.40 아래는 「모른다」 경고.
-	PromptVersion = "support-v3"
 
 	LetterSupport    = "A"
 	LetterContradict = "B"
 	LetterUnrelated  = "C"
 
-	// UnsureBelow 는 「모른다」 선이다. 최고 확률이 이 아래면 글자를 믿지 않는다 (v2 측정에서
-	// 동점 근처 쌍 k033·k048 이 0.35~0.40 이었다).
+	// UnsureBelow 는 「모른다」 선이다. 최고 확률이 이 아래면 글자를 믿지 않는다.
 	UnsureBelow = 0.40
 	// tieGap 은 1·2등 확률 차이가 이 안이면 동점으로 보는 폭이다.
 	tieGap = 0.01
-
-	systemStrict = "You are a strict judge. Apply the given criterion to the evidence and choose exactly one option. " +
-		"Answer with the single uppercase letter of the chosen option and nothing else."
-	systemPlain = "You are a judge. Apply the given criterion to the evidence and choose exactly one option. " +
-		"Answer with the single uppercase letter of the chosen option and nothing else."
-	criterionV2 = "아래 주장이 근거 문장과 어떤 관계인가? " +
-		"주장이 근거의 내용을 요약하거나 일반화한 것이면 지지(A)다. " +
-		"근거와 어긋나는 사실·숫자·극성(긍정/부정)이 있으면 반대(B)다. " +
-		"근거가 주장에 대해 아무 말도 하지 않으면 무관(C)이다. " +
-		"주장이 근거보다 한 마디 넓은 것만으로는 무관이 아니다.\n주장 : "
-	criterionV3 = "아래 주장이 근거 문장과 어떤 관계인가? " +
-		"주장 가운데 근거가 다루는 부분이 근거와 맞으면 지지(A)다. 근거가 주장의 일부만 받쳐도 지지다. " +
-		"근거가 다루지 않는 부분은 판단에 넣지 않는다. " +
-		"근거가 다루는 부분에 어긋나는 사실·숫자·극성(긍정/부정)이 있으면 반대(B)다. " +
-		"근거가 주장의 어느 부분도 다루지 않으면 무관(C)이다.\n주장 : "
 )
-
-var optionsV2 = []option{
-	{Letter: LetterSupport, Description: "지지 — 근거가 주장의 핵심을 받친다 (주장이 근거를 요약·일반화한 것도 지지)"},
-	{Letter: LetterContradict, Description: "반대 — 근거가 주장과 어긋난다 (사실·숫자가 다름 · 뜻이 뒤집힘)"},
-	{Letter: LetterUnrelated, Description: "무관 — 근거가 주장에 대해 아무 말도 하지 않는다"},
-}
-
-var optionsV3 = []option{
-	{Letter: LetterSupport, Description: "지지 — 근거가 주장의 전부 또는 일부를 받친다 (요약·일반화·일부만 받침도 지지)"},
-	{Letter: LetterContradict, Description: "반대 — 근거가 다루는 부분에서 주장과 어긋난다 (사실·숫자가 다름 · 뜻이 뒤집힘)"},
-	{Letter: LetterUnrelated, Description: "무관 — 근거가 주장의 어느 부분도 다루지 않는다"},
-}
-
-// Prompt 는 물음 글 한 판이다. 판마다 글이 달라 해시가 갈리므로 판정 기록이 섞이지 않는다.
-type Prompt struct {
-	Version   string
-	System    string
-	Criterion string
-	Options   []option
-}
-
-// 물음 글 판들. 측정에서 나란히 재려고 셋을 다 둔다 (`mem judge support --prompt`).
-var (
-	PromptV2       = Prompt{Version: "support-v2", System: systemStrict, Criterion: criterionV2, Options: optionsV2}
-	PromptV3       = Prompt{Version: "support-v3", System: systemPlain, Criterion: criterionV3, Options: optionsV3}
-	PromptV3Strict = Prompt{Version: "support-v3-strict", System: systemStrict, Criterion: criterionV3, Options: optionsV3}
-	// DefaultPrompt 는 R3 와 mem judge 가 기본으로 쓰는 판이다.
-	DefaultPrompt = PromptV3
-)
-
-// PromptNamed 는 이름(v2 · v3 · v3-strict 또는 판 이름 그대로)으로 물음 글을 찾는다.
-func PromptNamed(name string) (Prompt, bool) {
-	for _, prompt := range []Prompt{PromptV2, PromptV3, PromptV3Strict} {
-		if name == prompt.Version || "support-"+name == prompt.Version {
-			return prompt, true
-		}
-	}
-	return Prompt{}, false
-}
-
-type option struct {
-	Letter      string `json:"letter"`
-	Description string `json:"description"`
-}
-
-// semifInput 은 사용자 턴 JSON 이다 (SemIf direct 꼴 — evidence · criterion · options).
-type semifInput struct {
-	Evidence  string   `json:"evidence"`
-	Criterion string   `json:"criterion"`
-	Options   []option `json:"options"`
-}
 
 // Verdict 는 판정 기록 한 건이다. Memory/local/judge/<해시>.json 으로 남는다.
 // 주소·키는 안 적는다.
@@ -116,8 +41,7 @@ type Verdict struct {
 	At       string             `json:"at"`
 	Evidence string             `json:"evidence"`
 	Claim    string             `json:"claim"`
-	Cached   bool               `json:"cached,omitempty"`
-	// Stage 는 답을 낸 단(rules · nli · semif)이고 Reason 은 규칙의 까닭이다 (neg:한다→안 한다).
+	// Stage 는 답을 낸 단(rules · nli)이고 Reason 은 규칙의 까닭이다 (neg:한다→안 한다).
 	Stage  string `json:"stage,omitempty"`
 	Reason string `json:"reason,omitempty"`
 	// Unsure 는 「모른다」다 — 최고 확률이 UnsureBelow 아래거나 1·2등이 동점. 글자는 그대로
@@ -148,22 +72,18 @@ func unsureOf(choice Choice) bool {
 const (
 	StageRules = "rules"
 	StageNLI   = "nli"
-	StageSemIf = "semif"
 )
 
 // Stages 는 사다리 차례다.
-var Stages = []string{StageRules, StageNLI, StageSemIf}
+var Stages = []string{StageRules, StageNLI}
 
-// Judge 는 판정기다. 규칙 → NLI → SemIf 차례로 묻고 앞 단이 확신하면 멈춘다.
-// NLI·Client 가 nil 이면 그 단을 건너뛴다. Dir 이나 프로필이 비면 SemIf 기록을 안 남기고 안 읽는다.
-// Refuse 가 참을 내는 글(비밀 꼴)은 프로세스 밖(NLI·SemIf)으로 보내지 않는다. Prompt 가 비면 DefaultPrompt 다.
+// Judge 는 판정기다. 규칙 → NLI 차례로 묻고 규칙이 최종 글자를 내면 멈춘다.
+// NLI 가 nil 이면 그 단을 건너뛴다. Dir 이 비면 NLI 판정 기록을 안 남긴다.
+// Refuse 가 참을 내는 글(비밀 꼴)은 프로세스 밖(NLI)으로 보내지 않는다.
 type Judge struct {
-	Client *Client
 	NLI    *NLIClient
 	Dir    string
-	Fresh  bool
 	Refuse func(text string) bool
-	Prompt *Prompt
 	// RulesFinal 은 규칙 글자 중 최종으로 칠 것이다 (mem judge {B,C} · retain {B}).
 	// 비면 규칙에 걸려도 늘 다음 단에 묻는다.
 	RulesFinal []string
@@ -173,27 +93,20 @@ type Judge struct {
 	last string
 	// skipped 는 마지막 Supports 에서 물을 단이 하나도 없었는지다 (관문은 조용히 넘긴다).
 	skipped bool
-}
-
-// prompt 는 쓰는 물음 글이다.
-func (j *Judge) prompt() Prompt {
-	if j.Prompt == nil {
-		return DefaultPrompt
-	}
-	return *j.Prompt
+	// probs 는 마지막 Supports 가 받은 세 칸 확률이다. 판정을 못 받았으면 nil 이다.
+	probs map[string]float64
 }
 
 // ErrRefused 는 비밀 꼴이 있어 보내지 않은 것이다.
 var ErrRefused = errors.New("secret-shape")
 
-// Support 는 (근거, 주장) 한 쌍을 사다리로 판정한다. 확신 없는 답만 남으면 마지막 답을
-// Unsure 로 돌려준다. 어느 단도 답을 못 냈으면 마지막 오류다 (물을 단이 없으면 ErrDisabled).
+// Support 는 (근거, 주장) 한 쌍을 사다리로 판정한다. NLI 답은 확신이 없어도(Unsure) 그대로
+// 돌려준다. NLI 가 오류면 그 오류다. 물을 단이 없으면 규칙 답을 Unsure 로, 그마저 없으면 ErrDisabled 다.
 func (j *Judge) Support(evidence, claim string) (Verdict, error) {
 	if j == nil {
 		return Verdict{}, ErrDisabled
 	}
 	var pending *Verdict
-	var lastErr error = ErrDisabled
 	if j.uses(StageRules) {
 		verdict := ruleVerdict(evidence, claim)
 		if verdict.Letter != "" && j.ruleFinal(verdict.Letter) {
@@ -201,34 +114,23 @@ func (j *Judge) Support(evidence, claim string) (Verdict, error) {
 		}
 		pending = &verdict
 	}
-	outside := (j.uses(StageNLI) && j.NLI != nil) || (j.uses(StageSemIf) && j.Client != nil)
-	if outside && j.Refuse != nil && (j.Refuse(evidence) || j.Refuse(claim)) {
+	if !j.uses(StageNLI) || j.NLI == nil {
+		return settle(pending, ErrDisabled)
+	}
+	if j.Refuse != nil && (j.Refuse(evidence) || j.Refuse(claim)) {
 		return settle(pending, ErrRefused)
 	}
-	if j.uses(StageNLI) && j.NLI != nil {
-		verdict, err := j.askNLI(evidence, claim)
-		if err != nil {
-			j.last = err.Error()
-			lastErr = err
-		} else if !verdict.Unsure {
-			return verdict, nil
-		} else {
-			pending = &verdict
-		}
+	verdict, err := j.askNLI(evidence, claim)
+	if err != nil {
+		j.last = err.Error()
+		return Verdict{}, err
 	}
-	if j.uses(StageSemIf) && j.Client != nil {
-		verdict, err := j.askSemIf(evidence, claim)
-		if err != nil {
-			return settle(pending, err)
-		}
-		return verdict, nil
-	}
-	return settle(pending, lastErr)
+	return verdict, nil
 }
 
-// settle 은 확신 있는 답 없이 사다리가 끝났을 때다. 어느 단이 오류를 냈으면 그 오류다 —
-// 부르는 쪽이 「판정 못 받음」 경고로 흘린다. 오류 없이 물을 단이 없었으면 남은 답을 Unsure 로
-// 돌려준다 (규칙에 안 걸린 답은 글자가 비어 있다).
+// settle 은 NLI 답 없이 사다리가 끝났을 때다. 비밀 꼴로 못 보냈으면 그 오류다 — 부르는 쪽이
+// 「판정 못 받음」 경고로 흘린다. 물을 단이 없었으면 규칙 답을 Unsure 로 돌려준다
+// (규칙에 안 걸린 답은 글자가 비어 있다).
 func settle(pending *Verdict, err error) (Verdict, error) {
 	if pending == nil || !errors.Is(err, ErrDisabled) {
 		return Verdict{}, err
@@ -300,41 +202,6 @@ func (j *Judge) askNLI(evidence, claim string) (Verdict, error) {
 	return verdict, nil
 }
 
-// askSemIf 는 SemIf 단이다. 같은 입력의 기록이 있으면 다시 묻지 않는다 — 같은 입력에 확률이
-// 최대 0.23 흔들렸다 (판정모델 실측 2-6).
-func (j *Judge) askSemIf(evidence, claim string) (Verdict, error) {
-	prompt := j.prompt()
-	user, err := json.Marshal(semifInput{Evidence: evidence, Criterion: prompt.Criterion + claim,
-		Options: prompt.Options})
-	if err != nil {
-		return Verdict{}, err
-	}
-	profile := j.Client.Profile()
-	hash := hashOf(KindSupport, prompt.Version, profile, prompt.System, string(user))
-	// 프로필이 비면 서버 쪽에서 모델이 바뀌어도 열쇠가 같다. 다른 모델의 옛 판정을
-	// 그대로 쓰지 않게 기록을 읽지도 쓰지도 않는다 (리뷰 2026-10-05).
-	remember := j.Client.profile != ""
-	if !j.Fresh && remember {
-		if cached, ok := j.read(hash); ok {
-			cached.Cached = true
-			cached.Stage = StageSemIf
-			return cached, nil
-		}
-	}
-	choice, err := j.Client.Choose(Question{System: prompt.System, User: string(user),
-		Letters: []string{LetterSupport, LetterContradict, LetterUnrelated}})
-	if err != nil {
-		return Verdict{}, err
-	}
-	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: prompt.Version, Profile: profile, Stage: StageSemIf,
-		Letter: choice.Letter, Prob: choice.Prob, Probs: choice.Probs, MS: choice.MS,
-		At: time.Now().Format(time.RFC3339), Evidence: evidence, Claim: claim, Unsure: unsureOf(choice)}
-	if remember {
-		j.write(verdict)
-	}
-	return verdict, nil
-}
-
 // ErrUnsure 는 「모른다」다 — 글자를 받았지만 확률이 낮거나 동점이라 믿지 않는다.
 var ErrUnsure = errors.New("unsure")
 
@@ -342,8 +209,9 @@ var ErrUnsure = errors.New("unsure")
 // ok 거짓이다 — 거절 대신 경고로 흘린다 (사용자 결정 2026-10-08). 물을 단이 하나도 없었으면
 // Skipped 가 참이다 (규칙에 안 걸렸고 다음 단이 없음).
 func (j *Judge) Supports(quote, summary string) (bool, bool) {
-	j.skipped = false
+	j.skipped, j.probs = false, nil
 	verdict, err := j.Support(quote, summary)
+	j.probs = verdict.Probs
 	if err != nil {
 		j.last = err.Error()
 		j.skipped = errors.Is(err, ErrDisabled)
@@ -368,8 +236,11 @@ func (j *Judge) Supports(quote, summary string) (bool, bool) {
 // 서버 없는 기계에서 규칙에 안 걸린 쌍마다 경고가 찍히면 안 된다.
 func (j *Judge) Skipped() bool { return j.skipped }
 
-// Problem 은 마지막으로 판정을 못 받은 까닭이다 (timeout · http-500 · no-logprobs …).
+// Problem 은 마지막으로 판정을 못 받은 까닭이다 (nli:timeout · nli:http-500 · unsure …).
 func (j *Judge) Problem() string { return j.last }
+
+// Probs 는 마지막 Supports 가 받은 세 칸 확률이다 (「모른다」여도 있다). 관문 까닭 글이 쓴다.
+func (j *Judge) Probs() map[string]float64 { return j.probs }
 
 // hashOf 는 판정 기록의 열쇠다. 주소는 안 넣는다 — 같은 프로필이면 같은 판정으로 친다.
 func hashOf(parts ...string) string {
@@ -383,21 +254,6 @@ func hashOf(parts ...string) string {
 
 func (j *Judge) path(hash string) string {
 	return filepath.Join(j.Dir, hash+".json")
-}
-
-func (j *Judge) read(hash string) (Verdict, bool) {
-	if j.Dir == "" {
-		return Verdict{}, false
-	}
-	data, err := os.ReadFile(j.path(hash))
-	if err != nil {
-		return Verdict{}, false
-	}
-	var verdict Verdict
-	if json.Unmarshal(data, &verdict) != nil || verdict.Hash != hash || verdict.Letter == "" {
-		return Verdict{}, false
-	}
-	return verdict, true
 }
 
 // write 는 옆에 쓰고 rename 한다. 못 써도 판정은 이미 받았으니 조용히 넘어간다 —

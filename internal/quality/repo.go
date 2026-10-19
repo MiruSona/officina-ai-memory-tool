@@ -3,6 +3,7 @@ package quality
 import (
 	"fmt"
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -77,7 +78,7 @@ func CheckRepo(memories []*model.Memory, opt RepoOptions) RepoReport {
 	go func() { duplicates <- findDuplicates(memories, opt) }()
 	// 이웃 후보 셈(한 갈래 약 5초)도 처음부터 옆에서 돌리고, 붙이는 자리·차례는 그대로 둔다.
 	links := make(chan map[string][]link.Candidate, 1)
-	go func() { links <- suggestLinks(withoutObservations(memories)) }()
+	go func() { links <- suggestLinks(withoutRetired(withoutObservations(memories))) }()
 	report.repoRulesWith(memories, opt, func() map[string][]link.Candidate { return <-links })
 	// 받는 쪽은 저장소 규칙이 끝난 **뒤에** 기다린다 — 그 전엔 ByID 를 안 만진다.
 	report.addDuplicates(memories, opt, <-duplicates)
@@ -88,8 +89,13 @@ func CheckRepo(memories []*model.Memory, opt RepoOptions) RepoReport {
 // 이웃 후보(D04)는 links 로 받는다. 받는 때는 붙이기 직전이다.
 func (r *RepoReport) repoRulesWith(memories []*model.Memory, opt RepoOptions,
 	links func() map[string][]link.Candidate) {
+	byID := memoriesByID(memories)
 	add := func(m *model.Memory, rule, reason string, related ...string) {
-		one := opt.finding(rule, m, reason, nextFor(rule, m, related)...)
+		next := nextFor(rule, m, related)
+		if rule == RuleStaleBasis {
+			next = append(next, relinkNext(m, byID, opt)...)
+		}
+		one := opt.finding(rule, m, reason, next...)
 		one.Related = related
 		r.ByID[m.ID] = append(r.ByID[m.ID], one)
 	}
@@ -100,8 +106,14 @@ func (r *RepoReport) repoRulesWith(memories []*model.Memory, opt RepoOptions,
 	newerByTag := newestPerTag(memories)
 	pointed := pointedIDs(memories)
 	sameSpot := bySpot(memories)
-	byID := memoriesByID(memories)
 	for _, m := range memories {
+		// 덮였거나 접힌 기억은 C18(retired) 하나만 맡는다. 나머지 규칙을 돌리면 접은 뒤
+		// 다른 큐에 그대로 남는다 (2026-10-10 피드백 — contradict 40 · value 4 …). 무효
+		// 날짜만 단 기억은 그대로 본다 — 골든셋이 그 꼴을 결함으로 잡는다 (설계 결정 14).
+		retiredUnfolded(m, opt.Now, add)
+		if retired(m) {
+			continue
+		}
 		if word := unfixedWord(m); word != "" && hasNewer(m, newerByTag) {
 			add(m, RuleUnfixedMarker, fmt.Sprintf("「%s」 라고 적힌 채로 남았는데 같은 태그에 더 새 기억이 있다", word))
 		}
@@ -127,9 +139,8 @@ func (r *RepoReport) repoRulesWith(memories []*model.Memory, opt RepoOptions,
 			add(m, RuleStaleAge, reason)
 		}
 		staleSources(m, opt.SourceMissing, add)
-		// 점검·정리 1단 (C16 · C18 · D05 · D06). 넷 다 기억 하나씩 보는 O(n) 이다.
+		// 점검·정리 1단 (C16 · D05 · D06). 셋 다 기억 하나씩 보는 O(n) 이다.
 		citedNotSuperseded(m, byID, opt.Now, add)
-		retiredUnfolded(m, opt.Now, add)
 		if Live(m, opt.Now) {
 			noArtifactSource(m, opt, add)
 			staleBodyPaths(m, opt.BodyMissing, add)
@@ -141,9 +152,38 @@ func (r *RepoReport) repoRulesWith(memories []*model.Memory, opt RepoOptions,
 	staleBasis(memories, opt, add)
 	obsStale(memories, add)
 	// 모음 기억은 원본 글을 옮겨 적은 것이라 「같은 주제 이웃」·「표기 갈림」 셈에서 뺀다.
-	plain := withoutObservations(memories)
+	// 덮였거나 접힌 기억도 뺀다 — 이웃이 될 일도, 표기를 맞출 일도 없다.
+	plain := withoutRetired(withoutObservations(memories))
 	reportLinkMissing(plain, links(), add)
 	notationDrift(plain, opt, add)
+}
+
+// retired 는 덮였거나 gc 가 접은 기억이다 — 사람이 이미 물렸다고 정한 것.
+func retired(m *model.Memory) bool { return m.SupersededBy != "" || folded(m) }
+
+// withoutRetired 는 덮였거나 접힌 기억을 뺀 새 목록이다. 원래 목록은 안 건드린다.
+func withoutRetired(memories []*model.Memory) []*model.Memory {
+	out := make([]*model.Memory, 0, len(memories))
+	for _, m := range memories {
+		if !retired(m) {
+			out = append(out, m)
+		}
+	}
+	return out
+}
+
+// unlinked 는 중복 후보에서 links 로 이은 짝을 뺀다. 사람이 「다른 기억이다」라고
+// 이미 이어 둔 짝이다. 저장소 검사만 이렇게 본다 — add 관문은 그대로 막는다.
+func unlinked(matches []Match, m *model.Memory, byID map[string]*model.Memory) []Match {
+	out := matches[:0:0]
+	for _, match := range matches {
+		other := byID[match.Doc.ID]
+		if slices.Contains(m.Links, match.Doc.ID) || (other != nil && slices.Contains(other.Links, m.ID)) {
+			continue
+		}
+		out = append(out, match)
+	}
+	return out
 }
 
 // rivalSpot 은 결정 경쟁(C05)이 견주는 자리다. LiveDecisionRivals 는 종류·scope 가 다르면 안 본다.
@@ -210,8 +250,9 @@ func findDuplicates(memories []*model.Memory, opt RepoOptions) duplicateResult {
 	table := newSimilarFor(opt.Options)
 	for at, doc := range docs {
 		// 모음 기억은 원본을 이어 붙인 글이라 원본과 닮은 것이 당연하다 (B1).
-		// 중복 표에 안 넣고, 저도 중복 판정을 안 받는다.
-		if memories[at].Type == model.TypeObservation {
+		// 중복 표에 안 넣고, 저도 중복 판정을 안 받는다. 덮였거나 접힌 기억도 같다 — 넣으면
+		// 「기억당 3쌍」 자리를 물린 짝이 차지한다 (2026-10-10 피드백).
+		if memories[at].Type == model.TypeObservation || retired(memories[at]) {
 			continue
 		}
 		table.Add(doc)
@@ -226,13 +267,13 @@ func findDuplicates(memories []*model.Memory, opt RepoOptions) duplicateResult {
 	InParallel(len(memories), func(from, to int) {
 		session := table.Session()
 		for at := from; at < to; at++ {
-			if memories[at].Type == model.TypeObservation {
+			if memories[at].Type == model.TypeObservation || retired(memories[at]) {
 				continue
 			}
 			// (점검·정리 1단) 닮은 짝(near)도 **같은 후보 뽑기**에서 받는다. 후보는
 			// 세션이 바로 앞 것을 되쓰므로 Nearest 와 아래 정렬 걸음이 한 번만 뽑는다.
 			matches := session.Nearest(docs[at], opt.Config.Quality.DupWarn, dupListMax)
-			found[at] = duplicateFindingsOf(matches, memories[at], opt.Options)
+			found[at] = duplicateFindingsOf(unlinked(matches, memories[at], byID), memories[at], opt.Options)
 			clash[at], near[at] = clashAndNear(docs[at], session, matches, byID, opt)
 		}
 	})

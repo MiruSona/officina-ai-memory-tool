@@ -47,6 +47,8 @@ type Candidate struct {
 	Supersedes string
 	// GateRules 는 기존 add 관문이 낸 규칙 이름이다 (R4 가 본다).
 	GateRules []string
+	// DupIDs 는 기존 관문의 중복 판정이 가리킨 기억 id 다. R4 까닭 글에 싣는다.
+	DupIDs []string
 }
 
 // Context 는 관문이 대조할 자료다. Record 가 nil 이면 세션 기록을 못 찾은 것이다.
@@ -59,6 +61,8 @@ type Context struct {
 	DayAdds     int
 	Scopes      []string
 	Judge       Judge
+	// TitleSure 는 retain:* 의 제목 검사가 거절하는 「반대」 확률 문턱이다 (llm.toml nli_sure).
+	TitleSure float64
 }
 
 // Finding 은 걸린 것 하나다.
@@ -96,10 +100,15 @@ func Check(candidate Candidate, context Context) Result {
 	checkQuotes(&result, candidate, context.Record != nil, strict, talk)
 	checkFragments(&result, candidate.Memory, context, all)
 	for _, rule := range candidate.GateRules {
-		if dupRules[rule] {
-			result.reject(RuleNoMerge, i18n.T(i18n.AutoDuplicate, rule))
-			break
+		if !dupRules[rule] {
+			continue
 		}
+		which := rule
+		if len(candidate.DupIDs) > 0 {
+			which += " → " + strings.Join(candidate.DupIDs, ",")
+		}
+		result.reject(RuleNoMerge, i18n.T(i18n.AutoDuplicate, which))
+		break
 	}
 	if candidate.Supersedes != "" {
 		result.reject(RuleNoBy, i18n.T(i18n.AutoNoBy))
@@ -152,7 +161,7 @@ func checkFragments(result *Result, memory *model.Memory, context Context, all s
 		if context.Record != nil && strings.Contains(all, Fold(piece.Text)) {
 			continue
 		}
-		if piece.Kind == KindPath && pathExists(context.Root, piece.Text) {
+		if piece.Kind == KindPath && PathExists(context.Root, piece.Text) {
 			continue
 		}
 		if piece.Kind == KindID && memoryExists(context.StoreDir, piece.Text) {
@@ -169,38 +178,18 @@ func checkFragments(result *Result, memory *model.Memory, context Context, all s
 	}
 }
 
-// problemer 는 판정을 못 받은 까닭을 말해 주는 판정자다 (llm.Judge). 없어도 된다.
-type problemer interface{ Problem() string }
-
-// skipper 는 물을 단이 하나도 없었는지 말해 주는 판정자다 (llm.Judge). 그때는 경고 없이 넘긴다.
-type skipper interface{ Skipped() bool }
-
-// checkSupport 는 R3 다. 판정자가 없거나 물을 단이 없었으면 조용히 건너뛴다 — LLM 주소가
-// 없는 기계에서는 규칙 단만 돈다 (U5). 앞 규칙에 이미 걸렸으면 묻지 않는다 — 어차피
-// 거절이라 바깥 서버에 한 판(1초대)을 쓸 까닭이 없다. 판정을 한 번 못 받으면
-// 남은 근거도 묻지 않고 경고 한 줄로 끝낸다 (재시도 없음).
+// checkSupport 는 R3 다. 판정자가 없으면 조용히 건너뛴다 — LLM 주소가 없는 기계에서는
+// 규칙 단만 돈다 (U5). 앞 규칙에 이미 걸렸으면 묻지 않는다 — 어차피 거절이라 바깥 서버에
+// 한 판(1초대)을 쓸 까닭이 없다. 갈래별 차이는 gate_support.go 에 있다.
 func checkSupport(result *Result, candidate Candidate, context Context) {
 	if context.Judge == nil || result.Rejected() {
 		return
 	}
-	for _, quote := range candidate.Quotes {
-		supported, ok := context.Judge.Supports(quote, candidate.Memory.Summary)
-		if !ok {
-			// 이 근거만 물을 단이 없었다 — 남은 근거는 규칙 B 에 걸릴 수 있어 계속 본다.
-			if quiet, has := context.Judge.(skipper); has && quiet.Skipped() {
-				continue
-			}
-			warning := i18n.T(i18n.AutoJudgeSkipped)
-			if why, has := context.Judge.(problemer); has && why.Problem() != "" {
-				warning = i18n.T(i18n.AutoJudgeSkippedWhy, why.Problem())
-			}
-			result.Warnings = append(result.Warnings, warning)
-			return
-		}
-		if !supported {
-			result.reject(RuleSupport, i18n.T(i18n.AutoNotSupported, shortText(quote)))
-		}
+	if IsRetain(candidate.Origin) {
+		checkSupportStrict(result, candidate, context)
+		return
 	}
+	checkSupportLoose(result, candidate, context)
 }
 
 // checkCaps 는 R6 이다. 0 이하로 적으면 그 상한은 끈 것으로 본다.
@@ -226,7 +215,7 @@ func checkSources(result *Result, candidate Candidate, context Context, strict b
 			continue
 		}
 		target := strings.TrimSpace(strings.TrimPrefix(source, model.SourceFile))
-		if !pathExists(context.Root, target) {
+		if !PathExists(context.Root, target) {
 			result.reject(RuleSources, i18n.T(i18n.AutoSourceDead, shortText(target)))
 		}
 	}
@@ -238,9 +227,9 @@ func checkSources(result *Result, candidate Candidate, context Context, strict b
 // lineSuffix 는 `파일:줄` · `#앵커` 꼬리다. 있나 볼 때는 떼고 본다.
 var lineSuffix = regexp.MustCompile(`(:\d+(-\d+)?|#.*)$`)
 
-// pathExists 는 저장소 뿌리 기준 상대 경로가 실제로 있는지다. 뿌리 밖은 없는 것으로
-// 친다 — 자동 기억이 기계의 아무 파일이나 근거로 대면 안 된다.
-func pathExists(root, path string) bool {
+// PathExists 는 저장소 뿌리 기준 상대 경로가 실제로 있는지다. 뿌리 밖은 없는 것으로
+// 친다 — 자동 기억이 기계의 아무 파일이나 근거로 대면 안 된다. mem retain 이 미리 거를 때도 쓴다.
+func PathExists(root, path string) bool {
 	if root == "" || path == "" {
 		return false
 	}

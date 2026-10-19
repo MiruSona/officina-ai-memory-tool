@@ -104,13 +104,14 @@ var commandHelp = map[string]string{
                      덮은 뒤 이 기억을 근거로 삼은 기억이 몇 건인지 알려준다 (mem review --kind basis)
   --by-new           덮을 새 기억이 아직 없다. 오늘부터 검토 큐에 올리고 다음 명령을 알려준다
   --todo-status <값> open doing done
-  --stale-after <날짜> 다시 볼 날을 예약한다
+  --stale-after <날짜> 다시 볼 날을 예약한다. 빈 값(--stale-after "")이면 지운다
   --pin / --unpin    고정을 켜고 끈다
   --done             todo_status 를 done 으로 바꾼다
   --summary --title --tags --scope --severity --importance --invalid-at
   --keys a,b         찾을 때 칠 다른 말을 통째로 갈아 끼운다 (0~6개). --keys "" 는 칸을 뗀다
   --links a,b       이어지는 기억 id 를 통째로 갈아 끼운다
   --link <id>        이어지는 기억 id 를 하나 더한다 (있던 것은 그대로)
+  --sources a,b      근거를 통째로 갈아 끼운다 (file:·commit:·url:·mem:·note:). 별칭 --source
   --body <본문> / --stdin     본문을 통째로 갈아 끼운다
   --repo <폴더>      저장소를 직접 가리킨다
 별칭 : --status(=--todo-status)

@@ -1,6 +1,6 @@
 package main
 
-// mem judge config|support — 바깥 LLM 판정(SemIf)을 사람이 직접 불러 본다 (자동쌓기설계
+// mem judge config|support — 근거 지지 판정(규칙 → JudgeModel NLI)을 사람이 직접 불러 본다 (자동쌓기설계
 // 5절 K). add 관문의 R3 와 **같은 판정·같은 기록 파일**을 쓴다. K 의 통과선
 // 「실제 자료로 다시 잰다」를 이 명령의 --file 로 잰다.
 
@@ -23,8 +23,8 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
-var judgeBools = []string{"json", "fresh", "apply"}
-var judgeValues = []string{"evidence", "claim", "file", "repo", "older", "prompt", "stage", "scope", "pairs"}
+var judgeBools = []string{"json", "apply"}
+var judgeValues = []string{"evidence", "claim", "file", "repo", "older", "stage", "scope", "pairs"}
 
 // judgeDirName 은 판정 기록 폴더다. Memory/local 아래라 git 에 안 들어간다.
 const judgeDirName = "judge"
@@ -70,18 +70,18 @@ func loadLLM() config.LLMConfig {
 }
 
 // judgeOf 는 저장소 하나의 판정기다. 늘 판정기를 돌려준다 — 규칙 단은 서버 없이 돌고,
-// NLI·SemIf 는 llm.toml 에 적혀 있을 때만 붙는다 (Client·NLI 가 nil 일 수 있다).
+// NLI 는 llm.toml 의 nli_url 이 있을 때만 붙는다 (NLI 가 nil 일 수 있다).
 // rulesFinal 은 최종으로 칠 규칙 글자다. 비밀 꼴이 든 글은 프로세스 밖으로 안 보낸다.
 func judgeOf(repository *config.Repository, settings config.LLMConfig, rulesFinal []string) *llm.Judge {
 	scanner := scannerFor(repository.Config.Secret)
-	return &llm.Judge{Client: llm.New(settings), NLI: llm.NewNLI(settings), Dir: judgeDir(repository),
+	return &llm.Judge{NLI: llm.NewNLI(settings), Dir: judgeDir(repository),
 		RulesFinal: rulesFinal, Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
 }
 
 // judgeRulesFinal 은 mem judge 가 최종으로 치는 규칙 글자다 (반대 · 무관).
 var judgeRulesFinal = []string{llm.LetterContradict, llm.LetterUnrelated}
 
-// parseStages 는 --stage 값(rules,nli,semif 를 쉼표로)을 사다리 차례로 맞춘다.
+// parseStages 는 --stage 값(rules,nli 를 쉼표로)을 사다리 차례로 맞춘다.
 func parseStages(text string) ([]string, bool) {
 	given := map[string]bool{}
 	for _, part := range strings.Split(text, ",") {
@@ -199,26 +199,24 @@ func printJudgeClean(row judgeCleanJSON) {
 
 // judgeConfigJSON 은 `judge config --json` 이다. 키는 있는지만 알린다.
 type judgeConfigJSON struct {
-	Path            string  `json:"path"`
-	Enabled         bool    `json:"enabled"`
-	URL             string  `json:"url,omitempty"`
-	Key             bool    `json:"key"`
-	JudgeProfile    string  `json:"judge_profile,omitempty"`
-	GenerateProfile string  `json:"generate_profile,omitempty"`
-	TimeoutMS       int     `json:"timeout_ms"`
-	NLIURL          string  `json:"nli_url,omitempty"`
-	NLITimeoutMS    int     `json:"nli_timeout_ms"`
-	NLISure         float64 `json:"nli_sure"`
-	NLISureSupport  float64 `json:"nli_sure_support"`
+	Path              string  `json:"path"`
+	Enabled           bool    `json:"enabled"`
+	Key               bool    `json:"key"`
+	GenerateURL       string  `json:"generate_url,omitempty"`
+	GenerateModel     string  `json:"generate_model,omitempty"`
+	GenerateTimeoutMS int     `json:"generate_timeout_ms"`
+	NLIURL            string  `json:"nli_url,omitempty"`
+	NLITimeoutMS      int     `json:"nli_timeout_ms"`
+	NLISure           float64 `json:"nli_sure"`
+	NLISureSupport    float64 `json:"nli_sure_support"`
 }
 
 // judgeConfig 는 llm.toml 자리와 읽은 값을 보인다. 서버에는 아무것도 안 보낸다.
 func judgeConfig(parsed *options) int {
 	settings := loadLLM()
-	row := judgeConfigJSON{Path: settings.Path, Enabled: settings.Enabled(), URL: settings.URL,
-		Key: settings.Key != "", JudgeProfile: settings.JudgeProfile,
-		GenerateProfile: settings.GenerateProfile, TimeoutMS: settings.TimeoutMS,
-		NLIURL: settings.NLIURL, NLITimeoutMS: settings.NLITimeoutMS, NLISure: settings.NLISure,
+	row := judgeConfigJSON{Path: settings.Path, Enabled: settings.Enabled(), Key: settings.Key != "",
+		GenerateURL: settings.GenerateURL, GenerateModel: settings.GenerateModel,
+		GenerateTimeoutMS: settings.GenerateTimeoutMS, NLIURL: settings.NLIURL, NLITimeoutMS: settings.NLITimeoutMS, NLISure: settings.NLISure,
 		NLISureSupport: settings.NLISureSupport}
 	if parsed.flags["json"] {
 		return printJSON(row)
@@ -227,8 +225,8 @@ func judgeConfig(parsed *options) int {
 		fmt.Println(i18n.T(i18n.JudgeOff, row.Path))
 		return exitOK
 	}
-	fmt.Println(i18n.T(i18n.JudgeConfigLine, row.Path, row.URL, orDash(row.JudgeProfile),
-		orDash(row.GenerateProfile), row.TimeoutMS, yesNo(row.Key)))
+	fmt.Println(i18n.T(i18n.JudgeConfigLine, row.Path, orDash(row.GenerateURL), orDash(row.GenerateModel),
+		row.GenerateTimeoutMS, yesNo(row.Key), orDash(row.NLIURL), row.NLITimeoutMS, row.NLISureSupport, row.NLISure))
 	return exitOK
 }
 
@@ -246,7 +244,6 @@ func judgeSupport(parsed *options) int {
 		return exitFor(err)
 	}
 	judge := judgeOf(repository, loadLLM(), judgeRulesFinal)
-	judge.Fresh = parsed.flags["fresh"]
 	// --stage 는 측정용이다 — 고른 단만 사다리 차례로 돈다. 안 주면 사다리 전체.
 	if parsed.has("stage") {
 		stages, ok := parseStages(parsed.text("stage"))
@@ -254,14 +251,6 @@ func judgeSupport(parsed *options) int {
 			return fail(i18n.T(i18n.JudgeStageUsage))
 		}
 		judge.Only = stages
-	}
-	// --prompt 는 측정용이다 — 물음 글 판(v2 · v3 · v3-strict)을 골라 나란히 잰다. 안 주면 기본 판.
-	if parsed.has("prompt") {
-		prompt, ok := llm.PromptNamed(strings.TrimSpace(parsed.text("prompt")))
-		if !ok {
-			return fail(i18n.T(i18n.JudgePromptUsage))
-		}
-		judge.Prompt = &prompt
 	}
 	if single {
 		return judgeOne(parsed, judge)
@@ -281,12 +270,12 @@ func judgeOne(parsed *options, judge *llm.Judge) int {
 	}
 	if verdict.Letter == "" {
 		fmt.Println(i18n.T(i18n.JudgeNoHit))
-		if judge.Client == nil && judge.NLI == nil {
+		if judge.NLI == nil {
 			fmt.Println(i18n.T(i18n.JudgeOff, config.LLMPath()))
 		}
 		return exitOK
 	}
-	tail := unsureMark(verdict.Unsure) + cachedMark(verdict.Cached) + i18n.T(i18n.JudgeStageMark, verdict.Stage)
+	tail := unsureMark(verdict.Unsure) + i18n.T(i18n.JudgeStageMark, verdict.Stage)
 	if verdict.Reason != "" {
 		tail += " · " + verdict.Reason
 	}
@@ -341,7 +330,7 @@ func judgeFile(path string, judge *llm.Judge) int {
 			row.Problem = err.Error()
 		} else {
 			row.Verdict = verdict
-			if !verdict.Cached && verdict.Stage != llm.StageRules {
+			if verdict.Stage != llm.StageRules {
 				asked = append(asked, verdict.MS)
 			}
 			if verdict.Unsure {
@@ -409,13 +398,6 @@ func probsText(probs map[string]float64) string {
 func unsureMark(unsure bool) string {
 	if unsure {
 		return i18n.T(i18n.JudgeUnsure)
-	}
-	return ""
-}
-
-func cachedMark(cached bool) string {
-	if cached {
-		return i18n.T(i18n.JudgeCached)
 	}
 	return ""
 }

@@ -199,8 +199,8 @@ func TestMake2FlipsOnly(t *testing.T) {
 // 규칙 단이 낸 답은 규칙 표에서만 센다 — 사다리 전체로 돌린 agent 표에 규칙 답이 섞여도 두 표가 안 된다.
 func TestReadVotesSplitsRuleStage(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "votes.jsonl")
-	rows := `{"id":"r1","letter":"B","stage":"rules"}` + "\n" + `{"id":"s1","letter":"A","stage":"semif"}` + "\n" +
-		`{"id":"o1","letter":"C"}` + "\n" + `{"id":"u1","letter":"A","stage":"semif","unsure":true}` + "\n"
+	rows := `{"id":"r1","letter":"B","stage":"rules"}` + "\n" + `{"id":"s1","letter":"A","stage":"nli"}` + "\n" +
+		`{"id":"o1","letter":"C"}` + "\n" + `{"id":"u1","letter":"A","stage":"nli","unsure":true}` + "\n"
 	if err := os.WriteFile(path, []byte(rows), 0o644); err != nil {
 		t.Fatal(err)
 	}

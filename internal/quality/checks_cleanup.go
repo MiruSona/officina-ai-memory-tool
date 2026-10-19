@@ -10,7 +10,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 )
 
-// 점검·정리 설계(2026-10-10) 1단의 검사다 — C16 · C17 · C18 · C20 (가) · D06.
+// 점검·정리 설계(2026-10-10) 1단의 검사다 — C17 · C18 · C20 (가) · D06. C16 은 checks_cited.go.
 // 전부 후보 등급이고 아무것도 안 고친다. 큐에 올려 사람·AI 가 고르게 할 뿐이다
 // (결정 a40ae33f · 불변조건 I5). 쪼개진 짝(C20 (나))은 checks_merge.go, 본문 경로
 // (D05)는 checks_stale.go 에 있다.
@@ -28,7 +28,7 @@ var changeWords = []string{"덮", "대신", "바꾼", "고친", "뒤집", "이�
 // changeWordIn 은 기억의 제목·요약·본문에 든 첫 바뀜 말이다. 없으면 빈 글이다.
 // 요약에 「X 로 바꾼다」라고 적는 일이 흔해 본문만 보지 않는다.
 func changeWordIn(m *model.Memory) string {
-	text := m.Title + "\n" + m.Summary + "\n" + m.Body
+	text := withoutNegatedChange(m.Title + "\n" + m.Summary + "\n" + m.Body)
 	for _, word := range changeWords {
 		if strings.Contains(text, word) {
 			return word
@@ -51,44 +51,12 @@ func memoriesByID(memories []*model.Memory) map[string]*model.Memory {
 	return out
 }
 
-// citedNotSuperseded 는 C16 이다. m 이 「새 기억」 쪽이고, 걸림은 m 이 `mem:` 으로
-// 가리킨 **옛 기억**에 단다. 짝 하나에 한 번이다.
-//
-// 넷을 다 만족해야 한다 — 같은 종류 · 같은 scope · 옛 것이 아직 살아 있음 · 새 쪽에
-// 바뀜 말. 모음 기억은 원본을 `mem:` 으로 모으는 것이 일이라 새 쪽으로 안 친다.
-func citedNotSuperseded(m *model.Memory, byID map[string]*model.Memory, now time.Time, add addFunc) {
-	if m.Type == model.TypeObservation {
-		return
-	}
-	word := ""
-	said := map[string]bool{}
-	for _, source := range m.Sources {
-		if model.SourceKind(source) != "mem" {
-			continue
-		}
-		old := byID[strings.TrimSpace(strings.TrimPrefix(source, model.SourceMem))]
-		if old == nil || old.ID == m.ID || said[old.ID] {
-			continue
-		}
-		if old.Type != m.Type || old.Scope != m.Scope || !Live(old, now) {
-			continue
-		}
-		if word == "" {
-			if word = changeWordIn(m); word == "" {
-				return
-			}
-		}
-		said[old.ID] = true
-		add(old, RuleCitedNotSuperseded,
-			fmt.Sprintf("새 기억 `%s` 가 이 기억을 근거(mem:)로 달고 「%s」 라고 적었는데, 이 기억에 superseded_by 가 없다. 덮였는지 본다",
-				clip(m.ID), word),
-			m.ID)
-	}
-}
-
 // stateCold 는 gc 가 본문을 접은 기억의 state 값이다 (index.StateCold 와 같은 글).
 // quality 는 index 를 안 들여오므로 글을 따로 둔다.
 const stateCold = "cold"
+
+// stateWarm 은 gc 가 본문을 줄여 접은 기억의 state 값이다 (index.StateWarm 과 같은 글).
+const stateWarm = "warm"
 
 // retiredUnfolded 는 C18 이다. 덮였거나 무효인데 본문이 아직 접히지 않은 기억이다.
 // 검색에선 빠지지만 아무 목록에도 안 떠서 쌓이기만 했다 (설계 2절 ④).

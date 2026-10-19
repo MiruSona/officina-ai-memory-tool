@@ -5,6 +5,7 @@ import (
 	"math"
 	"regexp"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
@@ -66,10 +67,12 @@ func checkSecurity(m *model.Memory, opt Options) []Finding {
 	if hit := opt.SecretWarn.ScanText(text); hit != nil {
 		found = append(found, Finding{Rule: RuleSecretEntropy, Level: GradeWarn, ID: m.ID,
 			Reason: fmt.Sprintf("%d번째 줄에 개인정보로 보이는 것이 있다 (%s)", hit.Line, hit.Rule), Line: hit.Line})
-	} else if line, token := highEntropy(secret.MemoryText(m.Title, m.Summary, entropySources(m.Sources), m.Body)); line > 0 {
+	} else if line, column, token := highEntropy(secret.MemoryText(m.Title, m.Summary, entropySources(m.Sources), m.Body)); line > 0 {
 		// 엔트로피만 출처 url 경로를 뺀 글로 잰다. 거절·개인정보 검사는 원래 글 그대로다.
+		// 줄은 제목·요약·근거·본문을 이은 글 기준이다. 자리만 말하고 값은 안 찍는다 (I3).
 		found = append(found, Finding{Rule: RuleSecretEntropy, Level: GradeWarn, ID: m.ID,
-			Reason: fmt.Sprintf("%d번째 줄에 뜻 없는 %d자 토막이 있다. 열쇠가 아닌지 본다", line, token), Line: line})
+			Reason: fmt.Sprintf("%d번째 줄 %d번째 칸에 뜻 없는 %d자 토막이 있다. 열쇠가 아닌지 본다",
+				line, column, token), Line: line})
 	}
 	// 정규식 앞에 **싼 글자 검사**를 둔다. 한 번만 낮춰 두고 돌려 쓴다.
 	lowered := strings.ToLower(text)
@@ -97,8 +100,9 @@ const (
 	entropyMinLen = 20
 )
 
-// highEntropy 는 엔트로피가 높은 긴 토막이 있는 줄과 그 길이다.
-func highEntropy(text string) (int, int) {
+// highEntropy 는 엔트로피가 높은 긴 토막이 있는 줄 · 그 줄에서 토막이 시작하는
+// 칸(글자 단위, 1부터) · 토막 길이다. 없으면 셋 다 0 이다.
+func highEntropy(text string) (int, int, int) {
 	for number, line := range strings.Split(text, "\n") {
 		for _, token := range strings.FieldsFunc(line, func(letter rune) bool {
 			return !strings.ContainsRune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+/=_-", letter)
@@ -107,11 +111,12 @@ func highEntropy(text string) (int, int) {
 				continue
 			}
 			if shannon(token) >= entropyFloor {
-				return number + 1, len(token)
+				column := utf8.RuneCountInString(line[:strings.Index(line, token)]) + 1
+				return number + 1, column, len(token)
 			}
 		}
 	}
-	return 0, 0
+	return 0, 0, 0
 }
 
 // entropySources 는 엔트로피 검사용 출처 목록이다. `url:` 출처의 **경로만** 뺀다 —

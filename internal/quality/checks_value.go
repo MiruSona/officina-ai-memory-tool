@@ -129,7 +129,8 @@ func ValueFindings(memories []*model.Memory, opt Options) [][]Finding {
 	InParallel(len(memories), func(from, to int) {
 		for at := from; at < to; at++ {
 			m := memories[at]
-			if m == nil || m.Type == model.TypeObservation {
+			// 덮였거나 접힌 기억은 retired 큐가 맡는다 — 접은 뒤 B12 가 새로 생겼다 (10-10 피드백).
+			if m == nil || m.Type == model.TypeObservation || retired(m) {
 				continue
 			}
 			found[at] = checkValue(m, opt)

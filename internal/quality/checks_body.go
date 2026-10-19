@@ -60,7 +60,7 @@ func checkBody(m *model.Memory, opt Options) []Finding {
 	lines := bodyLines(m.Body)
 	if real := substantialLines(m.Body); real < opt.Config.Quality.BodyMinLines {
 		add(RuleBodyThin, fmt.Sprintf("본문이 실질 %d줄이다. %d줄 이상으로 왜·무엇을·다음에 뭘 을 적는다",
-			real, opt.Config.Quality.BodyMinLines))
+			real, opt.Config.Quality.BodyMinLines)+thinHint(m.Body))
 	}
 	switch {
 	case len(lines) > opt.Config.Quality.BodyMax:
@@ -96,6 +96,38 @@ func checkBody(m *model.Memory, opt Options) []Finding {
 }
 
 const headingMax = 8
+
+// thinHint 는 B01 까닭 끝에 붙이는 「왜 한 줄로 셌나」다 (2026-10-11 피드백 — 4문장
+// 본문이 얇다고 거절됐다). 셸에서 `\n` 이 글자로 들어간 것과 한 줄에 문장을 몰아 쓴 것.
+func thinHint(body string) string {
+	if strings.Contains(body, `\n`) {
+		return " — `\\n` 이 글자로 들어갔다. 줄바꿈은 `--stdin` 으로 넣는다"
+	}
+	most := 0
+	for _, line := range bodyLines(body) {
+		most = max(most, sentenceCount(line))
+	}
+	if most >= 3 {
+		return fmt.Sprintf(" — 한 줄에 문장 %d개. 줄을 나눈다", most)
+	}
+	return ""
+}
+
+// sentenceCount 는 한 줄의 문장 수다. 마침표·물음표·느낌표 뒤가 빈칸이거나 줄 끝이면
+// 한 문장으로 센다 — `v1.2` 같은 판 번호는 안 센다.
+func sentenceCount(line string) int {
+	letters := []rune(strings.TrimSpace(line))
+	count := 0
+	for at, letter := range letters {
+		if !strings.ContainsRune(".?!。", letter) {
+			continue
+		}
+		if at == len(letters)-1 || unicode.IsSpace(letters[at+1]) {
+			count++
+		}
+	}
+	return count
+}
 
 // firstLineProblem 은 첫 줄이 결론인지 본다 (규칙 B03).
 func firstLineProblem(lines []string) string {

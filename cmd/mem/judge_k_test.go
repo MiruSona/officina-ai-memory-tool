@@ -1,13 +1,12 @@
 package main
 
-// K — 바깥 LLM 판정. add --origin 의 R3 와 mem judge 를 가짜 서버로 본다.
+// K — 바깥 NLI 판정. add --origin 의 R3 와 mem judge 를 가짜 서버로 본다.
 // 진짜 서버에는 아무것도 안 보낸다.
 
 import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"math"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -15,6 +14,7 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/retain"
@@ -24,11 +24,20 @@ import (
 // TestMain 은 이 기계의 진짜 ~/.aimemory/llm.toml 을 시험이 못 읽게 막는다 —
 // 시험이 바깥 서버로 요청을 보내면 안 된다.
 func TestMain(m *testing.M) {
+	// retain 시험은 이 시험 바이너리를 자식 `mem add` 로 부른다 — 그때는 시험 대신 명령을 돈다.
+	if os.Getenv(testChildEnv) == "1" {
+		// 자식 시간 상한 시험 — 끝나지 않는 자식을 흉내 낸다.
+		if os.Getenv(testChildHang) == "1" {
+			time.Sleep(10 * time.Minute)
+		}
+		os.Exit(run(os.Args[1:]))
+	}
 	os.Setenv(config.LLMPathEnv, filepath.Join(os.TempDir(), "mem-test-no-llm.toml-없음"))
 	os.Exit(m.Run())
 }
 
-// fakeLLM 은 letter 를 확률 0.9 로 고르는 가짜 서버다. status 가 0 이 아니면 그 코드로 답한다.
+// fakeLLM 은 letter 를 확률 0.95 로 고르는 가짜 NLI 판정 서버(JudgeModel 응답 꼴)다.
+// status 가 0 이 아니면 그 코드로 답한다.
 func fakeLLM(t *testing.T, letter string, status int) (*httptest.Server, *atomic.Int32) {
 	t.Helper()
 	hits := &atomic.Int32{}
@@ -39,25 +48,20 @@ func fakeLLM(t *testing.T, letter string, status int) (*httptest.Server, *atomic
 			w.WriteHeader(status)
 			return
 		}
-		tops := []map[string]any{{"token": letter, "logprob": math.Log(0.9)}}
-		for _, other := range []string{"A", "B", "C"} {
-			if other != letter {
-				tops = append(tops, map[string]any{"token": other, "logprob": math.Log(0.04)})
-			}
-		}
-		data, _ := json.Marshal(map[string]any{"choices": []any{map[string]any{
-			"logprobs": map[string]any{"content": []any{map[string]any{"token": letter, "top_logprobs": tops}}}}}})
-		w.Write(data)
+		probs := map[string]float64{"a": 0.025, "b": 0.025, "c": 0.025}
+		probs[strings.ToLower(letter)] = 0.95
+		fmt.Fprintf(w, `{"a":%.3f,"b":%.3f,"c":%.3f,"model":"fake0001","ms":1.0,"label_set":"nli3"}`,
+			probs["a"], probs["b"], probs["c"])
 	}))
 	t.Cleanup(server.Close)
 	return server, hits
 }
 
-// useLLM 은 시험 하나 동안 llm.toml 을 그 서버로 가리킨다.
+// useLLM 은 시험 하나 동안 llm.toml 의 nli_url 을 그 서버로 가리킨다.
 func useLLM(t *testing.T, address string) {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "llm.toml")
-	text := fmt.Sprintf("url = %q\njudge_profile = \"judge\"\ntimeout_ms = 1000\n", address)
+	text := fmt.Sprintf("nli_url = %q\nnli_timeout_ms = 1000\n", address)
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -95,10 +99,10 @@ func TestAutoAddR3Rejects(t *testing.T) {
 	if !strings.Contains(string(raw), "자동 · stop · "+retain.RuleSupport) {
 		t.Fatalf("log.md 에 R3 거절이 없다 :\n%s", raw)
 	}
-	// 같은 입력은 다시 안 묻는다.
+	// NLI 는 기록을 안 읽고 다시 묻는다. 같은 입력이라 기록은 한 건 그대로다.
 	capture(t, func() int { return run(autoArgs("본문 한 줄")) })
-	if hits.Load() != 1 {
-		t.Fatalf("같은 입력을 다시 물었다 : %d", hits.Load())
+	if hits.Load() != 2 || len(judgeFiles(memory)) != 1 {
+		t.Fatalf("같은 입력은 기록 한 건을 덮어야 한다 : hits=%d", hits.Load())
 	}
 }
 
@@ -137,7 +141,7 @@ func TestJudgeCommand(t *testing.T) {
 	out, code := capture(t, func() int {
 		return run([]string{"judge", "support", "--evidence", "근거 문장", "--claim", "주장 문장"})
 	})
-	if code != exitOK || !strings.Contains(out, "LLM 주소 없음") {
+	if code != exitOK || !strings.Contains(out, "서버 주소 없음") {
 		t.Fatalf("설정이 없으면 한 줄 · 종료 0 : %d %s", code, out)
 	}
 	server, hits := fakeLLM(t, "C", 0)
@@ -156,14 +160,16 @@ func TestJudgeCommand(t *testing.T) {
 	if code != exitOK || !strings.Contains(out, `"id":"p1"`) || !strings.Contains(out, "맞힘 1/2") {
 		t.Fatalf("파일 판정 : %d %s", code, out)
 	}
-	if hits.Load() != 2 {
-		t.Fatalf("p1 은 기록에서 읽어야 한다 : hits=%d", hits.Load())
+	if hits.Load() != 3 {
+		t.Fatalf("쌍마다 NLI 에 한 번씩 물어야 한다 : hits=%d", hits.Load())
 	}
 	if len(judgeFiles(memory)) != 2 {
 		t.Fatal("판정 기록이 두 건이어야 한다")
 	}
 	out, code = capture(t, func() int { return run([]string{"judge", "config"}) })
-	if code != exitOK || !strings.Contains(out, "judge") || !strings.Contains(out, "키 : 없음") {
+	if code != exitOK || !strings.Contains(out, "nli_url : "+server.URL) ||
+		!strings.Contains(out, "generate_url : -") || !strings.Contains(out, "키 : 없음") ||
+		!strings.Contains(out, "문턱 지지 0.90 · 반대·무관 0.70") {
 		t.Fatalf("config : %d %s", code, out)
 	}
 	if _, code := capture(t, func() int { return run([]string{"judge", "support", "--evidence", "x"}) }); code != exitUsage {
@@ -210,10 +216,10 @@ func TestJudgeStageOption(t *testing.T) {
 	}
 	// 전체 사다리면 안 걸린 쌍만 서버에 묻는다.
 	out, code = capture(t, func() int { return run([]string{"judge", "support", "--file", pairs}) })
-	if code != exitOK || hits.Load() != 1 || !strings.Contains(out, `"stage":"semif"`) {
+	if code != exitOK || hits.Load() != 1 || !strings.Contains(out, `"stage":"nli"`) {
 		t.Fatalf("사다리 전체 : %d hits=%d %s", code, hits.Load(), out)
 	}
-	for _, bad := range []string{"llm", "rules,,nli", "rules,laya", ""} {
+	for _, bad := range []string{"llm", "semif", "rules,,nli", "rules,laya", ""} {
 		if _, code := capture(t, func() int { return run([]string{"judge", "support", "--file", pairs, "--stage", bad}) }); code != exitUsage {
 			t.Errorf("--stage %q 를 받았다", bad)
 		}

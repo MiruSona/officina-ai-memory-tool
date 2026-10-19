@@ -9,7 +9,7 @@ import (
 
 func TestLLMMissingFileIsOff(t *testing.T) {
 	settings, problems := LoadLLM(filepath.Join(t.TempDir(), "없음.toml"))
-	if settings.Enabled() || len(problems) != 0 || settings.TimeoutMS != llmTimeoutMS {
+	if settings.Enabled() || len(problems) != 0 {
 		t.Fatalf("파일이 없으면 조용히 꺼짐이어야 한다 : %+v %v", settings, problems)
 	}
 	if settings, _ := LoadLLM(""); settings.Enabled() {
@@ -25,17 +25,18 @@ func TestLLMParse(t *testing.T) {
 		t.Fatal(err)
 	}
 	settings, problems := LoadLLM(path)
-	if len(problems) != 0 || !settings.Enabled() || settings.URL != "http://127.0.0.1:8080" ||
-		settings.Key != "k" || settings.JudgeProfile != "judge" || settings.GenerateProfile != "gen" ||
-		settings.TimeoutMS != 3000 || settings.Path != path {
+	// 옛 칸 셋(프로필 둘 · timeout_ms)은 읽지 않고 「안 쓰는 칸」 경고 한 줄이다. url 은 생성 주소 별칭이다.
+	if len(problems) != 1 || !settings.Enabled() || settings.GenerateURL != "http://127.0.0.1:8080" ||
+		settings.Key != "k" || settings.Path != path ||
+		!strings.Contains(problems[0], "judge_profile · generate_profile · timeout_ms") {
 		t.Fatalf("값을 잘못 읽었다 : %+v %v", settings, problems)
 	}
 }
 
 func TestLLMBadValues(t *testing.T) {
-	settings, problems := ParseLLM("x", "url = \"file:///etc/passwd\"\ntimeout_ms = 0\n")
-	if settings.Enabled() || settings.TimeoutMS != llmTimeoutMS || len(problems) != 2 {
-		t.Fatalf("틀린 url 은 꺼짐 · 틀린 시간은 기본값이어야 한다 : %+v %v", settings, problems)
+	settings, problems := ParseLLM("x", "url = \"file:///etc/passwd\"\n")
+	if settings.Enabled() || len(problems) != 1 || !strings.Contains(problems[0], "url") {
+		t.Fatalf("틀린 url 은 꺼짐과 문제 한 줄이어야 한다 : %+v %v", settings, problems)
 	}
 	if settings, _ := ParseLLM("x", "url = \"127.0.0.1:8080\"\n"); settings.Enabled() {
 		t.Fatal("http 가 없는 주소는 받지 않는다")
@@ -62,8 +63,8 @@ func TestLLMNLIFields(t *testing.T) {
 	}
 	settings, problems = ParseLLM("x", "nli_url = \"http://127.0.0.1:8092\"\nnli_timeout_ms = 500\nnli_sure = 0.8\nnli_sure_support = 0.95\n")
 	if len(problems) != 0 || settings.NLIURL != "http://127.0.0.1:8092" || settings.NLITimeoutMS != 500 ||
-		settings.NLISure != 0.8 || settings.NLISureSupport != 0.95 || settings.Enabled() {
-		t.Fatalf("값을 잘못 읽었다 (NLI 만 적으면 SemIf 는 꺼짐) : %+v %v", settings, problems)
+		settings.NLISure != 0.8 || settings.NLISureSupport != 0.95 || !settings.Enabled() || settings.GenerateURL != "" {
+		t.Fatalf("값을 잘못 읽었다 (NLI 만 적어도 켜짐 · 생성은 꺼짐) : %+v %v", settings, problems)
 	}
 	settings, problems = ParseLLM("x", "nli_url = \"file:///x\"\nnli_timeout_ms = 5001\nnli_sure = 1\nnli_sure_support = 0.2\n")
 	if len(problems) != 4 || settings.NLIURL != "" || settings.NLITimeoutMS != nliTimeoutMS ||

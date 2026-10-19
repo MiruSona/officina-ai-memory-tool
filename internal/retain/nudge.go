@@ -127,6 +127,10 @@ type QueueEntry struct {
 	Offset         int64  `json:"offset"`
 	// Covered 는 그 세션에서 자동 관문을 지난 기억이 이미 있다는 뜻이다.
 	Covered bool `json:"covered"`
+	// DoneAt·Result·Saved 는 `mem retain` 이 처리한 뒤 더하는 표시다 (A2 설계 2절).
+	DoneAt string   `json:"done_at,omitempty"`
+	Result string   `json:"result,omitempty"`
+	Saved  []string `json:"saved,omitempty"`
 }
 
 // Mark 는 큐 표 하나를 쓴다. 대화 기록을 안 읽어 SessionEnd 1.5초 예산에 맞는다.

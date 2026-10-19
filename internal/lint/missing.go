@@ -110,7 +110,8 @@ func (m *missing) askCommit(source string) (string, string) {
 // 오탐을 먼저 막는다 — 걸러서 놓치는 것은 괜찮다, 후보만 올리는 검사다.
 //
 //  1. 확장자가 없으면(`internal/install`) 폴더 이름일 수 있어 안 본다.
-//  2. `./`·`../` 로 시작하면 안 본다. 기억 파일 자리를 모르니 풀 기준이 없다.
+//  2. `./`·`../`·`/` 로 시작하면 안 본다. 기억 파일 자리를 모르니 풀 기준이 없다.
+//     `<날짜>`·URL 이 잘려 남은 `/index.html` 도 여기서 빠진다. 꼴 자리표(`vNN`)도 안 본다.
 //  3. 첫 마디가 세 기준 어디에도 없으면(`Assets/…`) 남의 저장소로 치고 멀쩡하다.
 //  4. 세 기준(프로젝트 뿌리 · 저장소 폴더 · scope 폴더) 중 하나라도 있으면 멀쩡하다.
 //
@@ -124,7 +125,7 @@ func (m *missing) bodyAsk(memory *model.Memory, target string, linked bool) (str
 		return "", ""
 	}
 	first, _, _ := strings.Cut(target, "/")
-	if first == "." || first == ".." {
+	if first == "" || first == "." || first == ".." || hasPlaceholder(target) {
 		return "", ""
 	}
 	bases := m.bodyBases(memory)
@@ -154,7 +155,7 @@ func (m *missing) anyHas(bases []string, first string) bool {
 		if err != nil {
 			continue
 		}
-		if m.known[filepath.ToSlash(rel)] {
+		if knownPath(m.known, filepath.ToSlash(rel)) {
 			return true
 		}
 	}

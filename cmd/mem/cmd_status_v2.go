@@ -330,7 +330,12 @@ func llmDoctorNote(settings config.LLMConfig) string {
 	if settings.Key != "" {
 		key = i18n.T(i18n.DoctorLLMKey)
 	}
-	parsed, err := url.Parse(settings.URL)
+	// 생성 주소를 먼저 보이고, 없으면 NLI 주소를 보인다.
+	address := settings.GenerateURL
+	if address == "" {
+		address = settings.NLIURL
+	}
+	parsed, err := url.Parse(address)
 	if err != nil || parsed.Scheme == "" || parsed.Host == "" {
 		return i18n.T(i18n.DoctorLLMOn, i18n.T(i18n.DoctorLLMBadURL), key)
 	}

@@ -45,28 +45,15 @@ func runAdd(argv []string) int {
 	if err != nil {
 		return fail(err.Error())
 	}
-	origin, code := checkOriginOptions(parsed)
-	if code != exitOK {
-		return code
+	usage := addUsageOf(parsed)
+	if len(usage.problems) > 0 {
+		return failUsage(usage.problems)
 	}
 	if parsed.flags["jsonl"] {
 		return runAddJSONL(parsed)
 	}
-	// 옵션 값이 아닌 낱말은 대개 `--sources a b` 처럼 공백으로 이은 것이다.
-	// 조용히 먹으면 뒤 토막이 통째로 사라진다 (사용 피드백 2026-09-20).
-	if len(parsed.rest) > 0 {
-		return fail(i18n.T(i18n.AddStrayWords, safe.Summary(strings.Join(parsed.rest, " "), strayRoom)))
-	}
-	// `--by` 는 큐에 넣기 **전에** 본다. 넣고 나서 걸리면 「저장됨」과 사용법
-	// 오류가 한 화면에 같이 뜬다 (리뷰 2026-09-21).
-	if old := parsed.text("by"); old != "" && !model.IsID(old) {
-		return fail(i18n.T(i18n.BadID, old))
-	}
-	body, err := bodyOf(parsed)
-	if err != nil {
-		return fail(err.Error())
-	}
-	request := requestOf(parsed, body)
+	origin := usage.origin
+	request := requestOf(parsed, usage.body)
 	repository, opened, err := openStore(parsed)
 	if err != nil {
 		return exitFor(err)
@@ -145,7 +132,8 @@ func reportCheckAs(verdict quality.Verdict, auto bool) int {
 // 얼마나 막혔는지가 G6 ④ 를 재는 재료다」 라고 적었는데 들어온 것만 적고
 // 있었다. 그래서 S05(add-reject-rate)가 늘 「—」 였다 (실데이터 시험 7절).
 func noteReject(opened *store.Store, verdict quality.Verdict) {
-	rules := strings.Join(verdict.Rules(), " ")
+	// 거절 줄이라 막은 규칙만 적는다. 경고까지 섞으면 log.md 를 세는 쪽이 경고를 거절로 센다.
+	rules := strings.Join(rulesAt(verdict, quality.GradeReject), " ")
 	title := ""
 	if verdict.Memory != nil {
 		title = verdict.Memory.Title

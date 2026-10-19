@@ -371,12 +371,23 @@ func Check(m *model.Memory, opt Options) []Finding {
 	opt = opt.normalized()
 	fixed, _ := applyAliases(m, opt.Vocab)
 	found := checkField(fixed, opt)
-	found = append(found, checkBody(fixed, opt)...)
-	found = append(found, checkValue(fixed, opt)...)
+	// 접힌 기억은 본문이 gc 안내 한 줄뿐이라 본문·값·여러 결정 검사가 다 헛걸린다.
+	// 새 add 에는 접힌 상태가 없으니 Gate 는 그대로다 (2026-10-10 피드백).
+	if !folded(fixed) {
+		found = append(found, checkBody(fixed, opt)...)
+		found = append(found, checkValue(fixed, opt)...)
+	}
 	found = append(found, checkObsCite(fixed, opt)...)
 	found = append(found, checkSecurity(fixed, opt)...)
-	found = append(found, checkMulti(fixed, opt)...)
+	if !folded(fixed) {
+		found = append(found, checkMulti(fixed, opt)...)
+	}
 	return obsExempt(fixed, append(found, checkDuplicate(fixed, opt)...))
+}
+
+// folded 는 gc 가 본문을 접은 기억인지다 (gc/apply.go 가 state 와 archived 를 단다).
+func folded(m *model.Memory) bool {
+	return m.State == stateCold || m.State == stateWarm || m.Archived != ""
 }
 
 func kindOf(found []Finding) Kind {
