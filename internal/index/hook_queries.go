@@ -11,6 +11,7 @@ import (
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
+	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
@@ -190,7 +191,7 @@ func (d *DB) CatchUpBy(opened *store.Store, gc config.GCConfig, secrets config.S
 	}
 	defer release()
 	current := runner{db: d, store: opened, result: &result, now: time.Now(),
-		quiet: true, scanner: scannerFor(secrets), deadline: deadline,
+		quiet: true, scanner: secret.ForConfig(secrets), deadline: deadline,
 		types: config.TypesIn(opened.Dir)}
 	runQuiet(&current, gc)
 	result.Elapsed = time.Since(started)

@@ -217,17 +217,34 @@ func lockFile(path string) (func(), error) {
 	for {
 		file, err := os.OpenFile(path, os.O_CREATE|os.O_EXCL|os.O_WRONLY, 0o644)
 		if err == nil {
+			mine := fmt.Sprintf("%d %d", os.Getpid(), rand.Int63())
+			_, err = file.WriteString(mine)
 			file.Close()
-			return func() { os.Remove(path) }, nil
+			if err != nil {
+				os.Remove(path)
+				return nil, err
+			}
+			// 내 잠금일 때만 지운다. 오래됐다고 남이 치우고 새로 잡은 잠금을 지우면 둘이 동시에 주인이 된다.
+			return func() { removeOwnLock(path, mine) }, nil
 		}
 		if info, statErr := os.Stat(path); statErr == nil && time.Since(info.ModTime()) > lockStale {
-			os.Remove(path)
+			// 지우기 직전에 다시 본다. 그 사이 남이 치우고 새로 잡았으면 시각이 바뀌어 있다.
+			if again, err := os.Stat(path); err == nil && again.ModTime().Equal(info.ModTime()) {
+				os.Remove(path)
+			}
 			continue
 		}
 		if time.Now().After(deadline) {
 			return nil, ErrStateBusy
 		}
 		time.Sleep(lockStep)
+	}
+}
+
+// removeOwnLock 은 잠금 파일에 적힌 것이 아직 내가 쓴 값일 때만 지운다.
+func removeOwnLock(path, mine string) {
+	if data, err := os.ReadFile(path); err == nil && string(data) == mine {
+		os.Remove(path)
 	}
 }
 

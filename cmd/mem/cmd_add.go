@@ -58,6 +58,10 @@ func runAdd(argv []string) int {
 	if err != nil {
 		return exitFor(err)
 	}
+	// 큐에 넣기 전에 막는다. 관문은 keys 를 안 훑어, 승격에서 걸리면 inbox/bad 에 값이 그대로 남았다.
+	if code := refuseSecret(repository, request); code != exitOK {
+		return code
+	}
 	noteSeverityFix(parsed.text("severity"), request.Severity)
 	if defaultTodoStatus(&request, vocabOf(repository)) {
 		fmt.Fprintln(os.Stderr, i18n.T(i18n.AddStatusDefault, request.Status))
@@ -475,21 +479,17 @@ func noteLog(opened *store.Store, kind, line string) {
 	}
 }
 
-// scannerFor 는 이 저장소의 비밀정보 패턴을 컴파일한다. 설정이 비면 기본
-// 패턴으로 떨어진다 — 검사 없이 지나가는 길은 두지 않는다.
-func scannerFor(settings config.SecretConfig) *secret.Scanner {
-	if len(settings.Patterns) == 0 {
-		settings = config.Default("").Secret
-	}
-	return secret.New(settings.Patterns)
-}
-
-// refuseSecret 은 body·summary·title 을 훑는다. 맞은 값은 절대 안 찍고 규칙
+// refuseSecret 은 body·keys·summary·title·sources 를 훑는다. 맞은 값은 절대 안 찍고 규칙
 // 이름과 줄 번호만 알린다.
 func refuseSecret(repository *config.Repository, request store.AddRequest) int {
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	if found := scanner.ScanText(request.Body); found != nil {
 		return refuse(i18n.T(i18n.SecretFound, found.Line, found.Rule))
+	}
+	for _, key := range request.Keys {
+		if found := scanner.ScanLine(key); found != nil {
+			return refuse(i18n.T(i18n.SecretFoundIn, "keys", found.Rule))
+		}
 	}
 	for _, pair := range [][2]string{{"summary", request.Summary}, {"title", request.Title}} {
 		if found := scanner.ScanLine(pair[1]); found != nil {
@@ -666,6 +666,10 @@ func decodeJSONL(text string, repository *config.Repository, opened *store.Store
 		}
 		if defaultTodoStatus(&request, shared.Vocab) {
 			fixes.Status++
+		}
+		if code := refuseSecret(repository, request); code != exitOK {
+			fmt.Fprintln(os.Stderr, i18n.T(i18n.JSONLAt, number+1))
+			return nil, fixes, code
 		}
 		verdict := quality.Gate(memoryOf(request), shared)
 		if verdict.Rejected() {

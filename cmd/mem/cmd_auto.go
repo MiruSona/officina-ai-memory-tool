@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
+	"github.com/mirusona/officina-ai-memory-tool/internal/fileio"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/index"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
@@ -315,13 +316,15 @@ func writeUndoRecord(dir string, record undoRecord) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return path, os.WriteFile(path, data, 0o644)
+	return path, fileio.ReplaceFile(path, data, nil, "")
 }
 
 // undoFile 은 읽어 둔 undo 기록 하나와 그 자리다.
 type undoFile struct {
 	Path   string
 	Record undoRecord
+	// Raw 는 읽은 그대로의 바이트다. 다시 쓸 때 그 사이 남이 고쳤으면 덮지 않는다.
+	Raw []byte
 }
 
 // openUndoRecords 는 아직 되살리지 않은 기록이다. `--since` 를 주면 그 날 이후 기록만이다.
@@ -347,7 +350,7 @@ func openUndoRecords(dir string, since string) []undoFile {
 		if since != "" && record.At < since {
 			continue
 		}
-		files = append(files, undoFile{Path: path, Record: record})
+		files = append(files, undoFile{Path: path, Record: record, Raw: data})
 	}
 	return files
 }
@@ -470,7 +473,7 @@ func closeUndoRecords(opened *store.Store, files []undoFile, redone []string) {
 		}
 		data, err := json.MarshalIndent(file.Record, "", "  ")
 		if err == nil {
-			err = os.WriteFile(file.Path, data, 0o644)
+			err = fileio.ReplaceFile(file.Path, data, file.Raw, "")
 		}
 		if err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())

@@ -17,6 +17,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/llm"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/quality"
+	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 	"github.com/mirusona/officina-ai-memory-tool/internal/token"
 )
@@ -117,7 +118,7 @@ func attachRivalJudge(gate *quality.Options, repository *config.Repository) {
 	if nli == nil {
 		return
 	}
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	judge := &llm.Judge{NLI: nli, Dir: judgeDir(repository), Only: []string{llm.StageNLI},
 		Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
 	gate.RivalJudge = func(evidence, claim string) (quality.RivalVerdict, error) {

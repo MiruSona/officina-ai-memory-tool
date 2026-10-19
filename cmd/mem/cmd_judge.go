@@ -20,6 +20,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/llm"
+	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
@@ -73,7 +74,7 @@ func loadLLM() config.LLMConfig {
 // NLI 는 llm.toml 의 nli_url 이 있을 때만 붙는다 (NLI 가 nil 일 수 있다).
 // rulesFinal 은 최종으로 칠 규칙 글자다. 비밀 꼴이 든 글은 프로세스 밖으로 안 보낸다.
 func judgeOf(repository *config.Repository, settings config.LLMConfig, rulesFinal []string) *llm.Judge {
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	return &llm.Judge{NLI: llm.NewNLI(settings), Dir: judgeDir(repository),
 		RulesFinal: rulesFinal, Refuse: func(text string) bool { return scanner.ScanText(text) != nil }}
 }

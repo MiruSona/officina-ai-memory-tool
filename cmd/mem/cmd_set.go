@@ -13,6 +13,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/index"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
 	"github.com/mirusona/officina-ai-memory-tool/internal/review"
+	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
@@ -187,7 +188,7 @@ func queuedIDs(rows []index.UsedByRow) []string {
 
 // refuseSecretSet 은 이번에 바뀌는 글만 훑는다. 안 건드리는 칸은 볼 일이 없다.
 func refuseSecretSet(repository *config.Repository, set map[string]any, body string, wantBody bool) int {
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	if wantBody {
 		if found := scanner.ScanText(body); found != nil {
 			return refuse(i18n.T(i18n.SecretFound, found.Line, found.Rule))

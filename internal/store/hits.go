@@ -157,17 +157,39 @@ func ReadHits(dir string) (map[string]HitTotal, int, error) {
 	return totals, count, nil
 }
 
-// CompactHits rewrites the log as one line per memory. The sums are the same,
-// so the index reads back exactly what it read before.
-func CompactHits(dir string, totals map[string]HitTotal) error {
+// CompactHits rewrites the log as one line per memory plus one line per command.
+// The sums are the same, so the index and mem status read back exactly what they read before.
+// 읽는 사이에 다른 프로세스가 줄을 덧붙였으면 그 줄을 잃지 않게 이번 압축을 건너뛴다.
+func CompactHits(dir string) error {
+	before, err := os.Stat(HitsPath(dir))
+	if err != nil {
+		return err
+	}
+	totals, _, err := ReadHits(dir)
+	if err != nil {
+		return err
+	}
+	counts, err := CommandCounts(dir)
+	if err != nil {
+		return err
+	}
 	ids := make([]string, 0, len(totals))
 	for id := range totals {
 		ids = append(ids, id)
 	}
 	sort.Strings(ids)
-	lines := make([]hitLine, 0, len(ids))
+	lines := make([]hitLine, 0, len(ids)+len(counts))
 	for _, id := range ids {
 		lines = append(lines, hitLine{ID: id, At: totals[id].LastAt, Count: totals[id].Count})
+	}
+	commands := make([]string, 0, len(counts))
+	for command := range counts {
+		commands = append(commands, command)
+	}
+	sort.Strings(commands)
+	// 명령 통계는 id 가 빈 줄로 따로 둔다. 기억 줄에 Cmd 를 달면 같은 읽기가 두 번 세인다.
+	for _, command := range commands {
+		lines = append(lines, hitLine{Cmd: command, Count: counts[command]})
 	}
 	if err := os.MkdirAll(LocalDir(dir), 0o755); err != nil {
 		return err
@@ -186,6 +208,11 @@ func CompactHits(dir string, totals map[string]HitTotal) error {
 		data = append(data, '\n')
 	}
 	if err := os.WriteFile(tmp, data, 0o644); err != nil {
+		return err
+	}
+	// shortcut: 이 stat 과 rename 사이의 아주 짧은 틈에 덧붙인 줄은 여전히 잃는다. 잦아지면 잠금으로 묶는다.
+	if after, err := os.Stat(HitsPath(dir)); err != nil || after.Size() != before.Size() || !after.ModTime().Equal(before.ModTime()) {
+		os.Remove(tmp)
 		return err
 	}
 	return renameRetry(tmp, HitsPath(dir))

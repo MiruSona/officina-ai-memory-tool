@@ -42,7 +42,7 @@ func newRetainWorker(repository *config.Repository, generator *llm.Generator, dr
 	vocab := vocabOf(repository)
 	// 가리기는 add 의 비밀 차단과 같은 규칙(builtin · guard 포함)을 쓴다.
 	worker := &retainWorker{repository: repository, generator: generator, dry: dry, nliTimeoutMS: nliTimeoutMS,
-		scanner: scannerFor(repository.Config.Secret), scopes: vocab.StandardScopes(), tags: vocab.StandardTags()}
+		scanner: secret.ForConfig(repository.Config.Secret), scopes: vocab.StandardScopes(), tags: vocab.StandardTags()}
 	worker.system = i18n.T(i18n.RetainSystemPrompt, strings.Join(worker.scopes, ", "), strings.Join(worker.tags, ", "))
 	return worker
 }

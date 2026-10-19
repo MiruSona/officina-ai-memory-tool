@@ -449,7 +449,7 @@ func TestHitsCompactKeepsTheSums(t *testing.T) {
 	if lines != 5 || before["20260822-9e02d7f1"].Count != 4 {
 		t.Fatalf("read %d lines, first count %d", lines, before["20260822-9e02d7f1"].Count)
 	}
-	if err := CompactHits(dir, before); err != nil {
+	if err := CompactHits(dir); err != nil {
 		t.Fatal(err)
 	}
 	after, lines, err := ReadHits(dir)

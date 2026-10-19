@@ -52,7 +52,29 @@ func TestCommandLinesDoNotCountTowardCompaction(t *testing.T) {
 	}
 }
 
-// 리뷰 C #9 — 아카이브에 남은 옛 판을 id 로 되살린다 (mem show --from-archive).
+// 압축해도 mem status 의 명령별 셈이 0 으로 돌아가지 않는다.
+func TestCompactHitsKeepsCommandCounts(t *testing.T) {
+	dir := t.TempDir()
+	for _, hit := range [][2]string{{"show", "20260823-8d27dbfc"}, {"show", "20260823-8d27dbfc"}, {"gc", ""}, {"add", "20260823-0000000a"}} {
+		if err := AppendHit(dir, hit[0], hit[1]); err != nil {
+			t.Fatal(err)
+		}
+	}
+	before, _ := CommandCounts(dir)
+	if err := CompactHits(dir); err != nil {
+		t.Fatal(err)
+	}
+	after, err := CommandCounts(dir)
+	if err != nil || len(after) != 3 || after["show"] != 2 || after["gc"] != 1 || after["add"] != 1 {
+		t.Fatalf("명령 셈이 바뀌었다 : %v → %v (%v)", before, after, err)
+	}
+	totals, lines, _ := ReadHits(dir)
+	if lines != 2 || totals["20260823-8d27dbfc"].Count != 2 {
+		t.Fatalf("기억 셈이 바뀌었다 : %d %+v", lines, totals)
+	}
+}
+
+// 리뷰 C #9 —아카이브에 남은 옛 판을 id 로 되살린다 (mem show --from-archive).
 func TestArchivedMemoryReadsBack(t *testing.T) {
 	dir := t.TempDir()
 	opened := Open(dir, false)

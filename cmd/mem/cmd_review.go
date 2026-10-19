@@ -17,6 +17,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/llm"
 	"github.com/mirusona/officina-ai-memory-tool/internal/review"
+	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
 
@@ -106,7 +107,7 @@ func runReview(argv []string) int {
 // 「못 본 것」에 한 줄 남긴다.
 func reviewNLI(repository *config.Repository, pairs, perScope int) *review.NLIOptions {
 	settings := loadLLM()
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	refuse := func(text string) bool { return scanner.ScanText(text) != nil }
 	return &review.NLIOptions{Judge: review.NLIJudge(llm.NewNLI(settings), judgeDir(repository), refuse),
 		Health: review.HealthOf(settings.NLIURL), Pairs: pairs, PerScope: perScope}

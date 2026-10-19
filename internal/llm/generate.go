@@ -79,7 +79,7 @@ func NewGenerator(settings config.LLMConfig) (*Generator, bool) {
 	}
 	timeout := time.Duration(settings.GenerateTimeoutMS) * time.Millisecond
 	return &Generator{endpoint: Endpoint(settings.GenerateURL), key: settings.Key,
-		model: settings.GenerateModel, http: &http.Client{Timeout: timeout}}, true
+		model: settings.GenerateModel, http: NewClient(timeout)}, true
 }
 
 // Generate 는 한 번 묻는다. 재시도는 없다 — JSON 이 깨졌을 때 다시 묻는 것은 부르는 쪽 몫이다.

@@ -503,7 +503,7 @@ func applyMigrate(opened *store.Store, report *migrateReport, parsed *options) i
 // 기억의 어느 칸인지와 규칙 이름만 알린다. 하나라도 걸리면 **한 건도 안 옮긴다**
 // — 반만 옮겨진 저장소는 사람이 어디까지 됐는지 못 안다 (불변조건 I4).
 func refuseSecretMigrate(repository *config.Repository, opened *store.Store, report *migrateReport) int {
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	for _, item := range append(append([]plan{}, report.Plans...), report.Parts...) {
 		one, err := opened.ReadMemory(item.Path)
 		if err != nil || one.Memory == nil {

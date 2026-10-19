@@ -163,7 +163,7 @@ func answers(address, key string) bool {
 	if key != "" {
 		request.Header.Set("Authorization", "Bearer "+key)
 	}
-	response, err := (&http.Client{Timeout: healthTimeout}).Do(request)
+	response, err := llm.NewClient(healthTimeout).Do(request)
 	if err != nil {
 		return false
 	}

@@ -157,14 +157,6 @@ func (r *runner) note(path string, reason error) {
 	fmt.Fprintln(os.Stderr, i18n.T(i18n.BadIndexEntry, path, reason.Error()))
 }
 
-// scannerFor 는 빈 Options 도 안전하게 기본 패턴으로 떨어뜨린다.
-func scannerFor(settings config.SecretConfig) *secret.Scanner {
-	if len(settings.Patterns) == 0 {
-		settings = config.Default("").Secret
-	}
-	return secret.New(settings.Patterns)
-}
-
 // Run 은 하나뿐인 쓰기 락 아래에서 inbox 를 승격하고 바뀐 파일을 색인한다.
 // 락을 못 잡는 것은 아무것도 안 한 성공이다 (설계 5-2).
 func Run(options Options) (*Result, error) {
@@ -201,7 +193,7 @@ func runLocked(options Options, result *Result) error {
 	}
 	defer database.Close()
 	current := runner{db: database, store: options.Store, result: result, now: time.Now(),
-		quiet: options.Quiet, verify: options.Verify, scanner: scannerFor(options.Secret),
+		quiet: options.Quiet, verify: options.Verify, scanner: secret.ForConfig(options.Secret),
 		fresh: result.Rebuilt, noLink: options.NoLink, types: typesFor(options.Types, options.Store.Dir)}
 	if err := current.promoteAndIndex(); err != nil {
 		return err
@@ -308,7 +300,7 @@ func promoteLocked(options Options, names []string, outcome *PromoteResult) erro
 	// 늘 조용히 돈다. 남의 파일 알림이 add 화면에 섞이면 안 된다 — 제 파일의
 	// 까닭은 Outcomes 로 돌려주고 add 가 찍는다.
 	current := runner{db: database, store: options.Store, result: &outcome.Result, now: time.Now(),
-		quiet: true, scanner: scannerFor(options.Secret), fresh: outcome.Result.Rebuilt,
+		quiet: true, scanner: secret.ForConfig(options.Secret), fresh: outcome.Result.Rebuilt,
 		types: typesFor(options.Types, options.Store.Dir), outcome: outcome.Outcomes}
 	first, err := needsFirstIndex(database, options.Store.StoreDir())
 	if err != nil {
@@ -649,7 +641,7 @@ func (r *runner) applyHits() error {
 	if lines <= store.HitsCompactLines || r.store.ReadOnly {
 		return nil
 	}
-	if err := store.CompactHits(r.store.Dir, totals); err != nil {
+	if err := store.CompactHits(r.store.Dir); err != nil {
 		r.note(store.HitsPath(r.store.Dir), err)
 	}
 	return nil

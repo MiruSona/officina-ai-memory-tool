@@ -6,6 +6,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/model"
+	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 )
 
 // sourcesOf 는 `set --sources a,b`(별칭 `--source`)를 푼다. 근거는 통째 교체다 —
@@ -33,7 +34,7 @@ func refuseSecretSources(repository *config.Repository, set map[string]any) int 
 	if !ok {
 		return exitOK
 	}
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	for _, one := range sources {
 		text, _ := one.(string)
 		if found := scanner.ScanLine(text); found != nil {

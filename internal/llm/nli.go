@@ -47,7 +47,7 @@ func NewNLI(settings config.LLMConfig) *NLIClient {
 	}
 	timeout := time.Duration(settings.NLITimeoutMS) * time.Millisecond
 	return &NLIClient{endpoint: strings.TrimRight(settings.NLIURL, "/") + nliPath,
-		sure: settings.NLISure, sureSupport: settings.NLISureSupport, http: &http.Client{Timeout: timeout}}
+		sure: settings.NLISure, sureSupport: settings.NLISureSupport, http: NewClient(timeout)}
 }
 
 // Sure 는 반대·무관(B·C) 답을 확정하는 선(nli_sure)이다. 이 아래면 다음 단으로 넘긴다.

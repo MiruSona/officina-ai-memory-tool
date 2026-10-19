@@ -27,6 +27,7 @@ import (
 	"github.com/mirusona/officina-ai-memory-tool/internal/review"
 	"github.com/mirusona/officina-ai-memory-tool/internal/safe"
 	"github.com/mirusona/officina-ai-memory-tool/internal/search"
+	"github.com/mirusona/officina-ai-memory-tool/internal/secret"
 )
 
 // 결정 문장 뽑기의 손잡이다. 값은 reports.py 와 같다.
@@ -440,7 +441,7 @@ func reportJudge(repository *config.Repository) *llm.Judge {
 	if health := review.HealthOf(settings.NLIURL); health != nil && health() != nil {
 		return nil
 	}
-	scanner := scannerFor(repository.Config.Secret)
+	scanner := secret.ForConfig(repository.Config.Secret)
 	return review.NLIJudge(nli, judgeDir(repository), func(text string) bool { return scanner.ScanText(text) != nil })
 }
 

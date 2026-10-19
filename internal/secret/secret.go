@@ -5,7 +5,18 @@ package secret
 import (
 	"regexp"
 	"strings"
+
+	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 )
+
+// ForConfig 는 이 저장소의 비밀정보 패턴을 컴파일한다. 설정이 비면 기본 패턴으로
+// 떨어진다 — 검사 없이 지나가는 길은 두지 않는다.
+func ForConfig(settings config.SecretConfig) *Scanner {
+	if len(settings.Patterns) == 0 {
+		settings = config.Default("").Secret
+	}
+	return New(settings.Patterns)
+}
 
 // nameCut keeps an unnamed rule short enough to print.
 const nameCut = 40
