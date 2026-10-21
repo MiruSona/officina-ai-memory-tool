@@ -26,6 +26,8 @@ type Finding struct {
 	Related []string `json:"related,omitempty"`
 	// Score 는 닮음 점수 S 다. 중복 규칙에만 있다.
 	Score float64 `json:"score,omitempty"`
+	// Limit 은 그 판정에 쓰인 문턱이다 (soft 는 경고, hard 는 막는 문턱, 부분 중복은 0). retain R4 까닭 글이 쓴다.
+	Limit float64 `json:"-"`
 	// Line 은 비밀정보가 걸린 줄 번호다. 값은 절대 안 담는다.
 	Line int `json:"line,omitempty"`
 	// Next 는 다음에 칠 명령이다. 거절할 때는 반드시 하나 이상 있어야 한다
@@ -551,12 +553,12 @@ func duplicateFindingsOf(matches []Match, m *model.Memory, opt Options) []Findin
 		found = append(found, Finding{Rule: RuleDuplicateHard, Level: opt.grade(RuleDuplicateHard, m), ID: m.ID,
 			Reason: fmt.Sprintf("닮은 기억이 있다 — `%s` (닮음 %.3f · 막는 문턱 %.3f)",
 				top.Doc.ID, top.Score, opt.Config.Quality.DupReject),
-			Related: ids, Score: top.Score, Next: nextForDuplicate(top.Doc.ID)})
+			Related: ids, Score: top.Score, Limit: opt.Config.Quality.DupReject, Next: nextForDuplicate(top.Doc.ID)})
 	case top.Score >= opt.Config.Quality.DupWarn:
 		found = append(found, Finding{Rule: RuleDuplicateSoft, Level: opt.grade(RuleDuplicateSoft, m), ID: m.ID,
 			Reason: fmt.Sprintf("닮은 기억이 있다 — `%s`. 정말 새 사실인지 보고 넣는다 (닮음 %.3f · 경고 문턱 %.3f · 막는 문턱 %.3f)",
 				top.Doc.ID, top.Score, opt.Config.Quality.DupWarn, opt.Config.Quality.DupReject),
-			Related: ids, Score: top.Score})
+			Related: ids, Score: top.Score, Limit: opt.Config.Quality.DupWarn})
 	}
 	return found
 }

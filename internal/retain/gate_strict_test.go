@@ -45,6 +45,7 @@ func TestGateStrictRejectsWithoutVerdict(t *testing.T) {
 }
 
 // R4 까닭 글에 겹친 기억 id 를 싣는다 — 실측에서 어느 기억과 겹쳤는지 못 짚었다 (첫 실측 5절 3).
+// 닮음 S 와 쓰인 문턱도 싣는다 — S 구간을 retain-log 에서 봐야 한다 (10-21 대조판).
 func TestGateR4ReasonNamesDuplicate(t *testing.T) {
 	fixture := newGateFixture(t)
 	candidate := Candidate{Memory: fixture.memory, Origin: "retain:strata",
@@ -53,6 +54,25 @@ func TestGateR4ReasonNamesDuplicate(t *testing.T) {
 	result := Check(candidate, fixture.context)
 	if rulesOf(result) != RuleNoMerge || !strings.Contains(result.Rejects[0].Reason, "duplicate-hard → 20261017-0123b331") {
 		t.Fatalf("R4 까닭 글에 겹친 id 가 있어야 한다 : %+v", result.Rejects)
+	}
+	// 라벨은 GateRules 순서가 아니라 점수를 낸 판정(DupRule)에서 고른다 — same-body 가 앞에 와도 hard 다.
+	cases := []struct {
+		name, rule string
+		score, lim float64
+		want       string
+	}{
+		{"hard", "duplicate-hard", 0.123, 0.08, "· 닮음 0.123 · 막는 문턱 0.080)"},
+		{"soft", "duplicate-soft", 0.052, 0.045, "· 닮음 0.052 · 경고 문턱 0.045)"},
+		{"부분 중복", "duplicate-soft", 0.030, 0, "· 닮음 0.030)"},
+	}
+	for _, one := range cases {
+		candidate.GateRules = []string{"same-body", one.rule}
+		candidate.DupRule, candidate.DupScore, candidate.DupLimit = one.rule, one.score, one.lim
+		result = Check(candidate, fixture.context)
+		if !strings.Contains(result.Rejects[0].Reason, one.want) {
+			t.Errorf("%s : R4 글에 %q 가 있어야 한다 : %s", one.name, one.want, result.Rejects[0].Reason)
+		}
+		t.Log(result.Rejects[0].Reason)
 	}
 }
 

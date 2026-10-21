@@ -16,6 +16,9 @@ const (
 	AutoNoRecord          Key = "auto-no-record"
 	AutoNoRecordWarn      Key = "auto-no-record-warn"
 	AutoDuplicate         Key = "auto-duplicate"
+	AutoDupScore          Key = "auto-dup-score"
+	AutoDupWarnAt         Key = "auto-dup-warn-at"
+	AutoDupRejectAt       Key = "auto-dup-reject-at"
 	AutoNoBy              Key = "auto-no-by"
 	AutoNoDecision        Key = "auto-no-decision"
 	AutoQuoteNeeded       Key = "auto-quote-needed"
@@ -80,6 +83,9 @@ var retainMessages = map[Key]string{
 	AutoNoRecord:          "세션 대화 기록을 못 찾아 근거를 대조할 수 없다.",
 	AutoNoRecordWarn:      "세션 대화 기록을 못 찾았다. 경로·id 만 저장소에서 대조했다.",
 	AutoDuplicate:         "비슷한 기억이 이미 있다 (%s). 자동 기억은 합치지 않는다 — 사람이 넣거나 그 기억을 고친다.",
+	AutoDupScore:          " · 닮음 %.3f",
+	AutoDupWarnAt:         " · 경고 문턱 %.3f",
+	AutoDupRejectAt:       " · 막는 문턱 %.3f",
 	AutoNoBy:              "자동 기억은 다른 기억을 덮지(--by) 못한다. 사람이 `mem set --by-new` 로 한다.",
 	AutoNoDecision:        "로컬 모델 길은 decision 을 못 넣는다.",
 	AutoQuoteNeeded:       "근거 문장(--quotes)이 1개 이상 있어야 한다.",

@@ -127,6 +127,8 @@ func checkAuto(parsed *options, repository *config.Repository, request store.Add
 	}
 	candidate := retain.Candidate{Memory: memory, Origin: origin, Quotes: quotesOf(parsed),
 		Supersedes: request.Supersedes, GateRules: findingRules(verdict), DupIDs: dupIDsOf(verdict)}
+	top := topDupOf(verdict)
+	candidate.DupRule, candidate.DupScore, candidate.DupLimit = top.Rule, top.Score, top.Limit
 	// R3 는 근거 문장이 있고 기존 관문을 지났을 때만 묻는다. 규칙 단은 서버 없이도 돌지만
 	// retain 은 「반대」만 최종으로 친다 — 「무관」은 오발이 많아 다음 단에 묻는다 (자체판정프로그램설계 3절).
 	if len(candidate.Quotes) > 0 && !verdict.Rejected() {
@@ -181,6 +183,17 @@ func dupIDsOf(verdict quality.Verdict) []string {
 		}
 	}
 	return ids
+}
+
+// topDupOf 는 점수가 가장 높은 중복 판정(C01·C02) 하나다. 라벨·점수·문턱이 한 판정에서 나와야 어긋나지 않는다.
+func topDupOf(verdict quality.Verdict) quality.Finding {
+	top := quality.Finding{}
+	for _, one := range verdict.Findings {
+		if one.Score > top.Score && (one.Rule == quality.RuleDuplicateHard || one.Rule == quality.RuleDuplicateSoft) {
+			top = one
+		}
+	}
+	return top
 }
 
 // sessionHint 는 상태 파일에 없는 세션이라도 부르는 쪽이 준 앞 8자를 남긴다.

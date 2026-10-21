@@ -49,6 +49,11 @@ type Candidate struct {
 	GateRules []string
 	// DupIDs 는 기존 관문의 중복 판정이 가리킨 기억 id 다. R4 까닭 글에 싣는다.
 	DupIDs []string
+	// DupRule · DupScore · DupLimit 은 점수가 가장 높은 중복 판정 하나의 규칙·닮음 S·쓰인 문턱이다.
+	// DupScore 0 은 점수 없는 판정(same-body), DupLimit 0 은 문턱과 상관없이 걸린 부분 중복이다.
+	DupRule  string
+	DupScore float64
+	DupLimit float64
 }
 
 // Context 는 관문이 대조할 자료다. Record 가 nil 이면 세션 기록을 못 찾은 것이다.
@@ -106,6 +111,16 @@ func Check(candidate Candidate, context Context) Result {
 		which := rule
 		if len(candidate.DupIDs) > 0 {
 			which += " → " + strings.Join(candidate.DupIDs, ",")
+		}
+		if candidate.DupScore > 0 {
+			which += i18n.T(i18n.AutoDupScore, candidate.DupScore)
+		}
+		if candidate.DupLimit > 0 {
+			key := i18n.AutoDupWarnAt
+			if candidate.DupRule == "duplicate-hard" {
+				key = i18n.AutoDupRejectAt
+			}
+			which += i18n.T(key, candidate.DupLimit)
 		}
 		result.reject(RuleNoMerge, i18n.T(i18n.AutoDuplicate, which))
 		break

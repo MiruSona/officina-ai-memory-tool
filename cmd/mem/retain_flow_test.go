@@ -4,6 +4,7 @@ package main
 // 자식 add 의 판정 사다리(rules,nli) · 큐 대체 길 · auto report 의 A2 처리 셈.
 
 import (
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -270,4 +271,9 @@ func TestRetainLowersDupSoftOnlyForRetain(t *testing.T) {
 	if code != exitCheck || !strings.Contains(out, retain.RuleNoMerge) || !strings.Contains(out, "duplicate-soft") {
 		t.Fatalf("retain:strata 는 낮춘 문턱으로 soft 가 걸려 R4 거절이어야 한다 : %d\n%s", code, out)
 	}
+	// R4 까닭 글에 닮음 S 와 실제 쓰인 문턱을 싣는다 — retain-log 에서 S 구간을 봐야 한다 (10-21 대조판).
+	if !strings.Contains(out, fmt.Sprintf("경고 문턱 %.3f", retainDupSoft)) || !strings.Contains(out, "· 닮음 ") {
+		t.Fatalf("R4 까닭 글에 닮음 점수와 문턱 0.045 가 있어야 한다 :\n%s", out)
+	}
+	t.Log(out)
 }
