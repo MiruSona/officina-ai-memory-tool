@@ -84,6 +84,10 @@ func demotedOf(repository *config.Repository) map[string]quality.Grade {
 	return quality.ParseDemoted(string(text))
 }
 
+// retainDupSoft 는 `--origin retain:*` 자식 add 의 duplicate-soft 문턱이다. 기본 0.060 에서는
+// 다른 말로 다시 쓴 같은 caution 이 S 0.06 언저리에서 걸렸다 말았다 했다 (A2 2판 실측 5절 · 안 A).
+const retainDupSoft = 0.045
+
 // gateOptions 는 관문 한 번의 조건이다.
 func gateOptions(repository *config.Repository, opened *store.Store, parsed *options) quality.Options {
 	gate := quality.Options{

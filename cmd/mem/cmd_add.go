@@ -77,6 +77,10 @@ func runAdd(argv []string) int {
 		gate.AllowDuplicate = false
 		gate.SupersedeOf = ""
 		pinAutoRival(&gate)
+		// retain:* 는 같은 내용을 다른 말로 다시 쓰기 쉬워 soft 문턱을 낮춘다 (사람 add·A1 은 그대로).
+		if retain.IsRetain(origin) && gate.Config.Quality.DupWarn > retainDupSoft {
+			gate.Config.Quality.DupWarn = retainDupSoft
+		}
 		return runAddAuto(parsed, repository, opened, request,
 			quality.Gate(memoryOf(request), gate), origin)
 	}

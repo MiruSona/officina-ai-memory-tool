@@ -240,3 +240,34 @@ func TestRetainGuessScopeExactOnly(t *testing.T) {
 		t.Fatalf("앞이 안 맞으면 다음 폴더를 본다 : %q", got)
 	}
 }
+
+// retain:* 자식 add 만 duplicate-soft 문턱을 retainDupSoft 로 낮춘다. 시험 저장소는 dup_warn 을 0.30 으로
+// 올려 둔다 — 같은 글이 사람 add(문턱 0.30)는 지나고 retain:strata(0.045)는 soft 로 R4 에 걸린다.
+func TestRetainLowersDupSoftOnlyForRetain(t *testing.T) {
+	memory := retainRepo(t)
+	toml := filepath.Join(memory, "mem.toml")
+	text, _ := os.ReadFile(toml)
+	os.WriteFile(toml, append(text, []byte("\n[quality]\ndup_reject = 0.9\ndup_warn = 0.30\n")...), 0o644)
+	seed := []string{"add", "--type", "caution", "--severity", "mid", "--scope", "aimemorytool",
+		"--tags", "search,korean", "--sources", "note:seed", "--title", "짧은 한글 검색어 조심",
+		"--summary", "한글 두 글자로 찾으면 색인이 아무것도 못 찾아 결과가 비어 버린다",
+		"--body", "두 글자 검색은 결과가 없다.\ntrigram 은 세 글자부터 조각을 만든다.\n짧은 말은 LIKE 로 따로 찾는다."}
+	if out, code := captureBoth(t, func() int { return run(seed) }); code != exitOK {
+		t.Fatalf("씨앗 기억을 못 넣었다 : %d %s", code, out)
+	}
+	captureBoth(t, func() int { return run([]string{"index"}) })
+	useRetainLLM(t, "", fakeNLI(t, 0.97, 0).URL)
+	same := []string{"add", "--type", "caution", "--severity", "mid", "--scope", "aimemorytool",
+		"--tags", "search,korean", "--sources", "note:transcript " + retainShort + "#1", "--author", "mem-retain/1",
+		"--title", "한글 두 글자 검색 주의", "--summary", "한글 두 글자로 찾으면 색인이 아무것도 못 찾는다",
+		"--body", "두 글자 한글 검색어는 0건이 된다.\n검색 결과가 빈다.\n짧은 검색어는 따로 다룬다."}
+	human, _ := captureBoth(t, func() int { return run(append(same, "--check")) })
+	if strings.Contains(human, "duplicate-soft") {
+		t.Fatalf("사람 add 는 mem.toml 문턱(0.30) 그대로라 soft 가 안 걸려야 한다 :\n%s", human)
+	}
+	auto := append(same, "--origin", "retain:strata", "--session", retainShort, "--quotes", retainQuote, "--check")
+	out, code := captureBoth(t, func() int { return run(auto) })
+	if code != exitCheck || !strings.Contains(out, retain.RuleNoMerge) || !strings.Contains(out, "duplicate-soft") {
+		t.Fatalf("retain:strata 는 낮춘 문턱으로 soft 가 걸려 R4 거절이어야 한다 : %d\n%s", code, out)
+	}
+}
