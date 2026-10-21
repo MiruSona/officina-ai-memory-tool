@@ -41,6 +41,8 @@ type retainSummary struct {
 	Dry        bool   `json:"dry"`
 	Stopped    bool   `json:"stopped"`
 	Skipped    string `json:"skipped,omitempty"`
+	// SkippedLive 는 Pick 이 아직 도는 세션이라 건너뛴 큐 항목 수다.
+	SkippedLive int `json:"skipped_live"`
 }
 
 func runRetain(argv []string) int {
@@ -77,7 +79,8 @@ func runRetain(argv []string) int {
 	if err != nil {
 		return exitFor(err)
 	}
-	picked, code := pickRetain(parsed, repository, items, max)
+	picked, skippedLive, code := pickRetain(parsed, repository, items, max)
+	summary.SkippedLive = skippedLive
 	if code != exitOK {
 		return code
 	}
@@ -131,12 +134,15 @@ func printRetainSummary(parsed *options, summary retainSummary) int {
 	}
 	if summary.Skipped != "" {
 		fmt.Println(summary.Skipped)
-		return exitOK
+	} else {
+		if summary.Dry {
+			fmt.Println(i18n.T(i18n.RetainDryNote))
+		}
+		fmt.Println(i18n.T(i18n.RetainSummary, summary.Sessions, summary.Candidates, summary.Saved, summary.Rejected))
 	}
-	if summary.Dry {
-		fmt.Println(i18n.T(i18n.RetainDryNote))
+	if summary.SkippedLive > 0 {
+		fmt.Println(i18n.T(i18n.RetainSkippedLive, summary.SkippedLive))
 	}
-	fmt.Println(i18n.T(i18n.RetainSummary, summary.Sessions, summary.Candidates, summary.Saved, summary.Rejected))
 	return exitOK
 }
 
@@ -180,15 +186,16 @@ func modelsURL(address string) string {
 }
 
 // pickRetain 은 설계 1절 ③ 이다. --session 이면 그 세션 하나를 covered·done_at 과 상관없이 고른다.
-func pickRetain(parsed *options, repository *config.Repository, items []retain.QueueItem, max int) ([]retain.QueueItem, int) {
+func pickRetain(parsed *options, repository *config.Repository, items []retain.QueueItem, max int) ([]retain.QueueItem, int, int) {
 	given := parsed.text("session")
 	if given == "" {
-		return retain.Pick(items, time.Now(), repository.Config.Retain.QueueDays, max), exitOK
+		picked, skippedLive := retain.PickWithSkipped(items, time.Now(), repository.Config.Retain.QueueDays, max)
+		return picked, skippedLive, exitOK
 	}
 	for _, item := range items {
 		if strings.HasPrefix(item.Entry.SessionID, given) {
-			return []retain.QueueItem{item}, exitOK
+			return []retain.QueueItem{item}, 0, exitOK
 		}
 	}
-	return nil, fail(i18n.T(i18n.RetainNoSession, given))
+	return nil, 0, fail(i18n.T(i18n.RetainNoSession, given))
 }

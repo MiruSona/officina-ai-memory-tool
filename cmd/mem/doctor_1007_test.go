@@ -77,7 +77,7 @@ func TestDoctorRetainLine(t *testing.T) {
 // 키 값 · URL 의 user:pass@ · 경로 · ?key= 가 doctor 출력에 새지 않는다.
 func TestDoctorLLMLineHidesSecrets(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "llm.toml")
-	text := "url = \"http://alice:hunter2@127.0.0.1:8080/v1/secretpath?key=QUERYSECRET\"\n" +
+	text := "generate_url = \"http://alice:hunter2@127.0.0.1:8080/v1/secretpath?key=QUERYSECRET\"\n" +
 		"key = \"sk-SECRETKEYVALUE1234567890\"\n"
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)

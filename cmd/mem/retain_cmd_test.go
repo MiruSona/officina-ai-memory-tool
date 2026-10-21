@@ -35,6 +35,9 @@ func retainRepo(t *testing.T) string {
 	reply, _ := json.Marshal(map[string]any{"type": "assistant", "message": map[string]any{"role": "assistant",
 		"content": []any{map[string]any{"type": "text", "text": "알겠다. 색인 쪽을 본다."}}}})
 	os.WriteFile(record, []byte(string(user)+"\n"+string(reply)+"\n"), 0o644)
+	// 방금 쓴 기록은 Pick 이 살아 있는 세션으로 건너뛴다 — 끝난 세션처럼 시각을 돌린다.
+	hourAgo := time.Now().Add(-time.Hour)
+	os.Chtimes(record, hourAgo, hourAgo)
 	writeJSONFile(t, retain.QueueDir(memory), retainShort+".json", retain.QueueEntry{SessionID: retainSessionID,
 		TranscriptPath: record, Reason: retain.ReasonEnd, At: time.Now().Add(-time.Hour).Format(time.RFC3339)})
 	return memory

@@ -10,6 +10,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 	"github.com/mirusona/officina-ai-memory-tool/internal/retain"
 	"github.com/mirusona/officina-ai-memory-tool/internal/store"
 )
@@ -174,5 +175,68 @@ func TestAutoReportCountsRetainDone(t *testing.T) {
 	queued, missed, retained, _ := reportMissed(memory, autoFilter{Since: "2000-01-01", Until: "2999-12-31"})
 	if queued != 2 || missed != 1 || retained != 1 {
 		t.Fatalf("done_at 항목은 놓침이 아니라 A2 처리로 센다 : %d %d %d", queued, missed, retained)
+	}
+}
+
+// dry-run 후보 줄에 최종 scope 가, 추정으로 바꿨으면 생성의 원래 scope 도 실린다.
+func TestRetainLogCarriesScopeAndGuess(t *testing.T) {
+	memory := retainRepo(t)
+	entry := queueEntryOf(t, memory)
+	entry.Cwd = filepath.Join(filepath.Dir(memory), "AIMemoryTool")
+	writeJSONFile(t, retain.QueueDir(memory), retainShort+".json", entry)
+	guessed := strings.Replace(goodCandidates(), `"scope":"aimemorytool"`, `"scope":"nowhere"`, 1)
+	generate, _ := fakeGenerate(t, guessed)
+	useRetainLLM(t, generate.URL, fakeNLI(t, 0.97, 0).URL)
+	captureBoth(t, func() int { return run([]string{"retain", "--dry-run"}) })
+	lines := retainLogLines(t, memory)
+	if len(lines) != 1 || len(lines[0].Items) != 1 {
+		t.Fatalf("후보 줄이 하나여야 한다 : %+v", lines)
+	}
+	item := lines[0].Items[0]
+	if item.Scope != "aimemorytool" || item.ScopeFrom == nil || *item.ScopeFrom != "nowhere" {
+		t.Fatalf("최종 scope 와 원래 scope 가 다 실려야 한다 : %+v", item)
+	}
+}
+
+// 방금 바뀐 기록의 세션은 건너뛰고, --json 요약에 그 수를 싣는다.
+func TestRetainJSONCountsSkippedLive(t *testing.T) {
+	memory := retainRepo(t)
+	now := time.Now()
+	os.Chtimes(queueEntryOf(t, memory).TranscriptPath, now, now)
+	generate, hits := fakeGenerate(t, goodCandidates())
+	useRetainLLM(t, generate.URL, fakeNLI(t, 0.97, 0).URL)
+	out, code := captureBoth(t, func() int { return run([]string{"retain", "--json"}) })
+	if code != exitOK || hits.Load() != 0 || !strings.Contains(out, `"skipped_live":1`) {
+		t.Fatalf("살아 있는 세션은 건너뛰고 skipped_live 로 센다 : %d hits=%d\n%s", code, hits.Load(), out)
+	}
+	out, _ = captureBoth(t, func() int { return run([]string{"retain"}) })
+	if !strings.Contains(out, "살아 있어 건너뜀 1") {
+		t.Fatalf("사람용 끝줄에도 건너뛴 수가 있어야 한다 :\n%s", out)
+	}
+}
+
+// guessScope 는 A1 훅과 같은 hook.ScopeFor 를 쓰고, 이름이 정확히 같은(정규화 뒤) vocab scope 만 준다.
+func TestRetainGuessScopeExactOnly(t *testing.T) {
+	memory := newRepo(t)
+	repository, err := config.Open(memory)
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.Config.Scope = map[string]string{"ToolHome": "aimemorytool"}
+	worker := &retainWorker{repository: repository, vocab: vocabOf(repository)}
+	cases := map[string]string{
+		"D:/x/AIMemoryTool":         "aimemorytool", // 폴더 이름 소문자
+		"D:/x/ToolHome":             "aimemorytool", // mem.toml [scope] 표가 이긴다
+		"D:/x/AIMemoryToolTest":     "",             // 부분 문자열은 안 맞춘다
+		"D:/x/officina-judge-model": "",
+		"":                          "",
+	}
+	for dir, want := range cases {
+		if got := worker.guessScope(dir); got != want {
+			t.Fatalf("%q → %q (기대 %q)", dir, got, want)
+		}
+	}
+	if got := worker.guessScope("D:/x/Nowhere", "D:/x/AIMemoryTool"); got != "aimemorytool" {
+		t.Fatalf("앞이 안 맞으면 다음 폴더를 본다 : %q", got)
 	}
 }

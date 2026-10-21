@@ -53,17 +53,30 @@ func readEntry(path string) (QueueEntry, error) {
 	return entry, err
 }
 
-// Pick 은 이번 판에 처리할 항목을 고른다 (A2 설계 1절 ③) : covered 아님 · done_at 없음 ·
-// transcript 파일 있음 · queue_days 안. transcript 가 며칠 뒤 사라지므로 오래된 것부터
-// max 건이다. max 가 0 이하면 다 준다.
-func Pick(items []QueueItem, now time.Time, queueDays, max int) []QueueItem {
-	picked := []QueueItem{}
+// 기록 파일이 이만큼 안에 바뀌었으면 아직 돌고 있는 세션으로 친다. compact 표는 압축 뒤 세션이
+// 쉬고 있을 수 있어 넓게 본다.
+const (
+	liveWindowEnd     = 10 * time.Minute
+	liveWindowCompact = 60 * time.Minute
+)
+
+// PickWithSkipped 는 이번 판에 처리할 항목을 고른다 (A2 설계 1절 ③) : covered 아님 · done_at 없음 ·
+// transcript 파일 있음 · queue_days 안 · 살아 있는 세션 아님. transcript 가 며칠 뒤
+// 사라지므로 오래된 것부터 max 건이다. max 가 0 이하면 다 준다.
+// 살아 있어 건너뛴 항목 수(skippedLive)를 같이 준다.
+func PickWithSkipped(items []QueueItem, now time.Time, queueDays, max int) (picked []QueueItem, skippedLive int) {
+	picked = []QueueItem{}
 	for _, item := range items {
 		entry := item.Entry
-		if entry.Covered || entry.DoneAt != "" || !transcriptExists(entry.TranscriptPath) {
+		if entry.Covered || entry.DoneAt != "" || olderThan(entry.At, now, queueDays) {
 			continue
 		}
-		if olderThan(entry.At, now, queueDays) {
+		info, found := transcriptInfo(entry.TranscriptPath)
+		if !found {
+			continue
+		}
+		if isLive(entry, info, now) {
+			skippedLive++
 			continue
 		}
 		picked = append(picked, item)
@@ -76,7 +89,7 @@ func Pick(items []QueueItem, now time.Time, queueDays, max int) []QueueItem {
 	if max > 0 && len(picked) > max {
 		picked = picked[:max]
 	}
-	return picked
+	return picked, skippedLive
 }
 
 // MarkDone 은 큐 표에 처리 결과를 더해 원자 쓰기한다. 다른 칸은 그대로 둔다. pickedAt 은 고를 때
@@ -141,12 +154,29 @@ func FindQueueTranscript(dir, short string) (string, bool) {
 	return entry.TranscriptPath, true
 }
 
+// isLive 는 아직 끝나지 않은 세션인지다. transcript 수정 시각 하나로만 본다 — compact 표도
+// 창 폭이 지나면 집혀, SessionEnd 없이 죽은 세션도 뽑힌다. 건너뛴 항목은 done_at 을 안
+// 붙여 다음 판에 다시 본다.
+func isLive(entry QueueEntry, transcript os.FileInfo, now time.Time) bool {
+	window := liveWindowEnd
+	if entry.Reason == ReasonCompact {
+		window = liveWindowCompact
+	}
+	return transcript.ModTime().After(now.Add(-window))
+}
+
 func transcriptExists(path string) bool {
+	_, found := transcriptInfo(path)
+	return found
+}
+
+// transcriptInfo 는 기록 파일의 정보다. 없거나 보통 파일이 아니면 found 가 거짓이다.
+func transcriptInfo(path string) (os.FileInfo, bool) {
 	if path == "" {
-		return false
+		return nil, false
 	}
 	info, err := os.Stat(path)
-	return err == nil && info.Mode().IsRegular()
+	return info, err == nil && info.Mode().IsRegular()
 }
 
 // olderThan 은 at(RFC3339)이 now 보다 days 일 넘게 앞인지다. 못 읽는 때는 오래된 것으로

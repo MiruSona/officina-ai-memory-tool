@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// 생성 칸 셋(A2 retain 설계 8절) — 빈 칸 · 상한 · 틀린 주소 · url 별칭 · 옛 프로필 칸 경고.
+// 생성 칸 셋(A2 retain 설계 8절) — 빈 칸 · 상한 · 틀린 주소 · 옛 칸(url · 프로필) 경고.
 func TestLLMGenerateFields(t *testing.T) {
 	cases := []struct {
 		name     string
@@ -19,11 +19,9 @@ func TestLLMGenerateFields(t *testing.T) {
 		{name: "빈 파일은 꺼짐 · 기본 시간", text: "", timeout: generateTimeoutMS},
 		{name: "세 칸 그대로", text: "generate_url = \"http://10.0.0.2:8080\"\ngenerate_model = \" m1 \"\ngenerate_timeout_ms = 600000\n",
 			url: "http://10.0.0.2:8080", model: "m1", timeout: 600000},
-		{name: "url 별칭 — generate_url 이 비면 url 을 쓴다", text: "url = \"http://10.0.0.3:8080\"\n",
-			url: "http://10.0.0.3:8080", timeout: generateTimeoutMS},
-		{name: "generate_url 이 있으면 url 보다 먼저", text: "url = \"http://a:1\"\ngenerate_url = \"http://b:2\"\n",
-			url: "http://b:2", timeout: generateTimeoutMS},
-		{name: "틀린 generate_url 은 꺼짐 — 별칭으로 넘어가지 않는다", text: "url = \"http://a:1\"\ngenerate_url = \"file:///x\"\n",
+		{name: "옛 url 은 안 읽고 안 쓰는 칸 경고", text: "url = \"http://10.0.0.3:8080\"\n",
+			timeout: generateTimeoutMS, problems: 1, warnHas: "url 은 안 쓰는 칸"},
+		{name: "틀린 generate_url 은 꺼짐", text: "generate_url = \"file:///x\"\n",
 			timeout: generateTimeoutMS, problems: 1, warnHas: "generate_url"},
 		{name: "상한 넘음은 기본값", text: "generate_timeout_ms = 600001\n", timeout: generateTimeoutMS, problems: 1, warnHas: "600000"},
 		{name: "0 은 기본값", text: "generate_timeout_ms = 0\n", timeout: generateTimeoutMS, problems: 1, warnHas: "generate_timeout_ms"},
@@ -33,8 +31,6 @@ func TestLLMGenerateFields(t *testing.T) {
 			warnHas: "지워도 된다"},
 		{name: "옛 timeout_ms 도 안 쓰는 칸", text: "timeout_ms = 3000\n", timeout: generateTimeoutMS, problems: 1,
 			warnHas: "timeout_ms 은 안 쓰는 칸"},
-		{name: "틀린 url 별칭은 꺼짐", text: "url = \"file:///x\"\n", timeout: generateTimeoutMS, problems: 1,
-			warnHas: "generate_url 로 옮긴다"},
 	}
 	for _, test := range cases {
 		settings, problems := ParseLLM("x", test.text)

@@ -13,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/mirusona/officina-ai-memory-tool/internal/config"
+	"github.com/mirusona/officina-ai-memory-tool/internal/hook"
 	"github.com/mirusona/officina-ai-memory-tool/internal/i18n"
 	"github.com/mirusona/officina-ai-memory-tool/internal/llm"
 	"github.com/mirusona/officina-ai-memory-tool/internal/retain"
@@ -34,17 +35,37 @@ type retainWorker struct {
 	scanner    *secret.Scanner
 	// nliTimeoutMS 는 판정 한 번의 상한이다. 자식 add 를 기다릴 상한을 셈한다.
 	nliTimeoutMS int
+	vocab        config.Vocab
 	scopes       []string
 	tags         []string
+	// root 는 저장소 뿌리다. scope 추정(guessScope)의 마지막 후보다.
+	root string
 }
 
 func newRetainWorker(repository *config.Repository, generator *llm.Generator, dry bool, nliTimeoutMS int) *retainWorker {
 	vocab := vocabOf(repository)
 	// 가리기는 add 의 비밀 차단과 같은 규칙(builtin · guard 포함)을 쓴다.
 	worker := &retainWorker{repository: repository, generator: generator, dry: dry, nliTimeoutMS: nliTimeoutMS,
-		scanner: secret.ForConfig(repository.Config.Secret), scopes: vocab.StandardScopes(), tags: vocab.StandardTags()}
-	worker.system = i18n.T(i18n.RetainSystemPrompt, strings.Join(worker.scopes, ", "), strings.Join(worker.tags, ", "))
+		scanner: secret.ForConfig(repository.Config.Secret), vocab: vocab, scopes: vocab.StandardScopes(), tags: vocab.StandardTags()}
+	worker.root = filepath.Dir(repository.Dir)
+	project := worker.guessScope(worker.root)
+	if project == "" {
+		project = "목록에서 프로젝트 이름에 맞는 것"
+	}
+	worker.system = i18n.T(i18n.RetainSystemPrompt, strings.Join(worker.scopes, ", "), project, strings.Join(worker.tags, ", "))
 	return worker
+}
+
+// guessScope 는 생성이 scope 를 못 맞췄을 때 쓸 scope 다. A1 훅과 같은 hook.ScopeFor(mem.toml [scope]
+// 표 → 폴더 이름 소문자)로 dirs 를 차례로 보고 vocab 안인 첫 값을 준다. 못 정하면 빈 글이다 —
+// 그 후보는 버린다. 틀린 scope 로 저장하는 것보다 낫다.
+func (w *retainWorker) guessScope(dirs ...string) string {
+	for _, dir := range dirs {
+		if name, known, _ := w.vocab.NormalizeScope(hook.ScopeFor(w.repository.Config.Scope, dir)); known {
+			return name
+		}
+	}
+	return ""
 }
 
 // session 은 큐 항목 하나를 처리한다. stopped 가 참이면 서버가 끊긴 것이라 표시 없이 판을 멈춘다.
@@ -70,8 +91,9 @@ func (w *retainWorker) session(item retain.QueueItem) (retainLogLine, bool) {
 	chunks, dropped := retain.Chunks(utterances, settings.ChunkChars, settings.MaxChunks)
 	line.Chunks, line.DroppedChunks = len(chunks), dropped
 	caps := loadRetainCaps(w.repository, entry.SessionID)
+	fallbackScope := w.guessScope(entry.Cwd, w.root)
 	for at, chunk := range chunks {
-		candidates, err := w.generate(chunk, &line)
+		candidates, err := w.generate(chunk, fallbackScope, &line)
 		if err != nil {
 			line.Error = "generate: " + err.Error()
 			if llm.ServerDown(err) {
@@ -115,7 +137,7 @@ func (w *retainWorker) session(item retain.QueueItem) (retainLogLine, bool) {
 
 // generate 는 토막 하나를 생성 서버에 묻는다. JSON 이 깨지면 「JSON 하나만」 한 줄을 붙여 한 번 더
 // 묻고, 또 깨지면 parse_fail 로 세고 빈 목록을 준다. 서버 오류는 err 로 돌려 판을 멈추게 한다.
-func (w *retainWorker) generate(chunk string, line *retainLogLine) ([]retain.GenCandidate, error) {
+func (w *retainWorker) generate(chunk, fallbackScope string, line *retainLogLine) ([]retain.GenCandidate, error) {
 	user := "[대화]\n" + chunk
 	for attempt := 0; attempt < 2; attempt++ {
 		answer, err := w.generator.Generate(context.Background(), w.system, user)
@@ -125,7 +147,7 @@ func (w *retainWorker) generate(chunk string, line *retainLogLine) ([]retain.Gen
 			return nil, err
 		}
 		if err == nil {
-			candidates, _, dropped, parseErr := retain.ParseCandidates(answer.Content, w.scopes, w.tags, retainPerChunk)
+			candidates, _, dropped, parseErr := retain.ParseCandidates(answer.Content, w.vocab, fallbackScope, retainPerChunk)
 			if parseErr == nil {
 				line.Candidates += len(candidates)
 				for why, count := range dropped {
@@ -164,6 +186,7 @@ func (w *retainWorker) note(line *retainLogLine, candidate retain.GenCandidate, 
 			reasons = append(reasons, one.Rule+": "+one.Reason)
 		}
 		line.Items = append(line.Items, retainLogItem{Title: candidate.Title, Type: candidate.Type,
+			Scope: candidate.Scope, ScopeFrom: candidate.ScopeFrom,
 			Summary: candidate.Summary, Quotes: candidate.Quotes, Sources: sources, Verdict: verdict, Reasons: reasons})
 	}
 	for _, one := range result.Rejects {

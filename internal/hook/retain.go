@@ -49,7 +49,7 @@ func runRetain(input Input, flags flagSet, kind Event, stdout io.Writer, started
 		if kind == EventPreCompact {
 			reason = retain.ReasonCompact
 		}
-		err := retain.Mark(project.Dir, input.SessionID, input.TranscriptPath, reason, time.Now())
+		err := retain.Mark(project.Dir, input.SessionID, input.TranscriptPath, reason, input.Cwd, time.Now())
 		note(err)
 		stats.Queued = err == nil
 	}

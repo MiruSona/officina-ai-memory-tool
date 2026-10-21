@@ -134,7 +134,7 @@ func TestStopMaxAndMemAdd(t *testing.T) {
 func TestMarkWritesQueue(t *testing.T) {
 	dir := t.TempDir()
 	now := time.Now()
-	if err := Mark(dir, testSession, "C:/x.jsonl", ReasonCompact, now); err != nil {
+	if err := Mark(dir, testSession, "C:/x.jsonl", ReasonCompact, "D:/repo/ArtTool", now); err != nil {
 		t.Fatal(err)
 	}
 	data, err := os.ReadFile(filepath.Join(QueueDir(dir), "abcd1234.json"))
@@ -142,10 +142,10 @@ func TestMarkWritesQueue(t *testing.T) {
 		t.Fatal(err)
 	}
 	entry := QueueEntry{}
-	if err := json.Unmarshal(data, &entry); err != nil || entry.Reason != ReasonCompact {
+	if err := json.Unmarshal(data, &entry); err != nil || entry.Reason != ReasonCompact || entry.Cwd != "D:/repo/ArtTool" {
 		t.Fatalf("큐 표가 틀렸다 : %s", data)
 	}
-	if Mark(dir, "../../evil", "", ReasonEnd, now) == nil {
+	if Mark(dir, "../../evil", "", ReasonEnd, "", now) == nil {
 		t.Fatal("못 쓰는 세션 id 로 파일을 만들었다")
 	}
 }

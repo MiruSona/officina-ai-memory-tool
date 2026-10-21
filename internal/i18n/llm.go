@@ -3,7 +3,6 @@ package i18n
 // 바깥 서버 판정(K)이 쓰는 말이다 — llm.toml 읽기, R3 경고, `mem judge` (자동쌓기설계 5절 K).
 
 const (
-	LLMBadURL           Key = "llm-bad-url"
 	AutoJudgeSkippedWhy Key = "auto-judge-skipped-why"
 	LLMBadNLIURL        Key = "llm-bad-nli-url"
 	LLMBadNLITimeout    Key = "llm-bad-nli-timeout"
@@ -54,7 +53,6 @@ var llmMessages = map[Key]string{
 	LLMBadGenerateTimeout: "llm.toml 의 generate_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
 	LLMProfileRemoved:     "llm.toml 의 %s 은 안 쓰는 칸이다 — 지워도 된다. 생성은 generate_url · generate_model · generate_timeout_ms, 판정은 nli_url 을 쓴다.",
 
-	LLMBadURL:           "llm.toml 의 url 이 http(s) 주소가 아니다. 생성(retain)을 끈 것으로 친다. url 은 generate_url 로 옮긴다.",
 	AutoJudgeSkippedWhy: "근거 지지 판정(R3)을 못 받아 건너뛰었다 (%s).",
 	LLMBadNLIURL:        "llm.toml 의 nli_url 이 http(s) 주소가 아니다. NLI 단을 끈 것으로 친다.",
 	LLMBadNLITimeout:    "llm.toml 의 nli_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",

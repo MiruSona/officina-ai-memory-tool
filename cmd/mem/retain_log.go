@@ -43,13 +43,16 @@ type retainLogLine struct {
 // retainLogItem 은 dry-run 후보 하나와 관문 판정이다 (관문 효과 자의 자료). Sources 는 자식에 넘긴 최종 근거다.
 // Summary 는 R3 가 인용과 견주는 글이고, Reasons 는 거절 규칙마다 자식이 준 까닭 글이다 (사람이 거절을 다시 판정할 때 본다).
 type retainLogItem struct {
-	Title   string   `json:"title"`
-	Type    string   `json:"type"`
-	Summary string   `json:"summary"`
-	Quotes  []string `json:"quotes"`
-	Sources []string `json:"sources"`
-	Verdict string   `json:"verdict"`
-	Reasons []string `json:"reasons,omitempty"`
+	Title string `json:"title"`
+	Type  string `json:"type"`
+	// Scope 는 자식에 넘긴 최종 scope 다. ScopeFrom 은 추정으로 바꿨을 때만 실리는 생성의 원래 값이다.
+	Scope     string   `json:"scope"`
+	ScopeFrom *string  `json:"scope_from,omitempty"`
+	Summary   string   `json:"summary"`
+	Quotes    []string `json:"quotes"`
+	Sources   []string `json:"sources"`
+	Verdict   string   `json:"verdict"`
+	Reasons   []string `json:"reasons,omitempty"`
 }
 
 func newRetainLogLine(short string, dry bool, now time.Time) retainLogLine {

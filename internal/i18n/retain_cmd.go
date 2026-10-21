@@ -27,6 +27,7 @@ const (
 	AutoBundleNotSupp   Key = "auto-bundle-not-supported"
 	AutoTitleContradict Key = "auto-title-contradict"
 	RetainGenerateError Key = "retain-generate-error"
+	RetainSkippedLive   Key = "retain-skipped-live"
 )
 
 var retainCmdMessages = map[Key]string{
@@ -61,6 +62,7 @@ var retainCmdMessages = map[Key]string{
 - 코드·git 으로 바로 알 수 있는 것, 이 세션만 쓸 메모는 넣지 마라.
 - 후보는 많아야 3개. 없으면 {"candidates":[],"nothing":true}.
 - scope 는 이 중 하나 : %s
+- scope 는 그 사실이 속한 곳으로 고른다. 대화가 어느 툴을 다뤘는지로 고르지 않는다. 툴 이름 scope 는 그 툴의 코드·설계에만 쓴다. 기계·서버·서비스·설치 같은 환경 사실과 여러 툴에 걸친 규칙은 프로젝트 전체 scope(%s)를 쓴다.
 - tags 는 이 중에서 1~5개 : %s
 꼴 : {"candidates":[{"type":"…","title":"…","summary":"…","body":"…","tags":["…"],"scope":"…","quotes":["…"],"files":["경로"],"supersedes":null}],"nothing":false}
 JSON 하나만 내라. 다른 글은 쓰지 마라.`,
@@ -69,6 +71,7 @@ JSON 하나만 내라. 다른 글은 쓰지 마라.`,
 	AutoReportRetained:  "A2 처리 : 큐 %d건 (mem retain 이 done_at 을 단 것)",
 	AutoBundleNotSupp:   "근거 문장을 다 이어도 요약을 뒷받침하지 않는다",
 	AutoTitleContradict: "제목이 근거와 어긋난다 (반대 %.2f ≥ %.2f)",
+	RetainSkippedLive:   "살아 있어 건너뜀 %d (기록이 막 바뀐 세션 — 다음 판에 다시 본다)",
 	RetainGenerateError: "세션 %s 은 생성 요청이 거절돼(%s) 오류로 표시하고 다음 세션으로 간다.",
 }
 

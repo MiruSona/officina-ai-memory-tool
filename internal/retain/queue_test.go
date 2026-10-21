@@ -9,11 +9,14 @@ import (
 )
 
 // putQueue 는 큐 표 하나를 쓰고 그 경로를 준다. transcript 가 참이면 기록 파일도 만든다.
+// 기록 파일 수정 시각은 오래전으로 돌려 둔다 — 방금 쓴 파일은 Pick 이 살아 있는 세션으로 본다.
 func putQueue(t *testing.T, dir, short string, entry QueueEntry, transcript bool) string {
 	t.Helper()
 	if transcript {
 		entry.TranscriptPath = filepath.Join(dir, short+".jsonl")
 		writeTranscript(t, entry.TranscriptPath, 1, 0)
+		old := time.Date(2000, 1, 1, 0, 0, 0, 0, time.UTC)
+		os.Chtimes(entry.TranscriptPath, old, old)
 	} else {
 		entry.TranscriptPath = filepath.Join(dir, "gone-"+short+".jsonl")
 	}
@@ -26,6 +29,9 @@ func putQueue(t *testing.T, dir, short string, entry QueueEntry, transcript bool
 	}
 	return path
 }
+
+// onlyPicked 는 PickWithSkipped 의 건너뛴 수를 버린다.
+func onlyPicked(items []QueueItem, _ int) []QueueItem { return items }
 
 func shortsOf(items []QueueItem) string {
 	out := ""
@@ -51,11 +57,46 @@ func TestPickConditionsAndOrder(t *testing.T) {
 	if err != nil || len(items) != 7 {
 		t.Fatalf("깨진 파일만 빼고 일곱을 읽어야 한다 : %d %v", len(items), err)
 	}
-	if got := shortsOf(Pick(items, now, 14, 2)); got != "aaaa0002 aaaa0003 " {
+	if got := shortsOf(onlyPicked(PickWithSkipped(items, now, 14, 2))); got != "aaaa0002 aaaa0003 " {
 		t.Fatalf("조건에 맞는 것을 오래된 것부터 max 건 : %q", got)
 	}
-	if got := shortsOf(Pick(items, now, 14, 0)); got != "aaaa0002 aaaa0003 aaaa0001 " {
+	if got := shortsOf(onlyPicked(PickWithSkipped(items, now, 14, 0))); got != "aaaa0002 aaaa0003 aaaa0001 " {
 		t.Fatalf("max 0 은 다 : %q", got)
+	}
+}
+
+func TestPickSkipsCompactEntry(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	at := now.Add(-time.Hour).Format(time.RFC3339)
+	putQueue(t, dir, "aaaa0001", QueueEntry{At: at, Reason: ReasonCompact}, true)
+	putQueue(t, dir, "aaaa0002", QueueEntry{At: at, Reason: ReasonCompact}, true)
+	// 30분 전 : end 창(10분)은 지났지만 compact 창(60분) 안이다.
+	recent := now.Add(-30 * time.Minute)
+	os.Chtimes(filepath.Join(dir, "aaaa0001.jsonl"), recent, recent)
+	old := now.Add(-2 * time.Hour)
+	os.Chtimes(filepath.Join(dir, "aaaa0002.jsonl"), old, old)
+	items, _ := ReadQueue(dir)
+	if got := shortsOf(onlyPicked(PickWithSkipped(items, now, 14, 0))); got != "aaaa0002 " {
+		t.Fatalf("compact 표는 기록이 60분 안이면 건너뛰고 2시간 전이면 집힌다 : %q", got)
+	}
+}
+
+func TestPickSkipsRecentlyWrittenTranscript(t *testing.T) {
+	dir := t.TempDir()
+	now := time.Date(2026, 10, 19, 12, 0, 0, 0, time.UTC)
+	at := now.Add(-time.Hour).Format(time.RFC3339)
+	putQueue(t, dir, "aaaa0001", QueueEntry{At: at, Reason: ReasonEnd}, true)
+	putQueue(t, dir, "aaaa0002", QueueEntry{At: at, Reason: ReasonEnd}, true)
+	recent := now.Add(-liveWindowEnd / 2)
+	os.Chtimes(filepath.Join(dir, "aaaa0001.jsonl"), recent, recent)
+	items, _ := ReadQueue(dir)
+	if got := shortsOf(onlyPicked(PickWithSkipped(items, now, 14, 0))); got != "aaaa0002 " {
+		t.Fatalf("기록이 liveWindowEnd 안에 바뀐 세션은 건너뛴다 : %q", got)
+	}
+	later := now.Add(liveWindowEnd)
+	if got := shortsOf(onlyPicked(PickWithSkipped(items, later, 14, 0))); got != "aaaa0002 aaaa0001 " && got != "aaaa0001 aaaa0002 " {
+		t.Fatalf("건너뛴 세션은 다음 판에 다시 집힌다 : %q", got)
 	}
 }
 

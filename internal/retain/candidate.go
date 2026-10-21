@@ -4,6 +4,8 @@ import (
 	"encoding/json"
 	"errors"
 	"strings"
+
+	"github.com/mirusona/officina-ai-memory-tool/internal/config"
 )
 
 // 생성 후보를 버린 까닭. retain-log 의 rejected 칸에 이 이름으로 센다 (A2 설계 4·7절).
@@ -33,6 +35,8 @@ type GenCandidate struct {
 	Quotes     []string `json:"quotes"`
 	Files      []string `json:"files"`
 	Supersedes string   `json:"supersedes"`
+	// ScopeFrom 은 추정(fallbackScope)으로 Scope 를 바꿨을 때 생성이 준 원래 값이다(빈 글일 수 있다). 안 바꿨으면 nil 이다.
+	ScopeFrom *string `json:"-"`
 }
 
 type genOutput struct {
@@ -44,8 +48,9 @@ var errEmptyAnswer = errors.New("empty generate answer")
 
 // ParseCandidates 는 생성 답을 읽어 다듬는다. JSON 이 통째로 깨졌으면 err 다 — 부르는
 // 쪽이 한 번 다시 묻는다. 후보 하나가 틀리면 그것만 버리고 dropped 에 까닭별로 센다.
-// vocab 목록이 비면 그 거르기는 끈다. maxPer 가 0 이하면 상한이 없다.
-func ParseCandidates(raw string, vocabScopes, vocabTags []string, maxPer int) ([]GenCandidate, bool, map[string]int, error) {
+// vocab 목록이 비면 그 거르기는 끈다. maxPer 가 0 이하면 상한이 없다. scope 는 소문자·별칭으로
+// 맞춘 뒤에도 비거나 vocab 밖이면 fallbackScope(부르는 쪽 추정)로 바꾼다. 그것도 비면 버린다.
+func ParseCandidates(raw string, vocab config.Vocab, fallbackScope string, maxPer int) ([]GenCandidate, bool, map[string]int, error) {
 	text := stripFence(raw)
 	if text == "" {
 		return nil, false, nil, errEmptyAnswer
@@ -56,8 +61,9 @@ func ParseCandidates(raw string, vocabScopes, vocabTags []string, maxPer int) ([
 	}
 	dropped := map[string]int{}
 	cands := []GenCandidate{}
+	vocabScopes, vocabTags := vocab.StandardScopes(), vocab.StandardTags()
 	for _, item := range output.Candidates {
-		one, why := tidyCandidate(item, vocabScopes, vocabTags)
+		one, why := tidyCandidate(item, vocab, vocabScopes, vocabTags, fallbackScope)
 		if why != "" {
 			dropped[why]++
 			continue
@@ -72,7 +78,7 @@ func ParseCandidates(raw string, vocabScopes, vocabTags []string, maxPer int) ([
 }
 
 // tidyCandidate 는 후보 하나를 읽고 거른다. 버릴 때는 까닭 이름을 준다.
-func tidyCandidate(item json.RawMessage, vocabScopes, vocabTags []string) (GenCandidate, string) {
+func tidyCandidate(item json.RawMessage, vocab config.Vocab, vocabScopes, vocabTags []string, fallbackScope string) (GenCandidate, string) {
 	one := GenCandidate{}
 	if json.Unmarshal(item, &one) != nil {
 		return one, DropParse
@@ -80,6 +86,12 @@ func tidyCandidate(item json.RawMessage, vocabScopes, vocabTags []string) (GenCa
 	one.Type = strings.ToLower(strings.TrimSpace(one.Type))
 	one.Title, one.Summary = strings.TrimSpace(one.Title), strings.TrimSpace(one.Summary)
 	one.Body, one.Scope = strings.TrimSpace(one.Body), strings.TrimSpace(one.Scope)
+	if name, known, _ := vocab.NormalizeScope(one.Scope); known {
+		one.Scope = name
+	} else if fallbackScope != "" && (one.Scope == "" || len(vocabScopes) > 0) {
+		original := one.Scope
+		one.ScopeFrom, one.Scope = &original, fallbackScope
+	}
 	if one.Type == "" || one.Title == "" || one.Summary == "" || one.Body == "" || one.Scope == "" {
 		return one, DropParse
 	}

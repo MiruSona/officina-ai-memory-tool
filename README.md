@@ -115,7 +115,7 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 | `eval` | 골든셋으로 **검색 품질**과 **문서 품질**(`--quality`)을 잰다. `--tune-dup` · `--golden` · `--repo` | **골든셋이 없으면 종료 코드 3** |
 | `status` | 저장소 자리·건수·색인 건강. `--quality` · `--db` · `--doctor` · `--log` | **`--embed`** (지금 어느 모드인지 · 벡터 몇 건인지) |
 | `judge` | 근거 지지 판정(규칙 → JudgeModel NLI)을 직접 불러 본다. `config` · `support` · `clean` · `report` (아래 K 절) | K 에서 새로 |
-| `retain` | 알림 못 받은 세션(큐)의 대화 기록을 생성 서버(Strata)에 보내 기억 후보를 뽑고, 후보마다 자식 `mem add --origin retain:strata` 로 자동 관문(R1~R8 · R3 는 NLI 필수)에 건다. 서버 둘 중 하나라도 안 닿으면 한 줄 + 종료 0. `--session` · `--max`(기본 3) · `--dry-run` · `--prune [--apply]` · `--json`. 기록은 `Memory/local/retain-log/<날짜>.jsonl`. 설계 `Docs/Design/2026-10-19-A2-retain설계.md` | A2 에서 새로 (2026-10-19) |
+| `retain` | 알림 못 받은 세션(큐)의 대화 기록을 생성 서버(Strata)에 보내 기억 후보를 뽑고, 후보마다 자식 `mem add --origin retain:strata` 로 자동 관문(R1~R8 · R3 는 NLI 필수)에 건다. 서버 둘 중 하나라도 안 닿으면 한 줄 + 종료 0. `--session` · `--max`(기본 3) · `--dry-run` · `--prune [--apply]` · `--json`. 기록은 `Memory/local/retain-log/<날짜>.jsonl`. A1 훅이 큐에 쓴 세션 표만 읽고, 아직 도는 세션(기록이 `end` 표는 10분 · `compact` 표는 60분 안에 바뀜)은 건너뛴다. 설계 `Docs/Design/2026-10-19-A2-retain설계.md` | A2 에서 새로 (2026-10-19) |
 | `help` | 한글 도움말. `mem help <명령>` 은 `mem <명령> --help` 와 같다 | — |
 
 옵션은 `mem help <명령>` 으로 본다. 메시지는 전부 한글이다.
@@ -132,6 +132,7 @@ scope 를 정하기 전까지는 목록 밖 태그·scope 가 **경고로만** �
 
 일이 끝날 즈음 `Stop` 훅이 AI 에게 「남길 것 정리해 `mem add`」를 알리고, AI 가 넣은 기억은 **자동 관문**을 거쳐 보류 없이 바로 쓰인다.
 틀린 것이 들어오면 **출처(`origin`)로 골라 한꺼번에 보류로 되돌린다.** 훅과 관문은 모델을 안 부른다 (LLM 0).
+**A1 과 A2 는 몫이 나뉜다.** A1 의 `pre-compact` · `session-end` 훅은 대화를 안 읽고 `Memory/local/retain-queue/` 에 세션 표 하나만 쓴다 (1.5초 예산). A2 `mem retain` 이 그 큐를 읽어 대화 기록에서 후보를 뽑고 자동 관문에 건다.
 설계는 `Docs/Design/2026-10-05-자동쌓기와모음기억설계.md` 2절, 켜는 절차와 2주 뒤 볼 숫자는 `Docs/Todo/2026-10-05-자동쌓기A1후속.md`.
 
 | 명령 · 칸 | 하는 일 |
@@ -165,8 +166,7 @@ R3(근거 판정)는 아래 「판정 사다리」 절대로 돈다 — 규칙 �
 key = ""                        # 있으면 생성 요청에 Bearer 로 보낸다
 ```
 
-옛 칸 `judge_profile` · `generate_profile` · `timeout_ms` 는 안 쓴다 — 적혀 있으면 읽지 않고 「안 쓰는 칸 — 지워도 된다」 경고 한 줄을 낸다.
-옛 `url` 은 이번 판만 `generate_url` 이 없을 때 생성 주소로 대신 읽는다 (다음 판에 지운다).
+옛 칸 `judge_profile` · `generate_profile` · `timeout_ms` · `url` 은 안 쓴다 — 적혀 있으면 읽지 않고 「안 쓰는 칸 — 지워도 된다」 경고 한 줄을 낸다.
 
 ### 판정 사다리 — 규칙 → NLI (2026-10-08 · ② 단은 2026-10-09 NLI 로 바뀜 · ③ SemIf 는 2026-10-19 지움)
 
@@ -204,7 +204,7 @@ nli_sure_related = 0.80   # 비슷한 계열(D) 확정 문턱 · 0.34~0.99 · 4�
 `mem retain`(A2) 이 쓰는 생성 서버 칸이다. 키는 위 `key` 를 같이 쓴다.
 
 ```toml
-generate_url = ""             # 예 "http://<미니PC>:8080" (뿌리 · /v1 · /v1/chat/completions 셋 다 된다) · 비면 retain 은 「생성 주소 없음 — 건너뜀」 (이번 판만 비면 url 을 대신 읽는다)
+generate_url = ""             # 예 "http://<미니PC>:8080" (뿌리 · /v1 · /v1/chat/completions 셋 다 된다) · 비면 retain 은 「생성 주소 없음 — 건너뜀」
 generate_model = ""           # 요청의 model 칸 (Strata 모델 id) · 비면 안 보낸다
 generate_timeout_ms = 180000  # 생성 한 요청 제한 시간 (1~600000)
 ```

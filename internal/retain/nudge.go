@@ -124,7 +124,9 @@ type QueueEntry struct {
 	TranscriptPath string `json:"transcript_path"`
 	Reason         string `json:"reason"`
 	At             string `json:"at"`
-	Offset         int64  `json:"offset"`
+	// Cwd 는 훅이 받은 세션 작업 폴더다. 생성 후보 scope 를 못 쓸 때 추정에 쓴다. 옛 표에는 없다.
+	Cwd    string `json:"cwd,omitempty"`
+	Offset int64  `json:"offset"`
 	// Covered 는 그 세션에서 자동 관문을 지난 기억이 이미 있다는 뜻이다.
 	Covered bool `json:"covered"`
 	// DoneAt·Result·Saved 는 `mem retain` 이 처리한 뒤 더하는 표시다 (A2 설계 2절).
@@ -135,14 +137,14 @@ type QueueEntry struct {
 
 // Mark 는 큐 표 하나를 쓴다. 대화 기록을 안 읽어 SessionEnd 1.5초 예산에 맞는다.
 // 같은 세션은 같은 파일이라 compact 뒤 end 가 오면 덮어쓴다.
-func Mark(dir, sessionID, transcriptPath, reason string, now time.Time) error {
+func Mark(dir, sessionID, transcriptPath, reason, cwd string, now time.Time) error {
 	short := Short(sessionID)
 	if short == "" {
 		return errNotTranscript
 	}
 	state := LoadState(dir)
 	entry := QueueEntry{SessionID: sessionID, TranscriptPath: transcriptPath, Reason: reason,
-		At: now.Format(time.RFC3339)}
+		At: now.Format(time.RFC3339), Cwd: cwd}
 	if session := state.Sessions[sessionID]; session != nil {
 		entry.Offset = session.Offset
 		entry.Covered = session.AutoAdds > 0

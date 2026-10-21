@@ -19,13 +19,13 @@ func TestLLMMissingFileIsOff(t *testing.T) {
 
 func TestLLMParse(t *testing.T) {
 	path := filepath.Join(t.TempDir(), LLMFileName)
-	text := "\ufeff# 이 기계\nurl = \"http://127.0.0.1:8080\"\nkey = \"k\"\njudge_profile = \"judge\"\n" +
+	text := "\ufeff# 이 기계\ngenerate_url = \"http://127.0.0.1:8080\"\nkey = \"k\"\njudge_profile = \"judge\"\n" +
 		"generate_profile = \"gen\"\ntimeout_ms = 3000\n"
 	if err := os.WriteFile(path, []byte(text), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	settings, problems := LoadLLM(path)
-	// 옛 칸 셋(프로필 둘 · timeout_ms)은 읽지 않고 「안 쓰는 칸」 경고 한 줄이다. url 은 생성 주소 별칭이다.
+	// 옛 칸 셋(프로필 둘 · timeout_ms)은 읽지 않고 「안 쓰는 칸」 경고 한 줄이다.
 	if len(problems) != 1 || !settings.Enabled() || settings.GenerateURL != "http://127.0.0.1:8080" ||
 		settings.Key != "k" || settings.Path != path ||
 		!strings.Contains(problems[0], "judge_profile · generate_profile · timeout_ms") {
@@ -34,11 +34,11 @@ func TestLLMParse(t *testing.T) {
 }
 
 func TestLLMBadValues(t *testing.T) {
-	settings, problems := ParseLLM("x", "url = \"file:///etc/passwd\"\n")
-	if settings.Enabled() || len(problems) != 1 || !strings.Contains(problems[0], "url") {
-		t.Fatalf("틀린 url 은 꺼짐과 문제 한 줄이어야 한다 : %+v %v", settings, problems)
+	settings, problems := ParseLLM("x", "generate_url = \"file:///etc/passwd\"\n")
+	if settings.Enabled() || len(problems) != 1 || !strings.Contains(problems[0], "generate_url") {
+		t.Fatalf("틀린 generate_url 은 꺼짐과 문제 한 줄이어야 한다 : %+v %v", settings, problems)
 	}
-	if settings, _ := ParseLLM("x", "url = \"127.0.0.1:8080\"\n"); settings.Enabled() {
+	if settings, _ := ParseLLM("x", "generate_url = \"127.0.0.1:8080\"\n"); settings.Enabled() {
 		t.Fatal("http 가 없는 주소는 받지 않는다")
 	}
 }
