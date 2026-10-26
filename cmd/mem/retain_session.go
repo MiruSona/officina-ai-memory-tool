@@ -187,7 +187,8 @@ func (w *retainWorker) note(line *retainLogLine, candidate retain.GenCandidate, 
 		}
 		line.Items = append(line.Items, retainLogItem{Title: candidate.Title, Type: candidate.Type,
 			Scope: candidate.Scope, ScopeFrom: candidate.ScopeFrom,
-			Summary: candidate.Summary, Quotes: candidate.Quotes, Sources: sources, Verdict: verdict, Reasons: reasons})
+			Summary: candidate.Summary, Quotes: candidate.Quotes, Sources: sources, Verdict: verdict, Reasons: reasons,
+			Truncated: result.Truncated})
 	}
 	for _, one := range result.Rejects {
 		if one.Rule == retain.RuleSupport && retain.SupportDown(one.Reason) {

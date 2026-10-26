@@ -46,6 +46,8 @@ type Choice struct {
 	MS     int64              `json:"ms"`
 	// LabelSet 은 NLI 서버가 답한 응답 꼴(nli3 · nli4)이다.
 	LabelSet string `json:"label_set,omitempty"`
+	// Truncated 는 NLI 서버가 입력을 잘랐다고 답했는지다.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // chatMessage 는 OpenAI 호환 요청의 메시지 한 칸이다.

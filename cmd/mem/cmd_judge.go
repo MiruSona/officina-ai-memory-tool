@@ -210,6 +210,7 @@ type judgeConfigJSON struct {
 	NLITimeoutMS      int     `json:"nli_timeout_ms"`
 	NLISure           float64 `json:"nli_sure"`
 	NLISureSupport    float64 `json:"nli_sure_support"`
+	RetainSureSupport float64 `json:"retain_sure_support"`
 }
 
 // judgeConfig 는 llm.toml 자리와 읽은 값을 보인다. 서버에는 아무것도 안 보낸다.
@@ -218,7 +219,7 @@ func judgeConfig(parsed *options) int {
 	row := judgeConfigJSON{Path: settings.Path, Enabled: settings.Enabled(), Key: settings.Key != "",
 		GenerateURL: settings.GenerateURL, GenerateModel: settings.GenerateModel,
 		GenerateTimeoutMS: settings.GenerateTimeoutMS, NLIURL: settings.NLIURL, NLITimeoutMS: settings.NLITimeoutMS, NLISure: settings.NLISure,
-		NLISureSupport: settings.NLISureSupport}
+		NLISureSupport: settings.NLISureSupport, RetainSureSupport: settings.RetainSureSupport}
 	if parsed.flags["json"] {
 		return printJSON(row)
 	}
@@ -227,7 +228,7 @@ func judgeConfig(parsed *options) int {
 		return exitOK
 	}
 	fmt.Println(i18n.T(i18n.JudgeConfigLine, row.Path, orDash(row.GenerateURL), orDash(row.GenerateModel),
-		row.GenerateTimeoutMS, yesNo(row.Key), orDash(row.NLIURL), row.NLITimeoutMS, row.NLISureSupport, row.NLISure))
+		row.GenerateTimeoutMS, yesNo(row.Key), orDash(row.NLIURL), row.NLITimeoutMS, row.NLISureSupport, row.NLISure, row.RetainSureSupport))
 	return exitOK
 }
 

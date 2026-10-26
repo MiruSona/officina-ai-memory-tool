@@ -42,6 +42,8 @@ type childResult struct {
 	Passed  bool
 	ID      string
 	Rejects []quality.Finding
+	// Truncated 는 자식 R3 의 NLI 답 중 하나라도 입력을 잘랐다고 했는지다 (retain-log 칸).
+	Truncated bool
 }
 
 // childJSON 은 add --json 이 내는 두 꼴(addVerdictJSON · autoVerdictJSON)을 한 번에 읽는 꼴이다.
@@ -158,9 +160,9 @@ func runChild(args []string, body string, timeout time.Duration) (childResult, e
 		return childResult{}, fmt.Errorf("child exit %d: %s", code, safe.Clip(safe.OneLine(stderr.String()), childErrClip))
 	}
 	if code == exitOK {
-		return childResult{Passed: true, ID: parsed.ID}, nil
+		return childResult{Passed: true, ID: parsed.ID, Truncated: parsed.Auto.Truncated}, nil
 	}
-	return childResult{Rejects: rejectsOf(parsed, code)}, nil
+	return childResult{Rejects: rejectsOf(parsed, code), Truncated: parsed.Auto.Truncated}, nil
 }
 
 // lastJSON 은 stdout 에서 마지막으로 읽히는 JSON 줄을 고른다. 자식 --json 은 판정 JSON 한 줄을

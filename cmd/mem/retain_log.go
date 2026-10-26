@@ -53,6 +53,8 @@ type retainLogItem struct {
 	Sources   []string `json:"sources"`
 	Verdict   string   `json:"verdict"`
 	Reasons   []string `json:"reasons,omitempty"`
+	// Truncated 는 R3 물음 중 하나라도 NLI 서버가 입력을 잘랐다고 답했는지다 (판정은 그대로).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 func newRetainLogLine(short string, dry bool, now time.Time) retainLogLine {

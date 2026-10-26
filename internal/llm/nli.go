@@ -81,7 +81,9 @@ type nliResponse struct {
 	// MS 는 서버가 소수로 준다 (42.0). 정수 칸이면 해석이 깨져 모든 답이 bad-answer 가 된다.
 	MS float64 `json:"ms"`
 	// 덧칸이다. 없어도 되고, labels·model_version 은 꼴만 받아 둔다 (값을 안 쓴다).
-	LabelSet     string          `json:"label_set"`
+	LabelSet string `json:"label_set"`
+	// Truncated 는 서버가 입력을 토큰 상한에서 잘랐다는 표시다. 판정은 안 바꾸고 기록에만 남긴다.
+	Truncated    bool            `json:"truncated"`
 	Labels       json.RawMessage `json:"labels"`
 	ModelVersion json.RawMessage `json:"model_version"`
 }
@@ -149,6 +151,7 @@ func readNLI(data []byte) (Choice, string, error) {
 		return Choice{}, "", errors.New("nli:bad-answer")
 	}
 	choice.LabelSet = labelSetOf(parsed.LabelSet)
+	choice.Truncated = parsed.Truncated
 	model := strings.TrimSpace(parsed.Model)
 	if len(model) > nliModelMax || model == "" {
 		model = "-"

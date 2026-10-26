@@ -80,6 +80,8 @@ type Finding struct {
 type Result struct {
 	Rejects  []Finding `json:"rejects"`
 	Warnings []string  `json:"warnings"`
+	// Truncated 는 R3 물음 중 하나라도 NLI 서버가 입력을 잘랐다고 답했는지다. 판정은 안 바꾼다.
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Rejected 는 저장을 막았는지다.

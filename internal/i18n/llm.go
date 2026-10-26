@@ -9,9 +9,11 @@ const (
 	LLMBadNLISure       Key = "llm-bad-nli-sure"
 	LLMLayaRemoved      Key = "llm-laya-removed"
 	LLMNLISureInverted  Key = "llm-nli-sure-inverted"
-	JudgeStageUsage     Key = "judge-stage-usage"
-	JudgeNoHit          Key = "judge-no-hit"
-	JudgeStageMark      Key = "judge-stage-mark"
+	// LLMRetainSureInverted 는 retain 전용 지지 선이 nli_sure 아래라 공용 값으로 되돌렸다는 알림이다.
+	LLMRetainSureInverted Key = "llm-retain-sure-inverted"
+	JudgeStageUsage       Key = "judge-stage-usage"
+	JudgeNoHit            Key = "judge-no-hit"
+	JudgeStageMark        Key = "judge-stage-mark"
 
 	JudgeUsage          Key = "judge-usage"
 	JudgeSupportUsage   Key = "judge-support-usage"
@@ -53,20 +55,21 @@ var llmMessages = map[Key]string{
 	LLMBadGenerateTimeout: "llm.toml 의 generate_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
 	LLMProfileRemoved:     "llm.toml 의 %s 은 안 쓰는 칸이다 — 지워도 된다. 생성은 generate_url · generate_model · generate_timeout_ms, 판정은 nli_url 을 쓴다.",
 
-	AutoJudgeSkippedWhy: "근거 지지 판정(R3)을 못 받아 건너뛰었다 (%s).",
-	LLMBadNLIURL:        "llm.toml 의 nli_url 이 http(s) 주소가 아니다. NLI 단을 끈 것으로 친다.",
-	LLMBadNLITimeout:    "llm.toml 의 nli_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
-	LLMBadNLISure:       "llm.toml 의 %s(%.2f)는 %.2f~%.2f 여야 한다. 기본 %.2f 로 읽었다.",
-	LLMLayaRemoved:      "llm.toml 의 laya_* 는 없어졌다 — 읽지 않는다. nli_url · nli_sure · nli_sure_support 를 쓴다.",
-	LLMNLISureInverted:  "llm.toml 의 nli_sure_support(%.2f)가 nli_sure(%.2f)보다 낮다 — 지지를 더 쉽게 확정한다. 값은 그대로 읽었다.",
-	JudgeStageUsage:     "--stage 는 rules · nli 를 쉼표로 이은 것이다 (예 rules,nli).",
-	JudgeNoHit:          "판정 없음 — 규칙에 안 걸렸고 다음 단의 답도 없다 (모른다)",
-	JudgeStageMark:      " · %s 단",
+	AutoJudgeSkippedWhy:   "근거 지지 판정(R3)을 못 받아 건너뛰었다 (%s).",
+	LLMBadNLIURL:          "llm.toml 의 nli_url 이 http(s) 주소가 아니다. NLI 단을 끈 것으로 친다.",
+	LLMBadNLITimeout:      "llm.toml 의 nli_timeout_ms(%d)는 1~%d 여야 한다. 기본 %d 로 읽었다.",
+	LLMBadNLISure:         "llm.toml 의 %s(%.2f)는 %.2f~%.2f 여야 한다. 기본 %.2f 로 읽었다.",
+	LLMLayaRemoved:        "llm.toml 의 laya_* 는 없어졌다 — 읽지 않는다. nli_url · nli_sure · nli_sure_support 를 쓴다.",
+	LLMNLISureInverted:    "llm.toml 의 nli_sure_support(%.2f)가 nli_sure(%.2f)보다 낮다 — 지지를 더 쉽게 확정한다. 값은 그대로 읽었다.",
+	LLMRetainSureInverted: "llm.toml 의 retain_sure_support(%.2f)가 nli_sure(%.2f)보다 낮다 — 거짓 지지를 막는 뜻이 뒤집혀 공용 nli_sure_support %.2f 로 읽었다.",
+	JudgeStageUsage:       "--stage 는 rules · nli 를 쉼표로 이은 것이다 (예 rules,nli).",
+	JudgeNoHit:            "판정 없음 — 규칙에 안 걸렸고 다음 단의 답도 없다 (모른다)",
+	JudgeStageMark:        " · %s 단",
 
 	JudgeUsage:          "쓰는 법 : mem judge config | mem judge support --evidence <근거> --claim <주장> | mem judge support --file <쌍.jsonl> [--stage rules,nli] | mem judge clean [--older <일>] [--apply] | mem judge report --file <보고.md | -> [--scope <scope>] [--pairs <수>]",
 	JudgeSupportUsage:   "support 는 --evidence 와 --claim 을 같이 주거나, --file 하나만 준다.",
 	JudgeOff:            "서버 주소 없음 — 건너뜀 (설정 파일 : %s)",
-	JudgeConfigLine:     "설정 파일 : %s\ngenerate_url : %s · generate_model : %s · 제한 시간 : %dms · 키 : %s\nnli_url : %s · 제한 시간 : %dms · 문턱 지지 %.2f · 반대·무관 %.2f",
+	JudgeConfigLine:     "설정 파일 : %s\ngenerate_url : %s · generate_model : %s · 제한 시간 : %dms · 키 : %s\nnli_url : %s · 제한 시간 : %dms · 문턱 지지 %.2f · 반대·무관 %.2f · retain 지지 %.2f",
 	JudgeFailed:         "판정을 못 받았다 (%s). 재시도는 안 한다.",
 	JudgeVerdictLine:    "%s (%s) 확률 %.3f · %s · %dms%s",
 	JudgeFileUnreadable: "판정할 쌍 파일을 못 읽었다 : %s",

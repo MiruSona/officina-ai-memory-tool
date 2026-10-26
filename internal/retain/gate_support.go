@@ -72,6 +72,9 @@ type skipper interface{ Skipped() bool }
 // prober 는 마지막 판정의 세 칸 확률을 주는 판정자다 (llm.Judge). 까닭 글과 제목 검사가 쓴다.
 type prober interface{ Probs() map[string]float64 }
 
+// truncater 는 마지막 판정에서 서버가 입력을 잘랐는지 말해 주는 판정자다 (llm.Judge).
+type truncater interface{ Truncated() bool }
+
 // supportAsk 는 판정 한 번의 결과다.
 type supportAsk struct {
 	supported, ok, skipped bool
@@ -79,7 +82,8 @@ type supportAsk struct {
 	probs                  map[string]float64
 }
 
-func askJudge(judge Judge, evidence, claim string) supportAsk {
+// askJudge 는 한 번 묻는다. 서버가 입력을 잘랐다고 하면 result 에 표시만 남긴다.
+func askJudge(result *Result, judge Judge, evidence, claim string) supportAsk {
 	answer := supportAsk{}
 	answer.supported, answer.ok = judge.Supports(evidence, claim)
 	if quiet, has := judge.(skipper); has {
@@ -90,6 +94,9 @@ func askJudge(judge Judge, evidence, claim string) supportAsk {
 	}
 	if probs, has := judge.(prober); has {
 		answer.probs = probs.Probs()
+	}
+	if cut, has := judge.(truncater); has && cut.Truncated() {
+		result.Truncated = true
 	}
 	return answer
 }
@@ -126,7 +133,7 @@ func checkSupportStrict(result *Result, candidate Candidate, context Context) {
 	summary := candidate.Memory.Summary
 	notes := []string{}
 	for _, quote := range candidate.Quotes {
-		answer := askJudge(context.Judge, quote, summary)
+		answer := askJudge(result, context.Judge, quote, summary)
 		if answer.halts() {
 			result.reject(RuleSupport, answer.reason(""))
 			return
@@ -136,7 +143,7 @@ func checkSupportStrict(result *Result, candidate Candidate, context Context) {
 		}
 	}
 	if len(notes) > 0 && len(candidate.Quotes) > 1 {
-		answer := askJudge(context.Judge, strings.Join(candidate.Quotes, " "), summary)
+		answer := askJudge(result, context.Judge, strings.Join(candidate.Quotes, " "), summary)
 		if answer.halts() {
 			result.reject(RuleSupport, answer.reason(""))
 			return
@@ -161,7 +168,7 @@ func checkTitle(result *Result, candidate Candidate, context Context) {
 	if title == "" {
 		return
 	}
-	answer := askJudge(context.Judge, strings.Join(candidate.Quotes, " "), title)
+	answer := askJudge(result, context.Judge, strings.Join(candidate.Quotes, " "), title)
 	if answer.halts() && !answer.skipped {
 		result.reject(RuleSupport, answer.reason(""))
 		return
@@ -179,7 +186,7 @@ func checkTitle(result *Result, candidate Candidate, context Context) {
 // 경고로 흘린다 (사용자 결정 2026-10-08).
 func checkSupportLoose(result *Result, candidate Candidate, context Context) {
 	for _, quote := range candidate.Quotes {
-		answer := askJudge(context.Judge, quote, candidate.Memory.Summary)
+		answer := askJudge(result, context.Judge, quote, candidate.Memory.Summary)
 		if answer.ok {
 			if !answer.supported {
 				result.reject(RuleSupport, i18n.T(i18n.AutoNotSupported, shortText(quote))+probsText(answer.probs))

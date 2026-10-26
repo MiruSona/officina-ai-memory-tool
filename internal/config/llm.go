@@ -40,6 +40,9 @@ type LLMConfig struct {
 	NLITimeoutMS   int
 	NLISure        float64
 	NLISureSupport float64
+	// RetainSureSupport 는 retain:* R3 만 쓰는 지지 선(retain_sure_support)이다. 칸이 없으면
+	// NLISureSupport 와 같다 — 공용 선을 내리면 mem 의 다른 판정 자리까지 느슨해져서 따로 둔다.
+	RetainSureSupport float64
 	// 생성(A2 retain) 칸이다. GenerateURL 이 비면 retain 은 건너뛴다. 키는 위 Key 를 같이 쓴다.
 	GenerateURL       string
 	GenerateModel     string
@@ -92,7 +95,7 @@ func ParseLLM(path, text string) (LLMConfig, []string) {
 // defaultLLM 은 파일이 없거나 칸이 빠졌을 때의 값이다.
 func defaultLLM(path string) LLMConfig {
 	return LLMConfig{Path: path, NLITimeoutMS: nliTimeoutMS, NLISure: nliSure,
-		NLISureSupport: nliSureSupport, GenerateTimeoutMS: generateTimeoutMS}
+		NLISureSupport: nliSureSupport, RetainSureSupport: nliSureSupport, GenerateTimeoutMS: generateTimeoutMS}
 }
 
 // parseNLI 는 NLI 네 칸을 읽는다. 틀린 칸은 버리고(주소는 꺼짐 · 수는 기본값) 문제로 알린다.
@@ -122,6 +125,16 @@ func parseNLI(file *tomlFile, settings *LLMConfig) []string {
 	settings.NLISureSupport, problem = readSure(file, "nli_sure_support", nliSureSupport)
 	if problem != "" {
 		problems = append(problems, problem)
+	}
+	settings.RetainSureSupport, problem = readSure(file, "retain_sure_support", settings.NLISureSupport)
+	if problem != "" {
+		problems = append(problems, problem)
+	}
+	// retain 은 사람 눈이 없는 길이라 공용 칸과 달리 역전을 받지 않고 공용 값으로 되돌린다.
+	// 공용 값을 물려받은 경우(같은 값)는 아래 공용 검사가 한 번만 알린다.
+	if settings.RetainSureSupport != settings.NLISureSupport && settings.RetainSureSupport < settings.NLISure {
+		problems = append(problems, i18n.T(i18n.LLMRetainSureInverted, settings.RetainSureSupport, settings.NLISure, settings.NLISureSupport))
+		settings.RetainSureSupport = settings.NLISureSupport
 	}
 	// 지지 선이 반대·무관 선보다 낮으면 거짓 지지를 막는 뜻이 뒤집힌다. 막지는 않고 알리기만 한다.
 	if settings.NLISureSupport < settings.NLISure {

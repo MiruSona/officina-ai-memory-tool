@@ -49,6 +49,8 @@ type Verdict struct {
 	Unsure bool `json:"unsure,omitempty"`
 	// LabelSet 은 NLI 서버가 답한 응답 꼴(nli3 · nli4)이다. 다른 단은 비어 있다.
 	LabelSet string `json:"label_set,omitempty"`
+	// Truncated 는 NLI 서버가 입력을 토큰 상한에서 잘랐다는 표시다 (판정은 그대로).
+	Truncated bool `json:"truncated,omitempty"`
 }
 
 // Supported 는 「지지」 글자를 골랐는지다. 「반대」·「무관」은 거절이다 (자동쌓기설계 2-3 R3).
@@ -95,6 +97,8 @@ type Judge struct {
 	skipped bool
 	// probs 는 마지막 Supports 가 받은 세 칸 확률이다. 판정을 못 받았으면 nil 이다.
 	probs map[string]float64
+	// truncated 는 마지막 Supports 의 NLI 답이 입력을 잘랐다고 했는지다.
+	truncated bool
 }
 
 // ErrRefused 는 비밀 꼴이 있어 보내지 않은 것이다.
@@ -195,7 +199,7 @@ func (j *Judge) askNLI(evidence, claim string) (Verdict, error) {
 	verdict := Verdict{Hash: hash, Kind: KindSupport, Prompt: NLIVersion, Profile: model, Stage: StageNLI,
 		Letter: choice.Letter, Prob: choice.Prob, Probs: choice.Probs, MS: choice.MS,
 		At: time.Now().Format(time.RFC3339), Evidence: evidence, Claim: claim, LabelSet: choice.LabelSet,
-		Unsure: unsureOf(choice) || choice.Prob < j.NLI.sureFor(choice.Letter)}
+		Truncated: choice.Truncated, Unsure: unsureOf(choice) || choice.Prob < j.NLI.sureFor(choice.Letter)}
 	if model != "-" {
 		j.write(verdict)
 	}
@@ -211,7 +215,7 @@ var ErrUnsure = errors.New("unsure")
 func (j *Judge) Supports(quote, summary string) (bool, bool) {
 	j.skipped, j.probs = false, nil
 	verdict, err := j.Support(quote, summary)
-	j.probs = verdict.Probs
+	j.probs, j.truncated = verdict.Probs, verdict.Truncated
 	if err != nil {
 		j.last = err.Error()
 		j.skipped = errors.Is(err, ErrDisabled)
@@ -241,6 +245,9 @@ func (j *Judge) Problem() string { return j.last }
 
 // Probs 는 마지막 Supports 가 받은 세 칸 확률이다 (「모른다」여도 있다). 관문 까닭 글이 쓴다.
 func (j *Judge) Probs() map[string]float64 { return j.probs }
+
+// Truncated 는 마지막 Supports 의 NLI 답이 입력을 잘랐다고 했는지다. retain-log 가 남긴다.
+func (j *Judge) Truncated() bool { return j.truncated }
 
 // hashOf 는 판정 기록의 열쇠다. 주소는 안 넣는다 — 같은 프로필이면 같은 판정으로 친다.
 func hashOf(parts ...string) string {

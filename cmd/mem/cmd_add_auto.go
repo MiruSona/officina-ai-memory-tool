@@ -133,6 +133,9 @@ func checkAuto(parsed *options, repository *config.Repository, request store.Add
 	// retain 은 「반대」만 최종으로 친다 — 「무관」은 오발이 많아 다음 단에 묻는다 (자체판정프로그램설계 3절).
 	if len(candidate.Quotes) > 0 && !verdict.Rejected() {
 		settings := loadLLM()
+		if retain.IsRetain(origin) {
+			settings.NLISureSupport = settings.RetainSureSupport
+		}
 		context.Judge = judgeOf(repository, settings, retainRulesFinal)
 		context.TitleSure = settings.NLISure
 	}

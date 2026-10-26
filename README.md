@@ -198,6 +198,7 @@ nli_url = ""              # 예 "http://127.0.0.1:8092" · 비면 NLI 단을 건
 nli_timeout_ms = 1000     # 1~5000
 nli_sure = 0.70           # 반대·무관 확정 문턱 · 0.34~0.99 · 이 확률 아래면 보류(모른다)다
 nli_sure_support = 0.90   # 지지 확정 문턱 · 0.34~0.99 · 보통 nli_sure 보다 높다
+retain_sure_support = 0.85 # mem retain(retain:*) R3 만 쓰는 지지 문턱 · 없으면 nli_sure_support 값 · 권장 .85 (2026-10-26 실측)
 nli_sure_related = 0.80   # 비슷한 계열(D) 확정 문턱 · 0.34~0.99 · 4칸 서버에서만 쓰인다
 ```
 
